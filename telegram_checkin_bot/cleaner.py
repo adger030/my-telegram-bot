@@ -2,7 +2,7 @@ import os
 from datetime import datetime, timedelta
 import pytz
 from sqlalchemy import text
-from db_conn import engine
+from db_pg import engine
 import cloudinary
 import cloudinary.api
 import cloudinary.uploader
