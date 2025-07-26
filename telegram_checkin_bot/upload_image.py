@@ -1,20 +1,14 @@
+# upload_image.py
 import cloudinary
 import cloudinary.uploader
-import os
 
-# 初始化配置
+# 使用你的 Cloudinary 账号信息（替换下面这几项）
 cloudinary.config(
-    cloud_name=os.environ["CLOUDINARY_CLOUD_NAME"],
-    api_key=os.environ["CLOUDINARY_API_KEY"],
-    api_secret=os.environ["CLOUDINARY_API_SECRET"]
+    cloud_name="your_cloud_name",
+    api_key="your_api_key",
+    api_secret="your_api_secret"
 )
 
-def upload_image(local_path, public_id=None):
-    response = cloudinary.uploader.upload(
-        local_path,
-        public_id=public_id,
-        folder="telegram_checkin",
-        overwrite=True,
-        resource_type="image"
-    )
-    return response['secure_url']  # 可保存这个 URL 到数据库
+def upload_image(local_path):
+    response = cloudinary.uploader.upload(local_path)
+    return response["secure_url"]
