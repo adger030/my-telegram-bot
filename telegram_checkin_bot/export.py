@@ -1,29 +1,34 @@
+import pandas as pd
 import os
 import shutil
 import zipfile
-import pandas as pd
-import requests
 import pytz
+import requests
+import psycopg2
 from datetime import datetime
-from sqlalchemy import create_engine
-from config import DATA_DIR, DATABASE_URL
+from config import DATA_DIR, DATABASE_URL  # DATABASE_URL 示例：postgres://user:pass@host:port/dbname
 
 def export_messages(start_date, end_date):
-    beijing_tz = pytz.timezone('Asia/Shanghai')
+    # 创建导出路径
+    export_dir = os.path.join(DATA_DIR, f"export_{start_date}_{end_date}")
+    os.makedirs(export_dir, exist_ok=True)
 
     # 连接 PostgreSQL
     try:
-        engine = create_engine(DATABASE_URL)
-        df = pd.read_sql("SELECT * FROM messages", engine)
+        conn = psycopg2.connect(DATABASE_URL)
+        df = pd.read_sql_query("SELECT * FROM messages", conn)
     except Exception as e:
-        print(f"❌ 读取数据库失败: {e}")
+        print(f"❌ 数据库连接或读取失败: {e}")
         return None
+    finally:
+        if conn:
+            conn.close()
 
     if df.empty:
         print("⚠️ 数据库中没有记录")
         return None
 
-    # 时间处理
+    # 转换 timestamp 为 datetime
     df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
     df = df.dropna(subset=['timestamp'])
 
@@ -31,13 +36,14 @@ def export_messages(start_date, end_date):
         print("⚠️ 所有时间戳无效")
         return None
 
-    # 统一为北京时间
-    if df['timestamp'].dt.tz is None or df['timestamp'].dt.tz.iloc[0] is None:
+    # 转换为北京时间
+    if df['timestamp'].dt.tz is None:
         df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
 
+    beijing_tz = pytz.timezone('Asia/Shanghai')
     df['timestamp'] = df['timestamp'].dt.tz_convert(beijing_tz)
 
-    # 筛选时间范围
+    # 过滤时间范围
     try:
         start_time = pd.to_datetime(start_date + " 00:00:00").tz_localize(beijing_tz)
         end_time = pd.to_datetime(end_date + " 23:59:59").tz_localize(beijing_tz)
@@ -47,7 +53,6 @@ def export_messages(start_date, end_date):
 
     filtered = df[(df['timestamp'] >= start_time) & (df['timestamp'] <= end_time)]
 
-    # 打印调试信息
     print("📊 总记录数:", len(df))
     print("📆 时间范围:", start_time, "~", end_time)
     print("📎 命中记录数:", len(filtered))
@@ -56,11 +61,7 @@ def export_messages(start_date, end_date):
         print("⚠️ 指定日期内没有数据")
         return None
 
-    # 创建导出目录
-    export_dir = os.path.join(DATA_DIR, f"export_{start_date}_{end_date}")
-    os.makedirs(export_dir, exist_ok=True)
-
-    # 写入 Excel
+    # 导出 Excel 分 sheet
     excel_path = os.path.join(export_dir, f"打卡记录_{start_date}_{end_date}.xlsx")
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
         for keyword, group_df in filtered.groupby("keyword"):
@@ -92,8 +93,8 @@ def export_messages(start_date, end_date):
             except Exception as e:
                 print(f"[图片下载失败] {url} - {e}")
 
-    # 打包 ZIP
-    zip_path = os.path.join(DATA_DIR, f"考勤统计_{start_date}_{end_date}.zip")
+    # 打包为 ZIP
+    zip_path = os.path.join(DATA_DIR, f"考勤统计{start_date}_{end_date}.zip")
     try:
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             for root, _, files in os.walk(export_dir):
@@ -105,7 +106,7 @@ def export_messages(start_date, end_date):
         print("❌ 打包 ZIP 文件失败:", e)
         return None
 
-    # 删除导出目录
+    # 清理导出目录
     try:
         shutil.rmtree(export_dir)
     except Exception as e:
