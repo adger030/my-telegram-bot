@@ -2,3 +2,4 @@ python-telegram-bot==20.6
 pandas
 openpyxl
 APScheduler
+psycopg2-binary
