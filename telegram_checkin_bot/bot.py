@@ -7,7 +7,7 @@ from telegram.constants import ChatAction
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from apscheduler.triggers.cron import CronTrigger
-from cleaner import delete_last_month_dat
+from cleaner import delete_last_month_data
 
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
 from db import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_month_logs
