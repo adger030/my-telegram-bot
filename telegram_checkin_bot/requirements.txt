@@ -3,3 +3,4 @@ pandas
 openpyxl
 APScheduler
 psycopg2-binary
+cloudinary
