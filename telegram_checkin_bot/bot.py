@@ -10,7 +10,7 @@ from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
 from db import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_month_logs
 from export import export_messages
 
-
+#测试
 def extract_keyword(text: str):
     for kw in KEYWORDS:
         if kw in text:
