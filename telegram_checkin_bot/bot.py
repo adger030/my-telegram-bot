@@ -1,6 +1,6 @@
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ChatAction
@@ -122,9 +122,13 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
 
-    reply = "📅 本月打卡记录：\n\n"
+    reply = "📅 本月打卡记录（北京时间）：\n\n"
     for i, (timestamp, keyword) in enumerate(logs, start=1):
-        date_str = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f").strftime("%m月%d日 %H:%M")
+        # 原始时间戳是 ISO 格式，转换为 datetime 对象
+        utc_dt = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f")
+        # 转为北京时间
+        beijing_dt = utc_dt + timedelta(hours=8)
+        date_str = beijing_dt.strftime("%m月%d日 %H:%M")
         reply += f"{i}. 🕒 {date_str} ｜{keyword}\n"
 
     await update.message.reply_text(reply)
