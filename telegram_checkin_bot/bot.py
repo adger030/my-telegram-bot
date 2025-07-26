@@ -51,7 +51,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("❗️图片太大，不能超过1MB。")
         return
 
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    today_str = datetime.utcnow(datetime.UTC).strftime("%Y-%m-%d")
     tmp_path = f"/tmp/{today_str}_{username}_{matched_keyword}.jpg"
     await file.download_to_drive(tmp_path)
 
@@ -68,7 +68,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_message(
         username=username,
         content=image_url,
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=datetime.utcnow(datetime.UTC).isoformat(),
         keyword=matched_keyword
     )
 
