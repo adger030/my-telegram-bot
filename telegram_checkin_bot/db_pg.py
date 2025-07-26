@@ -1,6 +1,13 @@
 import os
 import psycopg2
+from sqlalchemy import create_engine
 from datetime import datetime, timedelta
+
+# 从环境变量中获取数据库连接 URL
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# 创建 SQLAlchemy 数据库引擎
+engine = create_engine(DATABASE_URL)
 
 def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
