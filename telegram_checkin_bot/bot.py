@@ -6,6 +6,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram.constants import ChatAction
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from apscheduler.triggers.cron import CronTrigger
+from cleaner import delete_last_month_dat
+
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
 from db import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_month_logs
 from export import export_messages
@@ -133,9 +136,10 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     init_db()
     os.makedirs(DATA_DIR, exist_ok=True)
-
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(delete_old_data, 'cron', day=15, hour=6)
+    
+    scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
+    # 每月 15 日凌晨 3 点执行
+    scheduler.add_job(delete_last_month_data, CronTrigger(day=15, hour=3, minute=0))
     scheduler.start()
 
     app = Application.builder().token(TOKEN).build()
