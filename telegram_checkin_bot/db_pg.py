@@ -1,7 +1,7 @@
 import os
 import psycopg2
 from sqlalchemy import create_engine
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # 从环境变量中获取数据库连接 URL
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -26,13 +26,15 @@ def init_db():
             """)
             conn.commit()
 
+BEIJING_TZ = timezone(timedelta(hours=8))
+
 def has_user_checked_keyword_today(username, keyword):
-    today = datetime.now().date()
+    today = datetime.now(BEIJING_TZ).date()
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT COUNT(*) FROM messages
-                WHERE username = %s AND keyword = %s AND DATE(timestamp) = %s
+                WHERE username = %s AND keyword = %s AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai') = %s
             """, (username, keyword, today))
             count = cur.fetchone()[0]
     return count > 0
