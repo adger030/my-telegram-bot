@@ -15,9 +15,16 @@ def export_messages(start_date, end_date):
 
     # 加载数据并转换时间为北京时间
     df = pd.read_sql_query("SELECT * FROM messages", sqlite3.connect(db_path))
-    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True)
-    beijing_tz = pytz.timezone('Asia/Shanghai')
-    df['timestamp'] = df['timestamp'].dt.tz_convert(beijing_tz)
+   # 转换 timestamp 字段，自动适配时区
+    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+    
+    # 如果没有时区，手动设为 UTC
+    if df['timestamp'].dt.tz is None or df['timestamp'].dt.tz[0] is None:
+        df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
+    
+    # 统一转换为北京时间
+    df['timestamp'] = df['timestamp'].dt.tz_convert('Asia/Shanghai')
+
     df = df.dropna(subset=['timestamp'])
 
     # 过滤时间范围（北京时间）
