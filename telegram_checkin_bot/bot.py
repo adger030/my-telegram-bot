@@ -1,6 +1,6 @@
 import os
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ChatAction
@@ -51,7 +51,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("❗️图片太大，不能超过1MB。")
         return
 
-    today_str = datetime.utcnow(timezone.utc).strftime("%Y-%m-%d")
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
     tmp_path = f"/tmp/{today_str}_{username}_{matched_keyword}.jpg"
     await file.download_to_drive(tmp_path)
 
@@ -68,7 +68,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_message(
         username=username,
         content=image_url,
-        timestamp=datetime.utcnow(timezone.utc).isoformat(),
+        timestamp=datetime.utcnow().isoformat(),
         keyword=matched_keyword
     )
 
