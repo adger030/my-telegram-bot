@@ -38,6 +38,7 @@ def has_user_checked_keyword_today(username, keyword):
     return count > 0
 
 def save_message(username, content, timestamp, keyword):
+    print(f"[DB] Saving: {username}, {content}, {timestamp}, {keyword}")  # 加日志
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
