@@ -1,6 +1,6 @@
 import os
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ChatAction
@@ -50,8 +50,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if file.file_size > 1024 * 1024:
         await msg.reply_text("❗️图片太大，不能超过1MB。")
         return
-
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    beijing_tz = timezone(timedelta(hours=8))
+    today_str = datetime.now(beijing_tz).strftime("%Y-%m-%d")
     tmp_path = f"/tmp/{today_str}_{username}_{matched_keyword}.jpg"
     await file.download_to_drive(tmp_path)
 
@@ -63,14 +63,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(tmp_path)
     except Exception as e:
         print(f"⚠️ 删除临时文件失败：{e}")
-
-    # ✅ 保存 URL 到数据库
-    save_message(
-        username=username,
-        content=image_url,
-        timestamp=datetime.utcnow().isoformat(),
-        keyword=matched_keyword
-    )
 
     await msg.reply_text("✅ 打卡成功！")
 
