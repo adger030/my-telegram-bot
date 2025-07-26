@@ -20,7 +20,7 @@ def init_db():
                     id SERIAL PRIMARY KEY,
                     username TEXT,
                     content TEXT,
-                    timestamp TIMESTAMPTZ,
+                    timestamp TIMESTAMPTZ NOT NULL,  -- ✅ 北京时间存入这里
                     keyword TEXT
                 );
             """)
