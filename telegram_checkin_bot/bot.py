@@ -5,6 +5,7 @@ from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ChatAction
 from apscheduler.schedulers.background import BackgroundScheduler
+from dateutil.parser import parse
 
 from apscheduler.triggers.cron import CronTrigger
 from cleaner import delete_last_month_data
@@ -126,8 +127,11 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply = "📅 本月打卡记录（北京时间）：\n\n"
     for i, (timestamp, keyword) in enumerate(logs, start=1):
-        utc_dt = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f")
-        beijing_dt = utc_dt + timedelta(hours=8)
+        if isinstance(timestamp, str):
+            utc_dt = parse(timestamp)
+        else:
+            utc_dt = timestamp
+        beijing_dt = utc_dt.astimezone(timezone(timedelta(hours=8)))
         date_str = beijing_dt.strftime("%m月%d日 %H:%M")
         reply += f"{i}. 🕒 {date_str} ｜{keyword}\n"
 
