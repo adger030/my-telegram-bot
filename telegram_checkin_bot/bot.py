@@ -64,6 +64,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"⚠️ 删除临时文件失败：{e}")
 
+    # 存入数据库（UTC 时间）
+    save_message(
+        username=username,
+        content=image_url,
+        timestamp=datetime.now(beijing_tz),
+        keyword=matched_keyword
+    )
+    
     await msg.reply_text("✅ 打卡成功！")
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
