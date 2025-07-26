@@ -22,11 +22,12 @@ def export_messages(start_date, end_date):
     if df['timestamp'].dt.tz is None or df['timestamp'].dt.tz[0] is None:
         df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
     
-    # 统一转换为北京时间
-    df['timestamp'] = df['timestamp'].dt.tz_convert('Asia/Shanghai')
-
+   # 统一转换为北京时间
+    beijing_tz = pytz.timezone('Asia/Shanghai')
+    df['timestamp'] = df['timestamp'].dt.tz_convert(beijing_tz)
+    
     df = df.dropna(subset=['timestamp'])
-
+    
     # 过滤时间范围（北京时间）
     start_time = pd.to_datetime(start_date + " 00:00:00").tz_localize(beijing_tz)
     end_time = pd.to_datetime(end_date + " 23:59:59").tz_localize(beijing_tz)
