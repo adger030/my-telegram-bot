@@ -11,43 +11,59 @@ from config import DATA_DIR
 def export_messages(start_date, end_date):
     db_path = os.path.join(DATA_DIR, "messages.db")
     if not os.path.exists(db_path):
+        print("❌ 数据库不存在")
         return None
 
-    # 加载数据并转换时间为北京时间
+    # 加载数据
     df = pd.read_sql_query("SELECT * FROM messages", sqlite3.connect(db_path))
-   # 转换 timestamp 字段，自动适配时区
+    
+    if df.empty:
+        print("❌ 数据库中没有任何记录")
+        return None
+
+    # 转换 timestamp 字段为 datetime 类型
     df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
-    
-    # 如果没有时区，手动设为 UTC
-    if df['timestamp'].dt.tz is None or df['timestamp'].dt.tz[0] is None:
+
+    # 删除无效时间
+    df = df.dropna(subset=['timestamp'])
+
+    # 如果没有时区，设为 UTC
+    if df['timestamp'].dt.tz is None:
         df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
-    
-   # 统一转换为北京时间
+
+    # 转为北京时间
     beijing_tz = pytz.timezone('Asia/Shanghai')
     df['timestamp'] = df['timestamp'].dt.tz_convert(beijing_tz)
-    
-    df = df.dropna(subset=['timestamp'])
-    
-    # 过滤时间范围（北京时间）
+
+    # 构造起止时间范围
     start_time = pd.to_datetime(start_date + " 00:00:00").tz_localize(beijing_tz)
     end_time = pd.to_datetime(end_date + " 23:59:59").tz_localize(beijing_tz)
+
+    # 筛选记录
     filtered = df[(df['timestamp'] >= start_time) & (df['timestamp'] <= end_time)]
 
+    # ✅ 调试信息
+    print("✅ 导出调试信息")
+    print("总记录数:", len(df))
+    print("筛选时间段:", start_time, "~", end_time)
+    print("命中记录数:", len(filtered))
+
     if filtered.empty:
+        print("⚠️ 指定日期内没有数据")
         return None
 
     # 创建导出目录
     export_dir = os.path.join(DATA_DIR, f"export_{start_date}_{end_date}")
     os.makedirs(export_dir, exist_ok=True)
 
-    # 导出 Excel（按 keyword 分组分 sheet）
+    # 导出 Excel 文件（按 keyword 分 sheet）
     excel_path = os.path.join(export_dir, f"打卡记录_{start_date}_{end_date}.xlsx")
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
         for keyword, group_df in filtered.groupby("keyword"):
             slim_df = group_df[["username", "timestamp"]].sort_values("timestamp")
             slim_df.columns = ["用户名", "打卡时间"]
             slim_df["打卡时间"] = slim_df["打卡时间"].dt.strftime("%Y-%m-%d %H:%M:%S")
-            sheet_name = keyword[:31] or "打卡"  # Excel 限制 sheet 名不能超长
+            sheet_name = keyword[:31] or "打卡"
             slim_df.to_excel(writer, sheet_name=sheet_name, index=False)
 
     # 下载 Cloudinary 图片
@@ -73,7 +89,7 @@ def export_messages(start_date, end_date):
             except Exception as e:
                 print(f"[图片下载失败] {url} - {e}")
 
-    # 打包 ZIP
+    # 打包为 zip 文件
     zip_path = os.path.join(DATA_DIR, f"考勤统计{start_date}_{end_date}.zip")
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for root, _, files in os.walk(export_dir):
@@ -88,4 +104,5 @@ def export_messages(start_date, end_date):
     except Exception as e:
         print(f"[清理导出目录失败] {e}")
 
+    print(f"✅ 导出成功: {zip_path}")
     return zip_path
