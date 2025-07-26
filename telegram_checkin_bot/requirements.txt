@@ -4,3 +4,4 @@ openpyxl
 APScheduler
 psycopg2-binary
 cloudinary
+requests
