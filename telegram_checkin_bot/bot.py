@@ -126,7 +126,10 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     instruction_text = "#上班打卡"
     image_url = "https://ibb.co/jkPmfwGF"  # 请替换为你实际图片地址
 
-    await update.message.reply_text(welcome_text)
+    await update.message.reply_text(
+            welcome_text,
+            parse_mode="HTML"  # 指定使用 HTML 解析模式
+    )
     await asyncio.sleep(1)
     await update.message.reply_photo(photo=image_url, caption=instruction_text)
 
