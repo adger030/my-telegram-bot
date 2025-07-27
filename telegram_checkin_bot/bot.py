@@ -159,18 +159,18 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         date_str = day.strftime("%m月%d日")
 
         if not missing:
-            reply += f"{i}.{date_str} - 已完成\n"
+            reply += f"{i}. {date_str} - 已完成\n"
             complete_count += 1
         else:
             missing_str = "、".join(missing)
-            reply += f"{i}.{date_str} - 缺少 {missing_str}\n"
+            reply += f"{i}. {date_str} - 缺少 {missing_str}\n"
 
         # 列出每个关键词打卡时间
         for kw in sorted(kw_map):
             time_str = kw_map[kw].strftime("%H:%M")
             reply += f"   └─ {kw}：{time_str}\n"
 
-    reply += f"\n✅ 完整打卡：{complete_count} 天"
+    reply += f"\n✅ 本月完整打卡：{complete_count} 天"
 
     await update.message.reply_text(reply)
 
