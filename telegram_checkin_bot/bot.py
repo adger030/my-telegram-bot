@@ -137,6 +137,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await asyncio.sleep(1)
     await update.message.reply_photo(photo=image_url, caption=instruction_text)
 
+REQUIRED_KEYWORDS = set(KEYWORDS)
 
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -184,7 +185,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for idx, day in enumerate(sorted(daily_map), start=1):
         kw_map = daily_map[day]
-        missing = KEYWORDS - set(kw_map)
+        missing = REQUIRED_KEYWORDS - set(kw_map)
         date_str = day.strftime("%m月%d日")
 
         if not missing:
