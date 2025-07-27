@@ -7,6 +7,7 @@ from telegram.constants import ChatAction
 from apscheduler.schedulers.background import BackgroundScheduler
 from dateutil.parser import parse
 from apscheduler.triggers.cron import CronTrigger
+from collections import defaultdict
 
 from cleaner import delete_last_month_data
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
@@ -138,15 +139,33 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
 
-    reply = "📅 本月打卡记录（北京时间）：\n\n"
-    for i, (timestamp, keyword) in enumerate(logs, start=1):
-        if isinstance(timestamp, str):
-            utc_dt = parse(timestamp)
+    required_keywords = {"#上班打卡", "#下班打卡"}
+    daily_keywords = defaultdict(set)
+
+    # 分组：每天有哪些关键词
+    for ts, kw in logs:
+        if isinstance(ts, str):
+            ts = parse(ts)
+        bj_time = ts.astimezone(BEIJING_TZ)
+        date_key = bj_time.date()
+        daily_keywords[date_key].add(kw)
+
+    reply = "📅 本月打卡情况（北京时间）：\n\n"
+    complete_count = 0
+
+    for i, day in enumerate(sorted(daily_keywords), start=1):
+        day_keywords = daily_keywords[day]
+        missing = required_keywords - day_keywords
+
+        date_str = day.strftime("%m月%d日")
+        if not missing:
+            complete_count += 1
+            reply += f"{i}. 🗓️ {date_str} ✅ 已完成（#上班打卡 + #下班打卡）\n"
         else:
-            utc_dt = timestamp
-        bj_time = utc_dt.astimezone(BEIJING_TZ)
-        date_str = bj_time.strftime("%m月%d日 %H:%M")
-        reply += f"{i}. 🕒 {date_str} ｜{keyword}\n"
+            missing_str = "、".join(missing)
+            reply += f"{i}. 🗓️ {date_str} ⚠️ 缺少 {missing_str}\n"
+
+    reply += f"\n✅ 本月完整打卡：{complete_count} 天"
 
     await update.message.reply_text(reply)
 
