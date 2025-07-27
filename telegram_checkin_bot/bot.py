@@ -149,26 +149,28 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bj_time = ts.astimezone(BEIJING_TZ)
         date_key = bj_time.date()
         daily_map[date_key][kw] = bj_time
-        
+
+    reply = "📅 本月打卡情况（北京时间）：\n\n"
     complete_count = 0
-    reply += f"📅 （北京时间）本月打卡情况，完整打卡：{complete_count} 天：\n\n"
-    
+
     for i, day in enumerate(sorted(daily_map), start=1):
         kw_map = daily_map[day]
         missing = required_keywords - set(kw_map.keys())
         date_str = day.strftime("%m月%d日")
 
         if not missing:
-            reply += f"{i}. 🗓️ {date_str} ✅ 已完成\n"
+            reply += f"{i}. 🗓️ {date_str} - 已完成\n"
             complete_count += 1
         else:
             missing_str = "、".join(missing)
-            reply += f"{i}. 🗓️ {date_str} ⚠️ 缺少 {missing_str}\n"
+            reply += f"{i}. 🗓️ {date_str} - 缺少 {missing_str}\n"
 
         # 列出每个关键词打卡时间
         for kw in sorted(kw_map):
             time_str = kw_map[kw].strftime("%H:%M")
             reply += f"   └─ {kw}：{time_str}\n"
+
+    reply += f"\n✅ 完整打卡：{complete_count} 天"
 
     await update.message.reply_text(reply)
 
