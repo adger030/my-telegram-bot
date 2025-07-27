@@ -150,7 +150,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         date_key = bj_time.date()
         daily_map[date_key][kw] = bj_time
 
-    reply = "📅 本月打卡情况（北京时间）：\n\n"
+    reply = f"📅 （北京时间）本月打卡情况，完整打卡：{complete_count} 天：\n\n"
     complete_count = 0
 
     for i, day in enumerate(sorted(daily_map), start=1):
@@ -169,8 +169,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for kw in sorted(kw_map):
             time_str = kw_map[kw].strftime("%H:%M")
             reply += f"   └─ {kw}：{time_str}\n"
-
-    reply += f"\n✅ 本月完整打卡：{complete_count} 天"
 
     await update.message.reply_text(reply)
 
