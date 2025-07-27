@@ -116,7 +116,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"您好，{username}！欢迎使用 MS 部考勤机器人\n"
         "\n"
         "📌 使用说明：\n"
-        "1️⃣ 向我发送关键词“#上班打卡”或“#下班打卡”并附带你的IP截图（www.ipaddress.my）；\n"
+        "1️⃣ 向我发送关键词“#上班打卡”或“#下班打卡”并附带你的IP截图 <a href='https://your-company-site.com/checkip'>点击这里查看你的IP地址</a>（www.ipaddress.my）；\n"
         "2️⃣ 每个关键词每天只能提交一次；\n"
         "3️⃣ 若有其他问题请联系部门助理。\n"
         "\n"
