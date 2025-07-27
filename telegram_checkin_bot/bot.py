@@ -149,10 +149,10 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bj_time = ts.astimezone(BEIJING_TZ)
         date_key = bj_time.date()
         daily_map[date_key][kw] = bj_time
-
-    reply += f"📅 （北京时间）本月打卡情况，完整打卡：{complete_count} 天：\n\n"
+        
     complete_count = 0
-
+    reply += f"📅 （北京时间）本月打卡情况，完整打卡：{complete_count} 天：\n\n"
+    
     for i, day in enumerate(sorted(daily_map), start=1):
         kw_map = daily_map[day]
         missing = required_keywords - set(kw_map.keys())
