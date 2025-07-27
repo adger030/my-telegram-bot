@@ -88,17 +88,19 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     args = context.args
-    if len(args) != 2:
-        await update.message.reply_text("请使用格式：/export YYYY-MM-DD YYYY-MM-DD")
-        return
-
-    start_str, end_str = args
-    try:
-        start = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=BEIJING_TZ)
-        end = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=BEIJING_TZ) + timedelta(days=1)
-    except ValueError:
-        await update.message.reply_text("❗️日期格式错误，请使用 YYYY-MM-DD")
-        return
+    if len(args) == 2:
+        try:
+            start = datetime.strptime(args[0], "%Y-%m-%d").replace(tzinfo=BEIJING_TZ)
+            end = datetime.strptime(args[1], "%Y-%m-%d").replace(tzinfo=BEIJING_TZ) + timedelta(days=1)
+        except ValueError:
+            await update.message.reply_text("❗️日期格式错误，请使用 YYYY-MM-DD")
+            return
+    else:
+        # 默认导出当前整月数据
+        now = datetime.now(BEIJING_TZ)
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        end = next_month
 
     file_path = export_messages(start, end)
     if not file_path:
