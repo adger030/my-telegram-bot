@@ -140,34 +140,40 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     required_keywords = {"#上班打卡", "#下班打卡"}
-    daily_keywords = defaultdict(set)
+    daily_map = defaultdict(dict)  # {date: {keyword: timestamp}}
 
-    # 分组：每天有哪些关键词
+    # 整理记录
     for ts, kw in logs:
         if isinstance(ts, str):
             ts = parse(ts)
         bj_time = ts.astimezone(BEIJING_TZ)
         date_key = bj_time.date()
-        daily_keywords[date_key].add(kw)
+        daily_map[date_key][kw] = bj_time
 
     reply = "📅 本月打卡情况（北京时间）：\n\n"
     complete_count = 0
 
-    for i, day in enumerate(sorted(daily_keywords), start=1):
-        day_keywords = daily_keywords[day]
-        missing = required_keywords - day_keywords
-
+    for i, day in enumerate(sorted(daily_map), start=1):
+        kw_map = daily_map[day]
+        missing = required_keywords - set(kw_map.keys())
         date_str = day.strftime("%m月%d日")
+
         if not missing:
+            reply += f"{i}. 🗓️ {date_str} ✅ 已完成\n"
             complete_count += 1
-            reply += f"{i}. 🗓️ {date_str} ✅ 已完成（#上班打卡 + #下班打卡）\n"
         else:
             missing_str = "、".join(missing)
             reply += f"{i}. 🗓️ {date_str} ⚠️ 缺少 {missing_str}\n"
 
+        # 列出每个关键词打卡时间
+        for kw in sorted(kw_map):
+            time_str = kw_map[kw].strftime("%H:%M")
+            reply += f"   └─ {kw}：{time_str}\n"
+
     reply += f"\n✅ 本月完整打卡：{complete_count} 天"
 
     await update.message.reply_text(reply)
+
 
 
 def main():
