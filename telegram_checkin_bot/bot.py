@@ -147,39 +147,60 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
 
-    required_keywords = {"#上班打卡", "#下班打卡"}
-    daily_map = defaultdict(dict)  # {date: {keyword: timestamp}}
+    # 排序并初始化
+    logs = sorted(logs, key=lambda x: parse(x[0]) if isinstance(x[0], str) else x[0])
+    daily_map = defaultdict(dict)  # {date: {keyword: datetime}}
 
-    # 整理记录
-    for ts, kw in logs:
+    i = 0
+    while i < len(logs):
+        ts, kw = logs[i]
         if isinstance(ts, str):
             ts = parse(ts)
         bj_time = ts.astimezone(BEIJING_TZ)
-        date_key = bj_time.date()
-        daily_map[date_key][kw] = bj_time
 
+        if kw == "#上班打卡":
+            date_key = bj_time.date()
+            daily_map[date_key]["#上班打卡"] = bj_time
+
+            # 查找接下来的10小时内的#下班打卡
+            j = i + 1
+            while j < len(logs):
+                ts2, kw2 = logs[j]
+                if isinstance(ts2, str):
+                    ts2 = parse(ts2)
+                bj_time2 = ts2.astimezone(BEIJING_TZ)
+
+                if kw2 == "#下班打卡" and timedelta(0) < (bj_time2 - bj_time) <= timedelta(hours=10):
+                    daily_map[date_key]["#下班打卡"] = bj_time2
+                    break
+                j += 1
+            i = j  # 跳到配对后的下标，防止重复匹配
+        else:
+            i += 1
+
+    # 生成输出
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
     complete_count = 0
 
-    for i, day in enumerate(sorted(daily_map), start=1):
+    for idx, day in enumerate(sorted(daily_map), start=1):
         kw_map = daily_map[day]
-        missing = required_keywords - set(kw_map.keys())
+        missing = KEYWORDS - set(kw_map)
         date_str = day.strftime("%m月%d日")
 
         if not missing:
-            reply += f"{i}. {date_str} - 已完成\n"
+            reply += f"{idx}. {date_str} - ✅ 已完成\n"
             complete_count += 1
         else:
             missing_str = "、".join(missing)
-            reply += f"{i}. {date_str} - 缺少 {missing_str}\n"
+            reply += f"{idx}. {date_str} - 缺少 {missing_str}\n"
 
-        # 列出每个关键词打卡时间
-        for kw in sorted(kw_map):
-            time_str = kw_map[kw].strftime("%H:%M")
-            reply += f"   └─ {kw}：{time_str}\n"
+        # 输出打卡时间（按顺序）
+        for kw in ["#上班打卡", "#下班打卡"]:
+            if kw in kw_map:
+                time_str = kw_map[kw].strftime("%H:%M")
+                reply += f"   └─ {kw}：{time_str}\n"
 
     reply += f"\n✅ 本月完整打卡：{complete_count} 天"
-
     await update.message.reply_text(reply)
 
 
