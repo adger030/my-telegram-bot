@@ -49,14 +49,17 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"您好，{name}！\n\n"
         "📌 使用说明：\n"
         "1️⃣ 发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
+        "IP截图标准\n\n"
+        "① 设备编码：本机序列号\n\n"
+        "② 实时IP：指定网站内显示的IP截图\n\n"
+        "③ 本地时间：电脑任务栏时间截图（需含月、日、时、分）\n\n"
         "2️⃣ 上下班打卡间隔不能超过10小时，否则下班信息不录入；\n"
-        "3️⃣ 其他考勤问题请联系部门助理。\n\n"
         "<a href='https://www.ipaddress.my'>点击这里查看你的IP地址</a>\n\n"
         "举个🌰，如下👇"
     )
     await update.message.reply_text(welcome_text, parse_mode="HTML")
     await asyncio.sleep(1)
-    await update.message.reply_photo(photo="https://ibb.co/jkPmfwGF", caption="#上班打卡")
+    await update.message.reply_photo(photo="https://ibb.co/ZzFwc5yS", caption="#上班打卡")
 
 # ========== 处理文字消息 ==========
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -81,14 +84,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"您好，{name}！\n\n"
             "📌 使用说明：\n"
             "1️⃣ 发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
+            "IP截图标准\n\n"
+            "① 设备编码：本机序列号\n\n"
+            "② 实时IP：指定网站内显示的IP截图\n\n"
+            "③ 本地时间：电脑任务栏时间截图（需含月、日、时、分）\n\n"
             "2️⃣ 上下班打卡间隔不能超过10小时，否则下班信息不录入；\n"
-            "3️⃣ 其他考勤问题请联系部门助理。\n\n"
             "<a href='https://www.ipaddress.my'>点击这里查看你的IP地址</a>\n\n"
             "举个🌰，如下👇"
         )
         await msg.reply_text(welcome_text, parse_mode="HTML")
         await asyncio.sleep(1)
-        await msg.reply_photo(photo="https://ibb.co/jkPmfwGF", caption="#上班打卡")
+        await msg.reply_photo(photo="https://ibb.co/ZzFwc5yS", caption="#上班打卡")
         return
 
     # 未登记姓名
