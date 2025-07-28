@@ -261,14 +261,17 @@ def main():
     app.run_polling()
     
 def check_existing_instance():
-    current_pid = os.getpid()
-    for proc in psutil.process_iter(['pid', 'cmdline']):
-        if proc.info['pid'] != current_pid and proc.info['cmdline']:
-            if 'bot.py' in ' '.join(proc.info['cmdline']):
-                print("⚠️ 检测到已有 Bot 实例在运行，退出。")
-                sys.exit(1)
+    lock_file = "/tmp/bot.lock"
+    if os.path.exists(lock_file):
+        print("⚠️ 检测到已有 Bot 实例在运行，退出。")
+        sys.exit(1)
+    with open(lock_file, "w") as f:
+        f.write(str(os.getpid()))
 
-check_existing_instance()
+    # 程序退出时删除 lock 文件
+    import atexit
+    atexit.register(lambda: os.remove(lock_file) if os.path.exists(lock_file) else None)
 
 if __name__ == "__main__":
+    check_existing_instance()
     main()
