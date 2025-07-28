@@ -109,7 +109,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if keyword:
         # 🚨 限制：当天第一个关键词不能是 #下班打卡
         if keyword == "#下班打卡" and not has_user_checked_keyword_today(username, "#上班打卡"):
-            await msg.reply_text("❗ 你今天还没有上班打卡，不能直接下班打卡！")
+            await msg.reply_text("❗ 你今天还没有打上班卡呢，赶紧去上班！")
             return
         await msg.reply_text("❗️请附带上IP截图哦。")
 
@@ -137,14 +137,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 🚨 限制：当天第一个打卡不能是下班打卡
     if matched_keyword == "#下班打卡" and not has_user_checked_keyword_today(username, "#上班打卡"):
-        await msg.reply_text("❗ 你今天还没有上班打卡，不能直接下班打卡！")
+        await msg.reply_text("❗ 你今天还没有打上班卡呢，赶紧去上班！")
         return
 
     # 下载图片并上传
     photo = msg.photo[-1]
     file = await photo.get_file()
     if file.file_size > 1024 * 1024:
-        await msg.reply_text("❗️图片太大，不能超过1MB。")
+        await msg.reply_text("❗️ 图片太大，不能超过1MB。")
         return
 
     today_str = datetime.now(BEIJING_TZ).strftime("%Y-%m-%d")
@@ -160,7 +160,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if matched_keyword == "#上班打卡":
         save_message(username=username, name=name, content=image_url, timestamp=now, keyword=matched_keyword)
         keyboard = [[InlineKeyboardButton(v, callback_data=f"shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
-        await msg.reply_text("✅ 上班打卡成功！请选择今天的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
+        await msg.reply_text("请选择今天的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         shift = get_today_shift(username)
         save_message(username=username, name=name, content=image_url, timestamp=now, keyword=matched_keyword, shift=shift)
@@ -174,7 +174,7 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     shift_code = query.data.split(":")[1]
     shift_name = SHIFT_OPTIONS[shift_code]
     save_shift(username, shift_name)
-    await query.edit_message_text(f"✅ 你的班次已记录：{shift_name}")
+    await query.edit_message_text(f"✅ 上班打卡成功！你的班次：{shift_name}")
 
 # ========== 查看本月打卡 ==========
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
