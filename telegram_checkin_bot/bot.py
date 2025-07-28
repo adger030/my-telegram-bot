@@ -182,7 +182,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     next_month = (now.replace(day=28) + timedelta(days=4)).replace(day=1)
     end = next_month
 
-    logs = get_user_logs(username, start, end)  # 需返回 (timestamp, keyword, shift)
+    logs = get_user_logs(username, start, end)  # 返回 (timestamp, keyword, shift)
     if not logs:
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
@@ -218,7 +218,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             i += 1
 
-    # 生成输出
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
     complete_count = 0
 
@@ -229,13 +228,12 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         date_str = day.strftime("%m月%d日")
 
         if not missing:
-            reply += f"{idx}. {date_str}（{shift_name}） - ✅ 已完成\n"
+            reply += f"{idx}. {date_str} - {shift_name} - ✅ 已完成\n"
             complete_count += 1
         else:
             missing_str = "、".join(missing)
-            reply += f"{idx}. {date_str}（{shift_name}） - 缺少 {missing_str}\n"
+            reply += f"{idx}. {date_str} - {shift_name} - 缺少 {missing_str}\n"
 
-        # 打卡时间
         for kw in ["#上班打卡", "#下班打卡"]:
             if kw in kw_map:
                 time_str = kw_map[kw].strftime("%H:%M")
