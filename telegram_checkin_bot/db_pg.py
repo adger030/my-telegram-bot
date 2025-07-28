@@ -36,11 +36,11 @@ def init_db():
                 cur.execute("ALTER TABLE messages ADD COLUMN shift TEXT;")
                 print("✅ 已为 messages 表添加 shift 字段")
 
-            # 创建 users 表
+            # 创建 users 表（name 唯一）
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     username TEXT PRIMARY KEY,
-                    name TEXT NOT NULL
+                    name TEXT UNIQUE NOT NULL
                 );
             """)
             conn.commit()
@@ -141,9 +141,16 @@ def get_user_name(username):
 def set_user_name(username, name):
     with get_conn() as conn:
         with conn.cursor() as cur:
+            # 检查是否已有相同姓名（排除自己）
+            cur.execute("SELECT username FROM users WHERE name = %s AND username != %s", (name, username))
+            if cur.fetchone():
+                raise ValueError(f"姓名 {name} 已被使用，请换一个。")
+
+            # 插入或更新
             cur.execute("""
                 INSERT INTO users (username, name)
                 VALUES (%s, %s)
                 ON CONFLICT (username) DO UPDATE SET name = EXCLUDED.name
             """, (username, name))
             conn.commit()
+
