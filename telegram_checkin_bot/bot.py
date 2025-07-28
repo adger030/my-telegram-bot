@@ -1,4 +1,5 @@
 import os
+import sys
 import asyncio
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -104,9 +105,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # 检测打卡关键词
-    if extract_keyword(text):
+    keyword = extract_keyword(text)
+    if keyword:
+        # 🚨 限制：当天第一个关键词不能是 #下班打卡
+        if keyword == "#下班打卡" and not has_user_checked_keyword_today(username, "#上班打卡"):
+            await msg.reply_text("❗ 你今天还没有上班打卡，不能直接下班打卡！")
+            return
         await msg.reply_text("❗️请附带上IP截图哦。")
-
 
 # ========== 处理图片打卡 ==========
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -130,7 +135,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(f"⚠️ 你今天已经提交过“{matched_keyword}”了哦！")
         return
 
-    # 下载图片
+    # 🚨 限制：当天第一个打卡不能是下班打卡
+    if matched_keyword == "#下班打卡" and not has_user_checked_keyword_today(username, "#上班打卡"):
+        await msg.reply_text("❗ 你今天还没有上班打卡，不能直接下班打卡！")
+        return
+
+    # 下载图片并上传
     photo = msg.photo[-1]
     file = await photo.get_file()
     if file.file_size > 1024 * 1024:
@@ -241,6 +251,16 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.remove(file_path)
 
 # ========== 主程序 ==========
+def check_existing_instance():
+    lock_file = "/tmp/bot.lock"
+    if os.path.exists(lock_file):
+        print("⚠️ 检测到已有 Bot 实例在运行，退出。")
+        sys.exit(1)
+    with open(lock_file, "w") as f:
+        f.write(str(os.getpid()))
+    import atexit
+    atexit.register(lambda: os.remove(lock_file) if os.path.exists(lock_file) else None)
+
 def main():
     init_db()
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -259,18 +279,6 @@ def main():
 
     print("🤖 Bot 正在运行...")
     app.run_polling()
-    
-def check_existing_instance():
-    lock_file = "/tmp/bot.lock"
-    if os.path.exists(lock_file):
-        print("⚠️ 检测到已有 Bot 实例在运行，退出。")
-        sys.exit(1)
-    with open(lock_file, "w") as f:
-        f.write(str(os.getpid()))
-
-    # 程序退出时删除 lock 文件
-    import atexit
-    atexit.register(lambda: os.remove(lock_file) if os.path.exists(lock_file) else None)
 
 if __name__ == "__main__":
     check_existing_instance()
