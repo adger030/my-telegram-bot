@@ -11,20 +11,19 @@ from collections import defaultdict
 
 from cleaner import delete_last_month_data
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
-from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_month_logs
+from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_month_logs, get_user_logs  # 新增 get_user_logs 支持时间查询
 from export import export_messages
 from upload_image import upload_image
 
 # 北京时区
 BEIJING_TZ = timezone(timedelta(hours=8))
 
-
 def extract_keyword(text: str):
+    text = text.strip().replace(" ", "")  # 去掉空格
     for kw in KEYWORDS:
         if kw in text:
             return kw
     return None
-
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.from_user:
@@ -53,8 +52,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     photo = msg.photo[-1]
     file = await photo.get_file()
-    if file.file_size > 1024 * 1024:
-        await msg.reply_text("❗️图片太大，不能超过1MB。")
+    if file.file_size > 3 * 1024 * 1024:  # 调整到3MB
+        await msg.reply_text("❗️图片太大，不能超过3MB。")
         return
 
     today_str = datetime.now(BEIJING_TZ).strftime("%Y-%m-%d")
@@ -79,7 +78,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await msg.reply_text("✅ 打卡成功！")
-
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -108,7 +106,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_document(document=open(file_path, "rb"))
-
+    os.remove(file_path)  # ✅ 发送后删除临时文件
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -128,7 +126,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     instruction_text = "#上班打卡"
-    image_url = "https://ibb.co/jkPmfwGF"  # 请替换为你实际图片地址
+    image_url = "https://i.ibb.co/jkPmfwGF/demo.jpg"  # ✅ 使用图片直链
 
     await update.message.reply_text(
             welcome_text,
@@ -143,14 +141,19 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     username = user.username or f"user{user.id}"
 
-    logs = get_user_month_logs(username)
+    # ✅ 支持跨月配对（取上个月最后一天到本月末）
+    now = datetime.now(BEIJING_TZ)
+    start = (now.replace(day=1) - timedelta(days=1)).replace(day=1)
+    next_month = (now.replace(day=28) + timedelta(days=4)).replace(day=1)
+    end = next_month
+
+    logs = get_user_logs(username, start, end)
     if not logs:
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
 
-    # 排序并初始化
     logs = sorted(logs, key=lambda x: parse(x[0]) if isinstance(x[0], str) else x[0])
-    daily_map = defaultdict(dict)  # {date: {keyword: datetime}}
+    daily_map = defaultdict(dict)
 
     i = 0
     while i < len(logs):
@@ -175,11 +178,10 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     daily_map[date_key]["#下班打卡"] = bj_time2
                     break
                 j += 1
-            i = j  # 跳到配对后的下标，防止重复匹配
+            i = j
         else:
             i += 1
 
-    # 生成输出
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
     complete_count = 0
 
@@ -195,7 +197,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             missing_str = "、".join(missing)
             reply += f"{idx}. {date_str} - 缺少 {missing_str}\n"
 
-        # 输出打卡时间（按顺序）
         for kw in ["#上班打卡", "#下班打卡"]:
             if kw in kw_map:
                 time_str = kw_map[kw].strftime("%H:%M")
@@ -203,8 +204,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply += f"\n✅ 本月完整打卡：{complete_count} 天"
     await update.message.reply_text(reply)
-
-
 
 def main():
     init_db()
@@ -222,7 +221,6 @@ def main():
 
     print("🤖 Bot 正在运行...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
