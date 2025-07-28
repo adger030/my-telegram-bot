@@ -44,7 +44,6 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("👤 欢迎使用 MS 部考勤机器人，请输入你的工作名：")
         return
 
-    # 欢迎提示
     name = get_user_name(username)
     welcome_text = (
         f"您好，{name}！\n\n"
@@ -68,16 +67,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = msg.from_user.username or f"user{msg.from_user.id}"
     text = msg.text.strip()
 
-    # 如果在等待输入姓名
     if username in WAITING_NAME:
         if len(text) < 2:
             await msg.reply_text("❗ 姓名太短，请重新输入：")
             return
         try:
-            set_user_name(username, text)  # 检查唯一性
+            set_user_name(username, text)
         except ValueError as e:
             await msg.reply_text(f"⚠️ {e}")
-            return  # 不移除 WAITING_NAME，继续等待用户输入新名字
+            return
 
         WAITING_NAME.pop(username)
         name = get_user_name(username)
@@ -98,16 +96,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_photo(photo="https://i.postimg.cc/3xRMBbT4/photo-2025-07-28-15-55-19.jpg", caption="#上班打卡")
         return
 
-    # 未登记姓名
     if not get_user_name(username):
         WAITING_NAME[username] = True
         await msg.reply_text("👤 请先输入姓名后再打卡：")
         return
 
-    # 检测打卡关键词
     keyword = extract_keyword(text)
     if keyword:
-        # 🚨 限制：当天第一个关键词不能是 #下班打卡
         if keyword == "#下班打卡" and not has_user_checked_keyword_today(username, "#上班打卡"):
             await msg.reply_text("❗ 你今天还没有打上班卡呢，赶紧去上班！")
             return
@@ -120,7 +115,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = msg.caption or ""
     matched_keyword = extract_keyword(caption)
 
-    # 检查姓名
     if not get_user_name(username):
         WAITING_NAME[username] = True
         await msg.reply_text("👤 请先输入姓名后再打卡：")
@@ -130,17 +124,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("❗️图片必须附带打卡关键词，例如：“#上班打卡”或“#下班打卡”。")
         return
 
-    # 检查是否已打卡
     if has_user_checked_keyword_today(username, matched_keyword):
         await msg.reply_text(f"⚠️ 你今天已经提交过“{matched_keyword}”了哦！")
         return
 
-    # 🚨 限制：当天第一个打卡不能是下班打卡
     if matched_keyword == "#下班打卡" and not has_user_checked_keyword_today(username, "#上班打卡"):
         await msg.reply_text("❗ 你今天还没有打上班卡呢，赶紧去上班！")
         return
 
-    # 下载图片并上传
     photo = msg.photo[-1]
     file = await photo.get_file()
     if file.file_size > 1024 * 1024:
@@ -162,9 +153,26 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton(v, callback_data=f"shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
         await msg.reply_text("请选择今天的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
     else:
+        # ✅ 检查是否在10小时内并绑定上班日期
+        logs = get_user_logs(username, now - timedelta(days=1), now)
+        last_check_in = None
+        for ts, kw, _ in reversed(logs):
+            if kw == "#上班打卡":
+                last_check_in = parse(ts) if isinstance(ts, str) else ts
+                break
+
+        if not last_check_in:
+            await msg.reply_text("❗ 找不到上班打卡记录，下班打卡无效。")
+            return
+
+        last_check_in = last_check_in.astimezone(BEIJING_TZ)
+        if now - last_check_in > timedelta(hours=10):
+            await msg.reply_text("❗ 上班打卡已超过10小时，下班打卡无效。")
+            return
+
         shift = get_today_shift(username)
         save_message(username=username, name=name, content=image_url, timestamp=now, keyword=matched_keyword, shift=shift)
-        await msg.reply_text(f"✅ 下班打卡成功！班次：{shift or '未选择'}")
+        await msg.reply_text(f"✅ 下班打卡成功！（归类到 {last_check_in.date()}）班次：{shift or '未选择'}")
 
 # ========== 处理班次选择 ==========
 async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -180,10 +188,10 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
     now = datetime.now(BEIJING_TZ)
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    logs = get_user_logs(username, start, end)
+    start = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1))  # 从上月最后一天开始
+    end = (start.replace(day=28) + timedelta(days=10)).replace(day=1)
 
+    logs = get_user_logs(username, start, end)
     if not logs:
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
@@ -196,18 +204,19 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ts, kw, shift = logs[i]
         if isinstance(ts, str): ts = parse(ts)
         ts = ts.astimezone(BEIJING_TZ)
-        date_key = ts.date()
 
         if kw == "#上班打卡":
+            date_key = ts.date()
             daily_map[date_key]["shift"] = shift
             daily_map[date_key]["#上班打卡"] = ts
+
             j = i + 1
             while j < len(logs):
                 ts2, kw2, _ = logs[j]
                 if isinstance(ts2, str): ts2 = parse(ts2)
                 ts2 = ts2.astimezone(BEIJING_TZ)
                 if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=10):
-                    daily_map[date_key]["#下班打卡"] = ts2
+                    daily_map[date_key]["#下班打卡"] = ts2  # ✅ 归类到上班日期
                     break
                 j += 1
             i = j
