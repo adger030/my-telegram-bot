@@ -2,7 +2,7 @@ import os
 import asyncio
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from telegram.constants import ChatAction
 from apscheduler.schedulers.background import BackgroundScheduler
 from dateutil.parser import parse
