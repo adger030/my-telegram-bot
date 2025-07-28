@@ -126,7 +126,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     instruction_text = "#上班打卡"
-    image_url = "https://i.ibb.co/jkPmfwGF/demo.jpg"  # ✅ 使用图片直链
+    image_url = "https://ibb.co/jkPmfwGF" 
 
     await update.message.reply_text(
             welcome_text,
