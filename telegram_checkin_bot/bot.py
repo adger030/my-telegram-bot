@@ -11,12 +11,15 @@ from collections import defaultdict
 
 from cleaner import delete_last_month_data
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
-from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_month_logs, get_user_logs, save_shift  # 新增 get_user_logs 支持时间查询
+from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_month_logs, get_user_logs, save_shift, get_user_name, set_user_name
 from export import export_messages
 from upload_image import upload_image
 
 # 北京时区
 BEIJING_TZ = timezone(timedelta(hours=8))
+
+# 存储等待输入姓名的用户
+WAITING_NAME = {} 
 
 # 班次选项：使用代码 -> 完整名称映射
 SHIFT_OPTIONS = {
@@ -46,6 +49,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = msg.text or msg.caption or ""
     matched_keyword = extract_keyword(text)
 
+    # 如果用户在等待输入姓名
+    if username in WAITING_NAME:
+        name = text.strip()
+        if len(name) < 2:
+            await msg.reply_text("❗ 姓名太短，请重新输入：")
+            return
+        set_user_name(username, name)
+        WAITING_NAME.pop(username)
+        await msg.reply_text(f"✅ 姓名已设置为：{name}\n现在可以发送 #上班打卡 或 #下班打卡 了。")
+        return
+
+    # 如果没姓名也没走 /start，强制提示
+    if not get_user_name(username):
+        WAITING_NAME[username] = True
+        await msg.reply_text("👤 请先输入姓名后再打卡：")
+        return
+    
     if not matched_keyword:
         await msg.reply_text("❗️消息中必须包含关键词，例如：“#上班打卡”或“#下班打卡”。")
         return
@@ -143,7 +163,12 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     username = user.first_name or user.username or "朋友"
 
-    welcome_text = (
+    # 检查是否已有姓名
+    if not get_user_name(username):
+        WAITING_NAME[username] = True
+        await update.message.reply_text("👤 欢迎首次使用，请输入你的姓名（例如：张三）：")
+    else:
+       welcome_text = (
         f"您好，{username}！欢迎使用 MS 部考勤机器人\n"
         "\n"
         "📌 使用说明：\n"
@@ -164,7 +189,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"  # 指定使用 HTML 解析模式
     )
     await asyncio.sleep(1)
-    await update.message.reply_photo(photo=image_url, caption=instruction_text)
+    await update.message.reply_photo(photo=image_url, caption=instruction_text) 
 
 REQUIRED_KEYWORDS = set(KEYWORDS)
 
