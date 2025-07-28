@@ -90,7 +90,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from db_pg import get_today_shift
         shift = get_today_shift(username)
         save_message(username=username, content=image_url, timestamp=now, keyword=matched_keyword, shift=shift)
-        await msg.reply_text(f"✅ 下班打卡成功！班次自动继承：{shift or '未选择'}")
+        await msg.reply_text(f"✅ 下班打卡成功！{shift or '未选择'}")
 
 
 
