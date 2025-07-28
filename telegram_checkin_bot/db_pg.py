@@ -46,16 +46,18 @@ def init_db():
             conn.commit()
 
 
-def has_user_checked_keyword_today(username, keyword):
-    today = datetime.now(BEIJING_TZ).date()
+def has_user_checked_keyword_today(username, keyword, day_offset=0):
+    """检查用户在当天（或指定偏移日）是否打过指定关键词"""
+    target_date = (datetime.now(BEIJING_TZ) + timedelta(days=day_offset)).date()
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT COUNT(*) FROM messages
                 WHERE username = %s AND keyword = %s 
                   AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai') = %s
-            """, (username, keyword, today))
+            """, (username, keyword, target_date))
             return cur.fetchone()[0] > 0
+
 
 # ✅ 支持 name 字段的 save_message
 def save_message(username, name, content, timestamp, keyword, shift=None):
