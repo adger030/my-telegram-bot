@@ -65,26 +65,31 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = msg.text.strip()
 
     # 如果在等待输入姓名
-    if username in WAITING_NAME:
-        if len(text) < 2:
-            await msg.reply_text("❗ 姓名太短，请重新输入：")
-            return
-        set_user_name(username, text)
-        WAITING_NAME.pop(username)
-        name = get_user_name(username)
-        welcome_text = (
-            f"您好，{text}！\n\n"
-            "📌 使用说明：\n"
-            "1️⃣ 发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
-            "2️⃣ 上下班打卡间隔不能超过10小时，否则下班信息不录入；\n"
-            "3️⃣ 其他考勤问题请联系部门助理。\n\n"
-            "<a href='https://www.ipaddress.my'>点击这里查看你的IP地址</a>\n\n"
-            "举个🌰，如下👇"
-        )
-        await update.message.reply_text(welcome_text, parse_mode="HTML")
-        await asyncio.sleep(1)
-        await update.message.reply_photo(photo="https://ibb.co/jkPmfwGF", caption="#上班打卡")
+if username in WAITING_NAME:
+    if len(text) < 2:
+        await msg.reply_text("❗ 姓名太短，请重新输入：")
         return
+    try:
+        set_user_name(username, text)  # 这里会检查唯一性
+    except ValueError as e:
+        await msg.reply_text(f"⚠️ {e}")
+        return  # 不移除 WAITING_NAME，继续等待用户输入新名字
+
+    WAITING_NAME.pop(username)
+    name = get_user_name(username)
+    welcome_text = (
+        f"您好，{name}！\n\n"
+        "📌 使用说明：\n"
+        "1️⃣ 发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
+        "2️⃣ 上下班打卡间隔不能超过10小时，否则下班信息不录入；\n"
+        "3️⃣ 其他考勤问题请联系部门助理。\n\n"
+        "<a href='https://www.ipaddress.my'>点击这里查看你的IP地址</a>\n\n"
+        "举个🌰，如下👇"
+    )
+    await msg.reply_text(welcome_text, parse_mode="HTML")
+    await asyncio.sleep(1)
+    await msg.reply_photo(photo="https://ibb.co/jkPmfwGF", caption="#上班打卡")
+    return
 
     # 未登记姓名
     if not get_user_name(username):
