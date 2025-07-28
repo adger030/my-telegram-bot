@@ -128,9 +128,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(f"⚠️ 你今天已经提交过“{matched_keyword}”了哦！")
         return
 
-    if matched_keyword == "#下班打卡" and not has_user_checked_keyword_today(username, "#上班打卡"):
-        await msg.reply_text("❗ 你今天还没有打上班卡呢，赶紧去上班！")
+   if matched_keyword == "#下班打卡":
+        # 检查当天或昨天是否有上班打卡
+        now = datetime.now(BEIJING_TZ).date()
+        has_today = has_user_checked_keyword_today(username, "#上班打卡")
+        has_yesterday = has_user_checked_keyword_today(username, "#上班打卡", day_offset=-1)  # 新增参数支持查前一天
+
+    if not (has_today or has_yesterday):
+        await msg.reply_text("❗ 你今天或昨天都没有上班打卡记录，无法下班打卡！")
         return
+
 
     photo = msg.photo[-1]
     file = await photo.get_file()
