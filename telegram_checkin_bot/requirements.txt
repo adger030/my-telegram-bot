@@ -7,3 +7,5 @@ cloudinary
 requests
 pytz
 sqlalchemy
+sys
+psutil
