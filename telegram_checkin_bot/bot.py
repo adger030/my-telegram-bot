@@ -255,9 +255,9 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     now = datetime.now(BEIJING_TZ)
-    start = now.replace(day=1, hour=0, minute=0, second=0)
-    next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    end = next_month
+    # ✅ 回溯 2 天，避免跨月下班打卡丢失
+    start = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2))
+    end = (now.replace(day=28) + timedelta(days=10)).replace(day=1)  # 下月初
 
     file_path = export_messages(start, end)
     if not file_path:
@@ -266,6 +266,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_document(document=open(file_path, "rb"))
     os.remove(file_path)
+
 
 # ========== 主程序 ==========
 def check_existing_instance():
