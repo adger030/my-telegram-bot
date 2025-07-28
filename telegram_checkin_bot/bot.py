@@ -80,11 +80,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyword=matched_keyword
     )
     
-   # 发送班次选择按钮
-    keyboard = [[InlineKeyboardButton(shift, callback_data=f"shift:{shift}")] for shift in SHIFT_OPTIONS]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await msg.reply_text("✅ 打卡成功！请选择今天的班次：", reply_markup=reply_markup)
-    
+    # 仅在上班打卡时弹出班次选择
+    if matched_keyword == "#上班打卡":
+        keyboard = [[InlineKeyboardButton(shift, callback_data=f"shift:{shift}")] for shift in SHIFT_OPTIONS]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await msg.reply_text("✅ 打卡成功！请选择今天的班次：", reply_markup=reply_markup)
+    else:
+        await msg.reply_text("✅ 下班打卡成功！")
+
+
 # 新增：处理班次选择
 async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
