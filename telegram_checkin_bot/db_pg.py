@@ -109,5 +109,5 @@ def save_shift(username, shift):
                 AND timestamp = (
                     SELECT MAX(timestamp) FROM messages WHERE username = %s
                 )
-            """, (shift, username, username))
+            """, (shift.strip(), username, username))  # 确保去除空格并完整保存
             conn.commit()
