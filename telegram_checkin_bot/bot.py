@@ -1,7 +1,7 @@
 import os
 import asyncio
 from datetime import datetime, timedelta, timezone
-from telegram import Update, InputFile
+from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ChatAction
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -17,6 +17,9 @@ from upload_image import upload_image
 
 # 北京时区
 BEIJING_TZ = timezone(timedelta(hours=8))
+
+# 新增：班次选项
+SHIFT_OPTIONS = ["F班（12:00-21:00）", "G班（13:00-22:00）", "H班（14:00-23:00）", "I班（15:00-00:00）"]
 
 def extract_keyword(text: str):
     text = text.strip().replace(" ", "")  # 去掉空格
@@ -76,8 +79,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         timestamp=datetime.now(BEIJING_TZ),
         keyword=matched_keyword
     )
+    
+   # 发送班次选择按钮
+    keyboard = [[InlineKeyboardButton(shift, callback_data=f"shift:{shift}")] for shift in SHIFT_OPTIONS]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await msg.reply_text("✅ 打卡成功！请选择今天的班次：", reply_markup=reply_markup)
+    
+# 新增：处理班次选择
+async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    await msg.reply_text("✅ 打卡成功！")
+    shift = query.data.split(":")[1]
+    username = query.from_user.username or f"user{query.from_user.id}"
+
+    # 保存班次记录
+    save_shift(username, shift)
+
+    await query.edit_message_text(f"✅ 你的班次已记录：{shift}")
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -218,6 +237,7 @@ def main():
     app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CommandHandler("mylogs", mylogs_cmd))
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, handle_message))
+    app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))
 
     print("🤖 Bot 正在运行...")
     app.run_polling()
