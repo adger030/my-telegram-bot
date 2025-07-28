@@ -103,13 +103,17 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    shift = query.data.split(":")[1]
+    shift_code = query.data.split(":")[1]  # e.g. F
+    shift_name = SHIFT_OPTIONS.get(shift_code, shift_code)  # 转回完整班次
+
     username = query.from_user.username or f"user{query.from_user.id}"
 
-    # 保存班次记录
-    save_shift(username, shift)
+    # 保存班次
+    save_shift(username, shift_name)
 
-    await query.edit_message_text(f"✅ 你的班次已记录：{shift}")
+    # 回复提示完整班次
+    await query.edit_message_text(f"✅ 你的班次已记录：{shift_name}")
+
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
