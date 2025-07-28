@@ -40,13 +40,13 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not get_user_name(username):
         WAITING_NAME[username] = True
-        await update.message.reply_text("👤 欢迎首次使用，请输入你的工作姓名：")
+        await update.message.reply_text("👤 欢迎使用 MS 部考勤机器人，请输入你的工作名：")
         return
 
     # 欢迎提示
     name = get_user_name(username)
     welcome_text = (
-        f"您好，{name}！欢迎使用 MS 部考勤机器人\n\n"
+        f"您好，{name}！\n\n"
         "📌 使用说明：\n"
         "1️⃣ 发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
         "2️⃣ 上下班打卡间隔不能超过10小时，否则下班信息不录入；\n"
