@@ -10,7 +10,7 @@ from dateutil.parser import parse
 from collections import defaultdict
 
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
-from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_logs, save_shift, get_user_name, set_user_name, get_today_shift
+from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_logs, save_shift, get_user_name, set_user_name
 from export import export_messages
 from upload_image import upload_image
 from cleaner import delete_last_month_data
@@ -128,16 +128,25 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(f"⚠️ 你今天已经提交过“{matched_keyword}”了哦！")
         return
 
-   if matched_keyword == "#下班打卡":
-        # 检查当天或昨天是否有上班打卡
-        now = datetime.now(BEIJING_TZ).date()
-        has_today = has_user_checked_keyword_today(username, "#上班打卡")
-        has_yesterday = has_user_checked_keyword_today(username, "#上班打卡", day_offset=-1)  # 新增参数支持查前一天
+    if matched_keyword == "#下班打卡":
+        # 查找昨天或今天的上班打卡
+        now = datetime.now(BEIJING_TZ)
+        logs = get_user_logs(username, now - timedelta(days=1), now)
+        last_check_in, last_shift = None, None
+        for ts, kw, shift in reversed(logs):
+            if kw == "#上班打卡":
+                last_check_in = parse(ts) if isinstance(ts, str) else ts
+                last_shift = shift
+                break
 
-    if not (has_today or has_yesterday):
-        await msg.reply_text("❗ 你今天或昨天都没有上班打卡记录，无法下班打卡！")
-        return
+        if not last_check_in:
+            await msg.reply_text("❗ 找不到上班打卡记录，下班打卡无效。")
+            return
 
+        last_check_in = last_check_in.astimezone(BEIJING_TZ)
+        if now - last_check_in > timedelta(hours=10):
+            await msg.reply_text("❗ 上班打卡已超过10小时，下班打卡无效。")
+            return
 
     photo = msg.photo[-1]
     file = await photo.get_file()
@@ -160,26 +169,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton(v, callback_data=f"shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
         await msg.reply_text("请选择今天的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
     else:
-        # ✅ 检查是否在10小时内并绑定上班日期
-        logs = get_user_logs(username, now - timedelta(days=1), now)
-        last_check_in = None
-        for ts, kw, _ in reversed(logs):
-            if kw == "#上班打卡":
-                last_check_in = parse(ts) if isinstance(ts, str) else ts
-                break
-
-        if not last_check_in:
-            await msg.reply_text("❗ 找不到上班打卡记录，下班打卡无效。")
-            return
-
-        last_check_in = last_check_in.astimezone(BEIJING_TZ)
-        if now - last_check_in > timedelta(hours=10):
-            await msg.reply_text("❗ 上班打卡已超过10小时，下班打卡无效。")
-            return
-
-        shift = get_today_shift(username)
-        save_message(username=username, name=name, content=image_url, timestamp=now, keyword=matched_keyword, shift=shift)
-        await msg.reply_text(f"✅ 下班打卡成功！（归类到 {last_check_in.date()}）班次：{shift or '未选择'}")
+        save_message(username=username, name=name, content=image_url, timestamp=now, keyword=matched_keyword, shift=last_shift)
+        await msg.reply_text(f"✅ 下班打卡成功！（归类到 {last_check_in.date()}）班次：{last_shift or '未选择'}")
 
 # ========== 处理班次选择 ==========
 async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -195,8 +186,8 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
     now = datetime.now(BEIJING_TZ)
-    start = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2))  # 往前两天
-    end = (now.replace(day=28) + timedelta(days=10)).replace(day=1)  # 下月初
+    start = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2))
+    end = (now.replace(day=28) + timedelta(days=10)).replace(day=1)
 
     logs = get_user_logs(username, start, end)
     if not logs:
@@ -230,9 +221,8 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             i += 1
 
-    # ✅ 仅显示本月
-    this_month = now.month
-    daily_map = {d: v for d, v in daily_map.items() if d.month == this_month}
+    # 仅显示本月
+    daily_map = {d: v for d, v in daily_map.items() if d.month == now.month}
 
     if not daily_map:
         await update.message.reply_text("📭 本月暂无打卡记录。")
@@ -262,9 +252,8 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     now = datetime.now(BEIJING_TZ)
-    # ✅ 回溯 2 天，避免跨月下班打卡丢失
     start = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2))
-    end = (now.replace(day=28) + timedelta(days=10)).replace(day=1)  # 下月初
+    end = (now.replace(day=28) + timedelta(days=10)).replace(day=1)
 
     file_path = export_messages(start, end)
     if not file_path:
@@ -273,7 +262,6 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_document(document=open(file_path, "rb"))
     os.remove(file_path)
-
 
 # ========== 主程序 ==========
 def check_existing_instance():
