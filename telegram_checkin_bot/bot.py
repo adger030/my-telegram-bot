@@ -18,8 +18,13 @@ from upload_image import upload_image
 # 北京时区
 BEIJING_TZ = timezone(timedelta(hours=8))
 
-# 新增：班次选项
-SHIFT_OPTIONS = ["F班（12:00-21:00）", "G班（13:00-22:00）", "H班（14:00-23:00）", "I班（15:00-00:00）"]
+# 班次选项：使用代码 -> 完整名称映射
+SHIFT_OPTIONS = {
+    "F": "F班（12:00-21:00）",
+    "G": "G班（13:00-22:00）",
+    "H": "H班（14:00-23:00）",
+    "I": "I班（15:00-00:00）"
+}
 
 def extract_keyword(text: str):
     text = text.strip().replace(" ", "")  # 去掉空格
@@ -72,21 +77,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"⚠️ 删除临时文件失败：{e}")
 
-    # 保存记录（使用北京时间）
+    # 保存打卡记录（先不含班次）
     save_message(
         username=username,
         content=image_url,
         timestamp=datetime.now(BEIJING_TZ),
         keyword=matched_keyword
     )
-    
-    # 仅在上班打卡时弹出班次选择
+
+    # ✅ 如果是 #上班打卡，发送班次选择按钮
     if matched_keyword == "#上班打卡":
-        keyboard = [[InlineKeyboardButton(shift, callback_data=f"shift:{shift}")] for shift in SHIFT_OPTIONS]
+        keyboard = [
+            [InlineKeyboardButton(name, callback_data=f"shift:{code}")]
+            for code, name in SHIFT_OPTIONS.items()
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await msg.reply_text("✅ 打卡成功！请选择今天的班次：", reply_markup=reply_markup)
     else:
-        await msg.reply_text("✅ 下班打卡成功！")
+        # 下班打卡无需选择班次
+        await msg.reply_text(f"✅ {matched_keyword} 成功记录！")
 
 
 # 新增：处理班次选择
