@@ -16,7 +16,8 @@ def export_messages(start_datetime, end_datetime):
 
     try:
         engine = create_engine(DATABASE_URL)
-        df = pd.read_sql_query("SELECT username, content, timestamp, keyword FROM messages", engine)
+        # ✅ 包含 shift 字段
+        df = pd.read_sql_query("SELECT username, content, timestamp, keyword, shift FROM messages", engine)
     except Exception as e:
         print(f"❌ 无法连接数据库或读取数据: {e}")
         return None
@@ -24,10 +25,10 @@ def export_messages(start_datetime, end_datetime):
     if 'timestamp' not in df.columns:
         print("❌ 数据中不含 timestamp 字段")
         return None
-        
-    # Excel 导出时增加 '班次' 列
-    slim_df = group_df[["username", "timestamp", "keyword", "shift"]].sort_values("timestamp")
-    slim_df.columns = ["用户名", "打卡时间", "关键词", "班次"]
+
+    # 确保 shift 列存在
+    if 'shift' not in df.columns:
+        df['shift'] = None
 
     # 处理时区，转换为北京时间
     df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True)
@@ -49,16 +50,16 @@ def export_messages(start_datetime, end_datetime):
     export_dir = os.path.join(DATA_DIR, f"export_{start_str}_{end_str}")
     os.makedirs(export_dir, exist_ok=True)
 
-    # ✅ Excel 导出（按天分页）
+    # ✅ Excel 导出（按天分页，每日一个sheet）
     excel_path = os.path.join(export_dir, f"打卡记录_{start_str}_{end_str}.xlsx")
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
-        # 按日期分组
         filtered['date'] = filtered['timestamp'].dt.strftime("%Y-%m-%d")
         for day, group_df in filtered.groupby("date"):
-            slim_df = group_df[["username", "timestamp", "keyword"]].sort_values("timestamp")
-            slim_df.columns = ["用户名", "打卡时间", "关键词"]
+            slim_df = group_df[["username", "timestamp", "keyword", "shift"]].sort_values("timestamp")
+            slim_df.columns = ["用户名", "打卡时间", "关键词", "班次"]
             slim_df["打卡时间"] = slim_df["打卡时间"].dt.strftime("%Y-%m-%d %H:%M:%S")
-            slim_df.to_excel(writer, sheet_name=day, index=False)
+            sheet_name = day  # 以日期命名sheet
+            slim_df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
 
     # ✅ 下载图片
     image_dir = os.path.join(export_dir, "图片")
