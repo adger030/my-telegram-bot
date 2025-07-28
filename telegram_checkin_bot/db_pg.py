@@ -58,13 +58,10 @@ def save_message(username, content, timestamp, keyword):
             conn.commit()
 
 def get_user_logs(username, start, end):
-    """
-    获取用户在指定时间区间 [start, end) 的打卡记录
-    """
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT timestamp, keyword FROM messages
+                SELECT timestamp, keyword, shift FROM messages
                 WHERE username = %s AND timestamp >= %s AND timestamp < %s
                 ORDER BY timestamp ASC
             """, (username, start, end))
