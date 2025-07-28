@@ -133,3 +133,25 @@ def get_today_shift(username):
             row = cur.fetchone()
             return row[0] if row else None
 
+# 获取用户姓名
+def get_user_name(username):
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM users WHERE username = %s", (username,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row[0] if row else None
+
+# 保存/更新用户姓名
+def set_user_name(username, name):
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO users (username, name)
+        VALUES (%s, %s)
+        ON CONFLICT (username) DO UPDATE SET name = EXCLUDED.name
+    """, (username, name))
+    conn.commit()
+    cur.close()
+    conn.close()
