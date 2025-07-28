@@ -98,10 +98,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"⚠️ 删除临时文件失败：{e}")
 
     now = datetime.now(BEIJING_TZ)
-
+    name = get_user_name(username)
+    
     if matched_keyword == "#上班打卡":
         # 保存上班打卡（先不含班次）
-        save_message(username=username, content=image_url, timestamp=now, keyword=matched_keyword)
+        save_message(username=username, name=name, content=image_url, timestamp=datetime.now(BEIJING_TZ), keyword=matched_keyword)
         keyboard = [[InlineKeyboardButton(name, callback_data=f"shift:{code}")] for code, name in SHIFT_OPTIONS.items()]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await msg.reply_text("✅ 上班打卡成功！请选择今天的班次：", reply_markup=reply_markup)
@@ -109,7 +110,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ✅ 下班打卡时，自动继承当天上班班次
         from db_pg import get_today_shift
         shift = get_today_shift(username)
-        save_message(username=username, content=image_url, timestamp=now, keyword=matched_keyword, shift=shift)
+        save_message(username=username, name=name, content=image_url, timestamp=datetime.now(BEIJING_TZ), keyword=matched_keyword, shift=shift)
         await msg.reply_text(f"✅ 下班打卡成功！{shift or '未选择'}")
 
 
