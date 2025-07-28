@@ -40,7 +40,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not get_user_name(username):
         WAITING_NAME[username] = True
-        await update.message.reply_text("👤 欢迎首次使用，请输入你的姓名（例如：张三）：")
+        await update.message.reply_text("👤 欢迎首次使用，请输入你的工作姓名：")
         return
 
     # 欢迎提示
@@ -71,7 +71,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         set_user_name(username, text)
         WAITING_NAME.pop(username)
-        await msg.reply_text(f"✅ 姓名已设置为：{text}\n现在可以发送打卡照片了。")
+        name = get_user_name(username)
+        welcome_text = (
+            f"您好，{text}！欢迎使用 MS 部考勤机器人\n\n"
+            "📌 使用说明：\n"
+            "1️⃣ 发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
+            "2️⃣ 上下班打卡间隔不能超过10小时，否则下班信息不录入；\n"
+            "3️⃣ 其他考勤问题请联系部门助理。\n\n"
+            "<a href='https://www.ipaddress.my'>点击这里查看你的IP地址</a>\n\n"
+            "举个🌰，如下👇"
+        )
+        await update.message.reply_text(welcome_text, parse_mode="HTML")
+        await asyncio.sleep(1)
+        await update.message.reply_photo(photo="https://ibb.co/jkPmfwGF", caption="#上班打卡")
         return
 
     # 未登记姓名
@@ -82,7 +94,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 检测打卡关键词
     if extract_keyword(text):
-        await msg.reply_text("📸 请发送包含打卡图片的消息（附带关键词）。")
+        await msg.reply_text("❗️请附带上IP截图哦。")
 
 # ========== 处理图片打卡 ==========
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
