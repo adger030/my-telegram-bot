@@ -16,8 +16,8 @@ def export_messages(start_datetime, end_datetime):
 
     try:
         engine = create_engine(DATABASE_URL)
-        # ✅ 包含 shift 字段
-        df = pd.read_sql_query("SELECT username, content, timestamp, keyword, shift FROM messages", engine)
+        # ✅ 查询时包含 name 字段
+        df = pd.read_sql_query("SELECT username, name, content, timestamp, keyword, shift FROM messages", engine)
     except Exception as e:
         print(f"❌ 无法连接数据库或读取数据: {e}")
         return None
@@ -26,7 +26,9 @@ def export_messages(start_datetime, end_datetime):
         print("❌ 数据中不含 timestamp 字段")
         return None
 
-    # 确保 shift 列存在
+    # 确保 name 和 shift 列存在
+    if 'name' not in df.columns:
+        df['name'] = None
     if 'shift' not in df.columns:
         df['shift'] = None
 
@@ -55,13 +57,13 @@ def export_messages(start_datetime, end_datetime):
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
         filtered['date'] = filtered['timestamp'].dt.strftime("%Y-%m-%d")
         for day, group_df in filtered.groupby("date"):
-            slim_df = group_df[["username", "timestamp", "keyword", "shift"]].sort_values("timestamp")
-            slim_df.columns = ["用户名", "打卡时间", "关键词", "班次"]
+            slim_df = group_df[["name", "timestamp", "keyword", "shift"]].sort_values("timestamp")
+            slim_df.columns = ["姓名", "打卡时间", "关键词", "班次"]
             slim_df["打卡时间"] = slim_df["打卡时间"].dt.strftime("%Y-%m-%d %H:%M:%S")
             sheet_name = day  # 以日期命名sheet
             slim_df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
 
-    # ✅ 下载图片
+    # ✅ 下载图片（命名改为 姓名_关键词）
     image_dir = os.path.join(export_dir, "图片")
     os.makedirs(image_dir, exist_ok=True)
     photo_df = filtered[filtered["content"].str.endswith(".jpg", na=False)]
@@ -71,9 +73,9 @@ def export_messages(start_datetime, end_datetime):
         if url and url.startswith("http"):
             try:
                 ts = row["timestamp"].strftime("%Y-%m-%d_%H-%M-%S")
-                username = row["username"] or "匿名"
+                name = row["name"] or "匿名"
                 keyword = row["keyword"] or "无关键词"
-                filename = f"{ts}_{username}_{keyword}.jpg"
+                filename = f"{ts}_{name}_{keyword}.jpg"
                 save_path = os.path.join(image_dir, filename)
                 response = requests.get(url, stream=True, timeout=10)
                 if response.status_code == 200:
