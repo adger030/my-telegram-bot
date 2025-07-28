@@ -34,7 +34,8 @@ def has_user_checked_keyword_today(username, keyword):
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT COUNT(*) FROM messages
-                WHERE username = %s AND keyword = %s AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai') = %s
+                WHERE username = %s AND keyword = %s 
+                  AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai') = %s
             """, (username, keyword, today))
             count = cur.fetchone()[0]
     return count > 0
@@ -46,7 +47,7 @@ def save_message(username, content, timestamp, keyword):
     else:
         timestamp = timestamp.astimezone(BEIJING_TZ)
 
-    print(f"[DB] Saving: {username}, {content}, {timestamp}, {keyword}")  # 加日志
+    print(f"[DB] Saving: {username}, {content}, {timestamp}, {keyword}")
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -55,18 +56,27 @@ def save_message(username, content, timestamp, keyword):
             """, (username, content, timestamp, keyword))
             conn.commit()
 
-def get_user_month_logs(username):
-    now = datetime.now()
-    start = now.replace(day=1).date()
-    end = now.date()
+def get_user_logs(username, start, end):
+    """
+    获取用户在指定时间区间 [start, end) 的打卡记录
+    """
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT timestamp, keyword FROM messages
-                WHERE username = %s AND DATE(timestamp) BETWEEN %s AND %s
-                ORDER BY timestamp
+                WHERE username = %s AND timestamp >= %s AND timestamp < %s
+                ORDER BY timestamp ASC
             """, (username, start, end))
             return cur.fetchall()
+
+def get_user_month_logs(username):
+    """
+    获取用户当月打卡记录（基于 get_user_logs 封装）
+    """
+    now = datetime.now(BEIJING_TZ)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)  # 下月1号
+    return get_user_logs(username, start, end)
 
 def delete_old_data(days=30):
     cutoff = datetime.now() - timedelta(days=days)
