@@ -50,20 +50,20 @@ def has_user_checked_keyword_today(username, keyword):
             count = cur.fetchone()[0]
     return count > 0
 
-def save_message(username, content, timestamp, keyword):
+def save_message(username, content, timestamp, keyword, shift=None):
     # 强制确保时间是 Asia/Shanghai
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=BEIJING_TZ)
     else:
         timestamp = timestamp.astimezone(BEIJING_TZ)
 
-    print(f"[DB] Saving: {username}, {content}, {timestamp}, {keyword}")
+    print(f"[DB] Saving: {username}, {content}, {timestamp}, {keyword}, shift={shift}")
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO messages (username, content, timestamp, keyword)
-                VALUES (%s, %s, %s, %s)
-            """, (username, content, timestamp, keyword))
+                INSERT INTO messages (username, content, timestamp, keyword, shift)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (username, content, timestamp, keyword, shift))
             conn.commit()
 
 def get_user_logs(username, start, end):
@@ -100,6 +100,9 @@ def delete_old_data(days=30):
     return photos  # 留给图片清理函数处理
 
 def save_shift(username, shift):
+    """
+    更新用户最近一条打卡记录的班次
+    """
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -109,5 +112,24 @@ def save_shift(username, shift):
                 AND timestamp = (
                     SELECT MAX(timestamp) FROM messages WHERE username = %s
                 )
-            """, (shift.strip(), username, username))  # 确保去除空格并完整保存
+            """, (shift, username, username))
             conn.commit()
+
+def get_today_shift(username):
+    """
+    获取用户当天的上班班次
+    """
+    today = datetime.now(BEIJING_TZ).date()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT shift FROM messages
+                WHERE username = %s 
+                AND keyword = '#上班打卡'
+                AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai') = %s
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """, (username, today))
+            row = cur.fetchone()
+            return row[0] if row else None
+
