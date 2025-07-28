@@ -259,6 +259,16 @@ def main():
 
     print("🤖 Bot 正在运行...")
     app.run_polling()
+    
+def check_existing_instance():
+    current_pid = os.getpid()
+    for proc in psutil.process_iter(['pid', 'cmdline']):
+        if proc.info['pid'] != current_pid and proc.info['cmdline']:
+            if 'bot.py' in ' '.join(proc.info['cmdline']):
+                print("⚠️ 检测到已有 Bot 实例在运行，退出。")
+                sys.exit(1)
+
+check_existing_instance()
 
 if __name__ == "__main__":
     main()
