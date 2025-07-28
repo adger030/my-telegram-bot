@@ -177,69 +177,69 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     username = user.username or f"user{user.id}"
 
-    # ✅ 支持跨月配对（取上个月1号到本月末）
     now = datetime.now(BEIJING_TZ)
     start = (now.replace(day=1) - timedelta(days=1)).replace(day=1)
     next_month = (now.replace(day=28) + timedelta(days=4)).replace(day=1)
     end = next_month
 
-    logs = get_user_logs(username, start, end)  # ⚠️ 需返回 (timestamp, keyword, shift)
+    logs = get_user_logs(username, start, end)  # 需返回 (timestamp, keyword, shift)
     if not logs:
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
 
-    # 确保日志按时间排序
     logs = sorted(logs, key=lambda x: parse(x[0]) if isinstance(x[0], str) else x[0])
     daily_map = defaultdict(dict)
 
     i = 0
     while i < len(logs):
-        ts, kw, shift = logs[i]  # ✅ 增加 shift
+        ts, kw, shift = logs[i]
         if isinstance(ts, str):
             ts = parse(ts)
         bj_time = ts.astimezone(BEIJING_TZ)
 
+        date_key = bj_time.date()
         if kw == "#上班打卡":
-            date_key = bj_time.date()
-            daily_map[date_key]["#上班打卡"] = {"time": bj_time, "shift": shift}
+            daily_map[date_key]["#上班打卡"] = bj_time
+            daily_map[date_key]["shift"] = shift  # 记录班次
 
-            # 查找接下来的10小时内的#下班打卡
+            # 查找接下来的10小时内的下班打卡
             j = i + 1
             while j < len(logs):
-                ts2, kw2, shift2 = logs[j]
+                ts2, kw2, _ = logs[j]
                 if isinstance(ts2, str):
                     ts2 = parse(ts2)
                 bj_time2 = ts2.astimezone(BEIJING_TZ)
 
                 if kw2 == "#下班打卡" and timedelta(0) < (bj_time2 - bj_time) <= timedelta(hours=10):
-                    daily_map[date_key]["#下班打卡"] = {"time": bj_time2, "shift": shift2}
+                    daily_map[date_key]["#下班打卡"] = bj_time2
                     break
                 j += 1
             i = j
         else:
             i += 1
 
-    # 生成回复文本
+    # 生成输出
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
     complete_count = 0
 
     for idx, day in enumerate(sorted(daily_map), start=1):
         kw_map = daily_map[day]
-        missing = REQUIRED_KEYWORDS - set(kw_map)
+        shift_name = kw_map.get("shift", "未选择班次")
+        missing = REQUIRED_KEYWORDS - set(k for k in kw_map if k.startswith("#"))
         date_str = day.strftime("%m月%d日")
 
         if not missing:
-            reply += f"{idx}. {date_str} - ✅ 已完成\n"
+            reply += f"{idx}. {date_str}（{shift_name}） - ✅ 已完成\n"
             complete_count += 1
         else:
             missing_str = "、".join(missing)
-            reply += f"{idx}. {date_str} - 缺少 {missing_str}\n"
+            reply += f"{idx}. {date_str}（{shift_name}） - 缺少 {missing_str}\n"
 
+        # 打卡时间
         for kw in ["#上班打卡", "#下班打卡"]:
             if kw in kw_map:
-                time_str = kw_map[kw]["time"].strftime("%H:%M")
-                shift_str = f"（{kw_map[kw]['shift']}）" if kw_map[kw].get("shift") else ""
-                reply += f"   └─ {kw}：{time_str} {shift_str}\n"
+                time_str = kw_map[kw].strftime("%H:%M")
+                reply += f"   └─ {kw}：{time_str}\n"
 
     reply += f"\n✅ 本月完整打卡：{complete_count} 天"
     await update.message.reply_text(reply)
