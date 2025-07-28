@@ -59,7 +59,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_text, parse_mode="HTML")
     await asyncio.sleep(1)
-    await update.message.reply_photo(photo="https://ibb.co/ZzFwc5yS", caption="#上班打卡")
+    await update.message.reply_photo(photo="https://i.postimg.cc/xCwBjxr8/photo-2025-07-28-15-55-19.jpg", caption="#上班打卡")
 
 # ========== 处理文字消息 ==========
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,7 +94,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await msg.reply_text(welcome_text, parse_mode="HTML")
         await asyncio.sleep(1)
-        await msg.reply_photo(photo="https://ibb.co/ZzFwc5yS", caption="#上班打卡")
+        await msg.reply_photo(photo="https://i.postimg.cc/xCwBjxr8/photo-2025-07-28-15-55-19.jpg", caption="#上班打卡")
         return
 
     # 未登记姓名
