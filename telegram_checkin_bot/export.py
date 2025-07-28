@@ -24,6 +24,10 @@ def export_messages(start_datetime, end_datetime):
     if 'timestamp' not in df.columns:
         print("❌ 数据中不含 timestamp 字段")
         return None
+        
+    # Excel 导出时增加 '班次' 列
+    slim_df = group_df[["username", "timestamp", "keyword", "shift"]].sort_values("timestamp")
+    slim_df.columns = ["用户名", "打卡时间", "关键词", "班次"]
 
     # 处理时区，转换为北京时间
     df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True)
