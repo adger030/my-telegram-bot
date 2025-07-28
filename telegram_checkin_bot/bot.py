@@ -77,25 +77,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"⚠️ 删除临时文件失败：{e}")
 
-    # 保存打卡记录（先不含班次）
-    save_message(
-        username=username,
-        content=image_url,
-        timestamp=datetime.now(BEIJING_TZ),
-        keyword=matched_keyword
-    )
+    now = datetime.now(BEIJING_TZ)
 
-    # ✅ 如果是 #上班打卡，发送班次选择按钮
     if matched_keyword == "#上班打卡":
-        keyboard = [
-            [InlineKeyboardButton(name, callback_data=f"shift:{code}")]
-            for code, name in SHIFT_OPTIONS.items()
-        ]
+        # 保存上班打卡（先不含班次）
+        save_message(username=username, content=image_url, timestamp=now, keyword=matched_keyword)
+        keyboard = [[InlineKeyboardButton(name, callback_data=f"shift:{code}")] for code, name in SHIFT_OPTIONS.items()]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await msg.reply_text("✅ 打卡成功！请选择今天的班次：", reply_markup=reply_markup)
+        await msg.reply_text("✅ 上班打卡成功！请选择今天的班次：", reply_markup=reply_markup)
     else:
-        # 下班打卡无需选择班次
-        await msg.reply_text(f"✅ {matched_keyword} 成功记录！")
+        # ✅ 下班打卡时，自动继承当天上班班次
+        from db_pg import get_today_shift
+        shift = get_today_shift(username)
+        save_message(username=username, content=image_url, timestamp=now, keyword=matched_keyword, shift=shift)
+        await msg.reply_text(f"✅ 下班打卡成功！班次自动继承：{shift or '未选择'}")
+
 
 
 # 新增：处理班次选择
@@ -103,15 +99,14 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    shift_code = query.data.split(":")[1]  # e.g. F
-    shift_name = SHIFT_OPTIONS.get(shift_code, shift_code)  # 转回完整班次
+    shift_code = query.data.split(":")[1]
+    shift_name = SHIFT_OPTIONS.get(shift_code, shift_code)
 
     username = query.from_user.username or f"user{query.from_user.id}"
 
     # 保存班次
     save_shift(username, shift_name)
 
-    # 回复提示完整班次
     await query.edit_message_text(f"✅ 你的班次已记录：{shift_name}")
 
 
