@@ -16,7 +16,7 @@ def export_messages(start_datetime, end_datetime):
 
     try:
         engine = create_engine(DATABASE_URL)
-        df = pd.read_sql_query("SELECT * FROM messages", engine)
+        df = pd.read_sql_query("SELECT username, content, timestamp, keyword FROM messages", engine)
     except Exception as e:
         print(f"❌ 无法连接数据库或读取数据: {e}")
         return None
@@ -25,15 +25,12 @@ def export_messages(start_datetime, end_datetime):
         print("❌ 数据中不含 timestamp 字段")
         return None
 
-    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+    # 处理时区，转换为北京时间
+    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True)
     df = df.dropna(subset=['timestamp'])
-
-    # 时区处理
-    if df['timestamp'].dt.tz is None:
-        df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
     df['timestamp'] = df['timestamp'].dt.tz_convert('Asia/Shanghai')
 
-    # 过滤时间范围（datetime 已经是带 tz 的）
+    # 过滤时间范围
     filtered = df[(df['timestamp'] >= start_datetime) & (df['timestamp'] < end_datetime)]
 
     if filtered.empty:
@@ -48,17 +45,18 @@ def export_messages(start_datetime, end_datetime):
     export_dir = os.path.join(DATA_DIR, f"export_{start_str}_{end_str}")
     os.makedirs(export_dir, exist_ok=True)
 
-    # Excel 导出
+    # ✅ Excel 导出（按天分页）
     excel_path = os.path.join(export_dir, f"打卡记录_{start_str}_{end_str}.xlsx")
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
-        for keyword, group_df in filtered.groupby("keyword"):
-            slim_df = group_df[["username", "timestamp"]].sort_values("timestamp")
-            slim_df.columns = ["用户名", "打卡时间"]
+        # 按日期分组
+        filtered['date'] = filtered['timestamp'].dt.strftime("%Y-%m-%d")
+        for day, group_df in filtered.groupby("date"):
+            slim_df = group_df[["username", "timestamp", "keyword"]].sort_values("timestamp")
+            slim_df.columns = ["用户名", "打卡时间", "关键词"]
             slim_df["打卡时间"] = slim_df["打卡时间"].dt.strftime("%Y-%m-%d %H:%M:%S")
-            sheet_name = keyword[:31] if isinstance(keyword, str) else "打卡"
-            slim_df.to_excel(writer, sheet_name=sheet_name, index=False)
+            slim_df.to_excel(writer, sheet_name=day, index=False)
 
-    # 下载图片
+    # ✅ 下载图片
     image_dir = os.path.join(export_dir, "图片")
     os.makedirs(image_dir, exist_ok=True)
     photo_df = filtered[filtered["content"].str.endswith(".jpg", na=False)]
@@ -80,7 +78,7 @@ def export_messages(start_datetime, end_datetime):
             except Exception as e:
                 print(f"[图片下载失败] {url} - {e}")
 
-    # 打包 zip
+    # ✅ 打包 zip
     zip_path = os.path.join(DATA_DIR, f"考勤统计_{start_str}_{end_str}.zip")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
         for root, _, files in os.walk(export_dir):
@@ -89,7 +87,7 @@ def export_messages(start_datetime, end_datetime):
                 arcname = os.path.relpath(full_path, export_dir)
                 zipf.write(full_path, arcname)
 
-    # 清理
+    # ✅ 清理临时文件夹
     try:
         shutil.rmtree(export_dir)
     except Exception as e:
