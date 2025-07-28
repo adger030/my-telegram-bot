@@ -3,40 +3,37 @@ import psycopg2
 from sqlalchemy import create_engine
 from datetime import datetime, timedelta, timezone
 
-# 从环境变量中获取数据库连接 URL
 DATABASE_URL = os.getenv("DATABASE_URL")
-
-# 创建 SQLAlchemy 数据库引擎
 engine = create_engine(DATABASE_URL)
+BEIJING_TZ = timezone(timedelta(hours=8))
 
 def get_conn():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # 创建表
+            # 创建 messages 表
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id SERIAL PRIMARY KEY,
                     username TEXT,
+                    name TEXT,
                     content TEXT,
                     timestamp TIMESTAMPTZ NOT NULL,
-                    keyword TEXT
+                    keyword TEXT,
+                    shift TEXT
+                );
+            """)
+
+            # 创建 users 表
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    username TEXT PRIMARY KEY,
+                    name TEXT NOT NULL
                 );
             """)
             conn.commit()
-
-            # 检查是否有 shift 列
-            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='messages'")
-            columns = [row[0] for row in cur.fetchall()]
-            if "shift" not in columns:
-                cur.execute("ALTER TABLE messages ADD COLUMN shift TEXT;")
-                conn.commit()
-                print("✅ 已为 messages 表添加 shift 字段")
-
-
-BEIJING_TZ = timezone(timedelta(hours=8))
 
 def has_user_checked_keyword_today(username, keyword):
     today = datetime.now(BEIJING_TZ).date()
@@ -47,23 +44,22 @@ def has_user_checked_keyword_today(username, keyword):
                 WHERE username = %s AND keyword = %s 
                   AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai') = %s
             """, (username, keyword, today))
-            count = cur.fetchone()[0]
-    return count > 0
+            return cur.fetchone()[0] > 0
 
-def save_message(username, content, timestamp, keyword, shift=None):
-    # 强制确保时间是 Asia/Shanghai
+# ✅ 支持 name 字段的 save_message
+def save_message(username, name, content, timestamp, keyword, shift=None):
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=BEIJING_TZ)
     else:
         timestamp = timestamp.astimezone(BEIJING_TZ)
 
-    print(f"[DB] Saving: {username}, {content}, {timestamp}, {keyword}, shift={shift}")
+    print(f"[DB] Saving: {username}, {name}, {content}, {timestamp}, {keyword}, shift={shift}")
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO messages (username, content, timestamp, keyword, shift)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (username, content, timestamp, keyword, shift))
+                INSERT INTO messages (username, name, content, timestamp, keyword, shift)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (username, name, content, timestamp, keyword, shift))
             conn.commit()
 
 def get_user_logs(username, start, end):
@@ -77,12 +73,9 @@ def get_user_logs(username, start, end):
             return cur.fetchall()
 
 def get_user_month_logs(username):
-    """
-    获取用户当月打卡记录（基于 get_user_logs 封装）
-    """
     now = datetime.now(BEIJING_TZ)
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)  # 下月1号
+    end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
     return get_user_logs(username, start, end)
 
 def delete_old_data(days=30):
@@ -94,15 +87,11 @@ def delete_old_data(days=30):
                 WHERE timestamp < %s AND content LIKE '%%.jpg'
             """, (cutoff,))
             photos = [row[0] for row in cur.fetchall()]
-
             cur.execute("DELETE FROM messages WHERE timestamp < %s", (cutoff,))
             conn.commit()
-    return photos  # 留给图片清理函数处理
+    return photos
 
 def save_shift(username, shift):
-    """
-    更新用户最近一条打卡记录的班次
-    """
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -116,9 +105,6 @@ def save_shift(username, shift):
             conn.commit()
 
 def get_today_shift(username):
-    """
-    获取用户当天的上班班次
-    """
     today = datetime.now(BEIJING_TZ).date()
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -133,25 +119,20 @@ def get_today_shift(username):
             row = cur.fetchone()
             return row[0] if row else None
 
-# 获取用户姓名
+# ✅ 用户姓名管理
 def get_user_name(username):
-    conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("SELECT name FROM users WHERE username = %s", (username,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    return row[0] if row else None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM users WHERE username = %s", (username,))
+            row = cur.fetchone()
+            return row[0] if row else None
 
-# 保存/更新用户姓名
 def set_user_name(username, name):
-    conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO users (username, name)
-        VALUES (%s, %s)
-        ON CONFLICT (username) DO UPDATE SET name = EXCLUDED.name
-    """, (username, name))
-    conn.commit()
-    cur.close()
-    conn.close()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO users (username, name)
+                VALUES (%s, %s)
+                ON CONFLICT (username) DO UPDATE SET name = EXCLUDED.name
+            """, (username, name))
+            conn.commit()
