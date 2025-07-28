@@ -11,7 +11,7 @@ from collections import defaultdict
 
 from cleaner import delete_last_month_data
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
-from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_month_logs, get_user_logs  # 新增 get_user_logs 支持时间查询
+from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_month_logs, get_user_logs, save_shift  # 新增 get_user_logs 支持时间查询
 from export import export_messages
 from upload_image import upload_image
 
