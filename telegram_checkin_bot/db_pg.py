@@ -20,8 +20,9 @@ def init_db():
                     id SERIAL PRIMARY KEY,
                     username TEXT,
                     content TEXT,
-                    timestamp TIMESTAMPTZ NOT NULL,  -- ✅ 北京时间存入这里
-                    keyword TEXT
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    keyword TEXT,
+                    shift TEXT  -- ✅ 新增班次字段
                 );
             """)
             conn.commit()
@@ -91,3 +92,16 @@ def delete_old_data(days=30):
             cur.execute("DELETE FROM messages WHERE timestamp < %s", (cutoff,))
             conn.commit()
     return photos  # 留给图片清理函数处理
+
+def save_shift(username, shift):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE messages 
+                SET shift = %s 
+                WHERE username = %s 
+                AND timestamp = (
+                    SELECT MAX(timestamp) FROM messages WHERE username = %s
+                )
+            """, (shift, username, username))
+            conn.commit()
