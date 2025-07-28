@@ -15,17 +15,26 @@ def get_conn():
 def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
+            # 创建表
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id SERIAL PRIMARY KEY,
                     username TEXT,
                     content TEXT,
                     timestamp TIMESTAMPTZ NOT NULL,
-                    keyword TEXT,
-                    shift TEXT  -- ✅ 新增班次字段
+                    keyword TEXT
                 );
             """)
             conn.commit()
+
+            # 检查是否有 shift 列
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='messages'")
+            columns = [row[0] for row in cur.fetchall()]
+            if "shift" not in columns:
+                cur.execute("ALTER TABLE messages ADD COLUMN shift TEXT;")
+                conn.commit()
+                print("✅ 已为 messages 表添加 shift 字段")
+
 
 BEIJING_TZ = timezone(timedelta(hours=8))
 
