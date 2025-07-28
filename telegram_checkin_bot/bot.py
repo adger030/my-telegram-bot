@@ -188,8 +188,8 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
     now = datetime.now(BEIJING_TZ)
-    start = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1))  # 从上月最后一天开始
-    end = (start.replace(day=28) + timedelta(days=10)).replace(day=1)
+    start = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2))  # 往前两天
+    end = (now.replace(day=28) + timedelta(days=10)).replace(day=1)  # 下月初
 
     logs = get_user_logs(username, start, end)
     if not logs:
@@ -216,12 +216,20 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if isinstance(ts2, str): ts2 = parse(ts2)
                 ts2 = ts2.astimezone(BEIJING_TZ)
                 if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=10):
-                    daily_map[date_key]["#下班打卡"] = ts2  # ✅ 归类到上班日期
+                    daily_map[date_key]["#下班打卡"] = ts2
                     break
                 j += 1
             i = j
         else:
             i += 1
+
+    # ✅ 仅显示本月
+    this_month = now.month
+    daily_map = {d: v for d, v in daily_map.items() if d.month == this_month}
+
+    if not daily_map:
+        await update.message.reply_text("📭 本月暂无打卡记录。")
+        return
 
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
     complete = 0
