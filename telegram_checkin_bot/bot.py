@@ -52,8 +52,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     photo = msg.photo[-1]
     file = await photo.get_file()
-    if file.file_size > 3 * 1024 * 1024:  # 调整到3MB
-        await msg.reply_text("❗️图片太大，不能超过3MB。")
+    if file.file_size > 1024 * 1024:
+        await msg.reply_text("❗️图片太大，不能超过1MB。")
         return
 
     today_str = datetime.now(BEIJING_TZ).strftime("%Y-%m-%d")
