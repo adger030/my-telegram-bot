@@ -18,13 +18,23 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS messages (
                     id SERIAL PRIMARY KEY,
                     username TEXT,
-                    name TEXT,
                     content TEXT,
                     timestamp TIMESTAMPTZ NOT NULL,
-                    keyword TEXT,
-                    shift TEXT
+                    keyword TEXT
                 );
             """)
+
+            # 检查并补充 name 和 shift 列
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='messages'")
+            columns = [row[0] for row in cur.fetchall()]
+
+            if "name" not in columns:
+                cur.execute("ALTER TABLE messages ADD COLUMN name TEXT;")
+                print("✅ 已为 messages 表添加 name 字段")
+
+            if "shift" not in columns:
+                cur.execute("ALTER TABLE messages ADD COLUMN shift TEXT;")
+                print("✅ 已为 messages 表添加 shift 字段")
 
             # 创建 users 表
             cur.execute("""
@@ -34,6 +44,7 @@ def init_db():
                 );
             """)
             conn.commit()
+
 
 def has_user_checked_keyword_today(username, keyword):
     today = datetime.now(BEIJING_TZ).date()
