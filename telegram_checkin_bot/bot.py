@@ -170,7 +170,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("请选择今天的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         save_message(username=username, name=name, content=image_url, timestamp=now, keyword=matched_keyword, shift=last_shift)
-        await msg.reply_text(f"✅ 下班打卡成功！（归类到 {last_check_in.date()}）班次：{last_shift or '未选择'}")
+        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}")
 
 # ========== 处理班次选择 ==========
 async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
