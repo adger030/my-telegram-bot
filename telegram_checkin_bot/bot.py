@@ -243,10 +243,22 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ 无权限，仅管理员可导出记录。")
         return
 
-    now = datetime.now(BEIJING_TZ)
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    # 下个月 1 号
-    end = (start + timedelta(days=32)).replace(day=1)
+    tz = BEIJING_TZ
+    args = context.args
+
+    # ✅ 如果命令后带参数：/export YYYY-MM-DD YYYY-MM-DD
+    if len(args) == 2:
+        try:
+            start = parse(args[0]).replace(tzinfo=tz, hour=0, minute=0, second=0, microsecond=0)
+            end = parse(args[1]).replace(tzinfo=tz, hour=23, minute=59, second=59, microsecond=999999)
+        except Exception:
+            await update.message.reply_text("⚠️ 日期格式错误，请使用 /export YYYY-MM-DD YYYY-MM-DD")
+            return
+    else:
+        # ✅ 默认导出本月数据
+        now = datetime.now(tz)
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = (start + timedelta(days=32)).replace(day=1)
 
     file_path = export_messages(start, end)
     if not file_path:
