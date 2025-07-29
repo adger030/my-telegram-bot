@@ -33,18 +33,8 @@ def extract_keyword(text: str):
         if kw in text:
             return kw
     return None
-
-# ========== 姓名登记 ==========
-async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tg_user = update.effective_user
-    username = tg_user.username or f"user{tg_user.id}"
-
-    if not get_user_name(username):
-        WAITING_NAME[username] = True
-        await update.message.reply_text("👤 欢迎使用 MS 部考勤机器人，请输入你的工作名：")
-        return
-
-    name = get_user_name(username)
+    
+async def send_welcome(update_or_msg, name):
     welcome_text = (
         f"您好，{name}！\n\n"
         "📌 使用说明：\n"
@@ -57,9 +47,25 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<a href='https://www.ipaddress.my'>点击这里查看你的IP地址</a>\n\n"
         "举个🌰，如下👇"
     )
-    await update.message.reply_text(welcome_text, parse_mode="HTML")
+    await update_or_msg.reply_text(welcome_text, parse_mode="HTML")
     await asyncio.sleep(1)
-    await update.message.reply_photo(photo="https://i.postimg.cc/3xRMBbT4/photo-2025-07-28-15-55-19.jpg", caption="#上班打卡")
+    await update_or_msg.reply_photo(
+        photo="https://i.postimg.cc/3xRMBbT4/photo-2025-07-28-15-55-19.jpg",
+        caption="#上班打卡"
+    )
+    
+# ========== 姓名登记 ==========
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tg_user = update.effective_user
+    username = tg_user.username or f"user{tg_user.id}"
+
+    if not get_user_name(username):
+        WAITING_NAME[username] = True
+        await update.message.reply_text("👤 欢迎使用 MS 部考勤机器人，请输入你的工作名：")
+        return
+        
+    name = get_user_name(username)
+    await send_welcome(update.message, name)
 
 # ========== 处理文字消息 ==========
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -79,21 +85,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         WAITING_NAME.pop(username)
         name = get_user_name(username)
-        welcome_text = (
-            f"您好，{name}！\n\n"
-            "📌 使用说明：\n"
-            "1️⃣ 向机器人发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
-            "2️⃣ 上下班打卡间隔不能超过10小时，否则下班信息不录入；\n\n"
-            "IP截图标准\n"
-            "① 设备编码：本机序列号\n"
-            "② 实时IP：指定网站内显示的IP截图\n"
-            "③ 本地时间：电脑任务栏时间截图（需含月、日、时、分）\n\n"
-            "<a href='https://www.ipaddress.my'>点击这里查看你的IP地址</a>\n\n"
-            "举个🌰，如下👇"
-        )
-        await msg.reply_text(welcome_text, parse_mode="HTML")
-        await asyncio.sleep(1)
-        await msg.reply_photo(photo="https://i.postimg.cc/3xRMBbT4/photo-2025-07-28-15-55-19.jpg", caption="#上班打卡")
+        await send_welcome(update.message, name)
         return
 
     if not get_user_name(username):
