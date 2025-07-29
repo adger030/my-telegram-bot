@@ -10,6 +10,10 @@ BEIJING_TZ = timezone(timedelta(hours=8))
 def get_conn():
     return psycopg2.connect(DATABASE_URL)
 
+def get_db():
+    """兼容旧代码，等同于 get_conn"""
+    return get_conn()
+
 def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -45,7 +49,6 @@ def init_db():
             """)
             conn.commit()
 
-
 def has_user_checked_keyword_today(username, keyword, day_offset=0):
     """检查用户在当天（或指定偏移日）是否打过指定关键词"""
     target_date = (datetime.now(BEIJING_TZ) + timedelta(days=day_offset)).date()
@@ -58,8 +61,6 @@ def has_user_checked_keyword_today(username, keyword, day_offset=0):
             """, (username, keyword, target_date))
             return cur.fetchone()[0] > 0
 
-
-# ✅ 支持 name 字段的 save_message
 def save_message(username, name, content, timestamp, keyword, shift=None):
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=BEIJING_TZ)
@@ -132,7 +133,6 @@ def get_today_shift(username):
             row = cur.fetchone()
             return row[0] if row else None
 
-# ✅ 用户姓名管理
 def get_user_name(username):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -143,16 +143,13 @@ def get_user_name(username):
 def set_user_name(username, name):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # 检查是否已有相同姓名（排除自己）
             cur.execute("SELECT username FROM users WHERE name = %s AND username != %s", (name, username))
             if cur.fetchone():
                 raise ValueError(f"姓名 {name} 已被使用，请换一个。")
 
-            # 插入或更新
             cur.execute("""
                 INSERT INTO users (username, name)
                 VALUES (%s, %s)
                 ON CONFLICT (username) DO UPDATE SET name = EXCLUDED.name
             """, (username, name))
             conn.commit()
-
