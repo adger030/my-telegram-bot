@@ -10,7 +10,7 @@ from dateutil.parser import parse
 from collections import defaultdict
 
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
-from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_logs, save_shift, get_user_name, set_user_name, get_db
+from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_logs, save_shift, get_user_name, set_user_name, get_conn
 from export import export_messages
 from upload_image import upload_image
 from cleaner import delete_last_month_data
@@ -38,20 +38,19 @@ def extract_keyword(text: str):
 def has_user_checked_keyword_today_fixed(username, keyword):
     now = datetime.now(BEIJING_TZ)
     if keyword == "#下班打卡" and now.hour < 6:
-        # 如果是凌晨 0~6 点下班，则归属前一天
         ref_day = now - timedelta(days=1)
     else:
         ref_day = now
     start = ref_day.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
 
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT 1 FROM checkins
-            WHERE username=%s AND keyword=%s AND timestamp BETWEEN %s AND %s
-        """, (username, keyword, start, end))
-        return cur.fetchone() is not None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT 1 FROM messages
+                WHERE username=%s AND keyword=%s AND timestamp BETWEEN %s AND %s
+            """, (username, keyword, start, end))
+            return cur.fetchone() is not None
 
 async def send_welcome(update_or_msg, name):
     welcome_text = (
