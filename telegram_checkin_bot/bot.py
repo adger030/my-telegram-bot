@@ -38,7 +38,7 @@ def extract_keyword(text: str):
 def has_user_checked_keyword_today_fixed(username, keyword):
     now = datetime.now(BEIJING_TZ)
 
-    # 统一上下班的日期归属
+    # 确定参考日期
     if keyword == "#下班打卡" and now.hour < 6:
         ref_day = now - timedelta(days=1)
     else:
@@ -50,11 +50,21 @@ def has_user_checked_keyword_today_fixed(username, keyword):
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT 1 FROM messages
+            SELECT timestamp FROM messages
             WHERE username=%s AND keyword=%s
             AND timestamp >= %s AND timestamp < %s
+            ORDER BY timestamp DESC
         """, (username, keyword, start, end))
-        return cur.fetchone() is not None
+        rows = cur.fetchall()
+
+    # 过滤掉凌晨的下班记录（它属于前一天）
+    for (ts,) in rows:
+        ts_local = ts.astimezone(BEIJING_TZ)
+        if keyword == "#下班打卡" and ts_local.hour < 6:
+            continue  # 归前一天，不算今天
+        return True  # 有有效下班卡
+    return False
+
 
 
 async def send_welcome(update_or_msg, name):
