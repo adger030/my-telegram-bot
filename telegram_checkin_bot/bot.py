@@ -72,7 +72,7 @@ async def send_welcome(update_or_msg, name):
         f"您好，{name}！\n\n"
         "📌 使用说明：\n"
         "1️⃣ 向机器人发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
-        "2️⃣ 上下班打卡间隔不能超过10小时，否则下班信息不录入；\n\n"
+        "2️⃣ 上下班打卡间隔不能超过12小时，否则下班信息不录入；\n\n"
         "IP截图标准\n"
         "① 设备编码：本机序列号\n"
         "② 实时IP：指定网站内显示的IP截图\n"
@@ -172,8 +172,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if now < last_check_in:
             await msg.reply_text("❗ 下班时间不能早于上班时间。")
             return
-        if now - last_check_in > timedelta(hours=10):
-            await msg.reply_text("❗ 上班打卡已超过10小时，下班打卡无效。")
+        if now - last_check_in > timedelta(hours=12):
+            await msg.reply_text("❗ 上班打卡已超过12小时，下班打卡无效。")
             return
 
     photo = msg.photo[-1]
@@ -244,7 +244,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ts2, kw2, _ = logs[j]
                 if isinstance(ts2, str): ts2 = parse(ts2)
                 ts2 = ts2.astimezone(BEIJING_TZ)
-                if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=10):
+                if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=12):
                     if ts2.hour < 6:
                         daily_map[ts.date()]["#下班打卡"] = ts2
                     else:
