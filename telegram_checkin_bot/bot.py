@@ -252,8 +252,9 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     now = datetime.now(BEIJING_TZ)
-    start = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2))
-    end = (now.replace(day=28) + timedelta(days=10)).replace(day=1)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # 下个月 1 号
+    end = (start + timedelta(days=32)).replace(day=1)
 
     file_path = export_messages(start, end)
     if not file_path:
