@@ -37,10 +37,13 @@ def extract_keyword(text: str):
 # ✅ 修正后的“今天是否已打卡”逻辑（支持跨天下班）
 def has_user_checked_keyword_today_fixed(username, keyword):
     now = datetime.now(BEIJING_TZ)
+
+    # 统一上下班的日期归属
     if keyword == "#下班打卡" and now.hour < 6:
         ref_day = now - timedelta(days=1)
     else:
         ref_day = now
+
     start = ref_day.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
 
@@ -48,9 +51,11 @@ def has_user_checked_keyword_today_fixed(username, keyword):
         cur = conn.cursor()
         cur.execute("""
             SELECT 1 FROM messages
-            WHERE username=%s AND keyword=%s AND timestamp BETWEEN %s AND %s
+            WHERE username=%s AND keyword=%s
+            AND timestamp >= %s AND timestamp < %s
         """, (username, keyword, start, end))
         return cur.fetchone() is not None
+
 
 async def send_welcome(update_or_msg, name):
     welcome_text = (
