@@ -266,9 +266,11 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     complete = 0
     for idx, day in enumerate(sorted(daily_map), start=1):
         kw_map = daily_map[day]
-        shift = kw_map.get("shift", "未选择班次")
+        shift_full = kw_map.get("shift", "未选择班次")
+        # 去掉括号及内容，只保留班次名称
+        shift = shift_full.split("（")[0]
         if "#上班打卡" in kw_map and "#下班打卡" in kw_map:
-            reply += f"{idx}. {day.strftime('%m月%d日')} - {shift} - ✅ 已完成\n"
+            reply += f"{idx}. {day.strftime('%m月%d日')} - {shift} - 已完成\n"
             complete += 1
         else:
             reply += f"{idx}. {day.strftime('%m月%d日')} - {shift} - 缺少打卡\n"
