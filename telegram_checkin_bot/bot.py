@@ -10,7 +10,7 @@ from dateutil.parser import parse
 from collections import defaultdict
 
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
-from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_logs, save_shift, get_user_name, set_user_name
+from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_logs, save_shift, get_user_name, set_user_name, get_db
 from export import export_messages
 from upload_image import upload_image
 from cleaner import delete_last_month_data
@@ -33,7 +33,26 @@ def extract_keyword(text: str):
         if kw in text:
             return kw
     return None
-    
+
+# ✅ 修正后的“今天是否已打卡”逻辑（支持跨天下班）
+def has_user_checked_keyword_today_fixed(username, keyword):
+    now = datetime.now(BEIJING_TZ)
+    if keyword == "#下班打卡" and now.hour < 6:
+        # 如果是凌晨 0~6 点下班，则归属前一天
+        ref_day = now - timedelta(days=1)
+    else:
+        ref_day = now
+    start = ref_day.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT 1 FROM checkins
+            WHERE username=%s AND keyword=%s AND timestamp BETWEEN %s AND %s
+        """, (username, keyword, start, end))
+        return cur.fetchone() is not None
+
 async def send_welcome(update_or_msg, name):
     welcome_text = (
         f"您好，{name}！\n\n"
@@ -53,7 +72,7 @@ async def send_welcome(update_or_msg, name):
         photo="https://i.postimg.cc/3xRMBbT4/photo-2025-07-28-15-55-19.jpg",
         caption="#上班打卡"
     )
-    
+
 # ========== 姓名登记 ==========
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
@@ -61,7 +80,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not get_user_name(username):
         WAITING_NAME[username] = True
-        await update.message.reply_text("👤 欢迎使用 MS 部考勤机器人，请输入你的工作名：")
+        await update.message.reply_text("👤 第一次打卡前请输入你的工作名：")
         return
         
     name = get_user_name(username)
@@ -95,7 +114,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyword = extract_keyword(text)
     if keyword:
-        if keyword == "#下班打卡" and not has_user_checked_keyword_today(username, "#上班打卡"):
+        if keyword == "#下班打卡" and not has_user_checked_keyword_today_fixed(username, "#上班打卡"):
             await msg.reply_text("❗ 你今天还没有打上班卡呢，赶紧去上班！")
             return
         await msg.reply_text("❗️请附带上IP截图哦。")
@@ -116,12 +135,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("❗️图片必须附带打卡关键词，例如：“#上班打卡”或“#下班打卡”。")
         return
 
-    if has_user_checked_keyword_today(username, matched_keyword):
+    if has_user_checked_keyword_today_fixed(username, matched_keyword):
         await msg.reply_text(f"⚠️ 你今天已经提交过“{matched_keyword}”了哦！")
         return
 
+    # 下班打卡验证
     if matched_keyword == "#下班打卡":
-        # 查找昨天或今天的上班打卡
         now = datetime.now(BEIJING_TZ)
         logs = get_user_logs(username, now - timedelta(days=1), now)
         last_check_in, last_shift = None, None
@@ -136,6 +155,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         last_check_in = last_check_in.astimezone(BEIJING_TZ)
+        if now < last_check_in:
+            await msg.reply_text("❗ 下班时间不能早于上班时间。")
+            return
         if now - last_check_in > timedelta(hours=10):
             await msg.reply_text("❗ 上班打卡已超过10小时，下班打卡无效。")
             return
@@ -178,7 +200,7 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
     now = datetime.now(BEIJING_TZ)
-    start = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2))
+    start = (now.replace(day=1) - timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
     end = (now.replace(day=28) + timedelta(days=10)).replace(day=1)
 
     logs = get_user_logs(username, start, end)
@@ -195,8 +217,12 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if isinstance(ts, str): ts = parse(ts)
         ts = ts.astimezone(BEIJING_TZ)
 
+        # ✅ 如果是凌晨下班(0~6点)，归属前一天
+        date_key = ts.date()
+        if kw == "#下班打卡" and ts.hour < 6:
+            date_key = (ts - timedelta(days=1)).date()
+
         if kw == "#上班打卡":
-            date_key = ts.date()
             daily_map[date_key]["shift"] = shift
             daily_map[date_key]["#上班打卡"] = ts
 
@@ -206,14 +232,19 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if isinstance(ts2, str): ts2 = parse(ts2)
                 ts2 = ts2.astimezone(BEIJING_TZ)
                 if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=10):
-                    daily_map[date_key]["#下班打卡"] = ts2
+                    # 跨天处理
+                    if ts2.hour < 6:
+                        daily_map[ts.date()]["#下班打卡"] = ts2
+                    else:
+                        daily_map[date_key]["#下班打卡"] = ts2
                     break
                 j += 1
             i = j
         else:
+            # 单独下班打卡(没匹配到上班)
+            daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
-    # 仅显示本月
     daily_map = {d: v for d, v in daily_map.items() if d.month == now.month}
 
     if not daily_map:
@@ -246,7 +277,6 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tz = BEIJING_TZ
     args = context.args
 
-    # ✅ 如果命令后带参数：/export YYYY-MM-DD YYYY-MM-DD
     if len(args) == 2:
         try:
             start = parse(args[0]).replace(tzinfo=tz, hour=0, minute=0, second=0, microsecond=0)
@@ -255,7 +285,6 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ 日期格式错误，请使用 /export YYYY-MM-DD YYYY-MM-DD")
             return
     else:
-        # ✅ 默认导出本月数据
         now = datetime.now(tz)
         start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         end = (start + timedelta(days=32)).replace(day=1)
@@ -265,15 +294,21 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 指定日期内没有数据。")
         return
 
-    await update.message.reply_document(document=open(file_path, "rb"))
-    os.remove(file_path)
+    try:
+        await update.message.reply_document(document=open(file_path, "rb"))
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
 # ========== 主程序 ==========
 def check_existing_instance():
     lock_file = "/tmp/bot.lock"
     if os.path.exists(lock_file):
-        print("⚠️ 检测到已有 Bot 实例在运行，退出。")
-        sys.exit(1)
+        with open(lock_file) as f:
+            pid = int(f.read())
+            if os.path.exists(f"/proc/{pid}"):
+                print("⚠️ 检测到已有 Bot 实例在运行，退出。")
+                sys.exit(1)
     with open(lock_file, "w") as f:
         f.write(str(os.getpid()))
     import atexit
