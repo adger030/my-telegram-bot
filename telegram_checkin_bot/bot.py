@@ -10,7 +10,7 @@ from dateutil.parser import parse
 from collections import defaultdict
 
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
-from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_logs, save_shift, get_user_name, set_user_name, get_conn
+from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_logs, save_shift, get_user_name, set_user_name, get_db
 from export import export_messages
 from upload_image import upload_image
 from cleaner import delete_last_month_data
@@ -44,13 +44,13 @@ def has_user_checked_keyword_today_fixed(username, keyword):
     start = ref_day.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT 1 FROM messages
-                WHERE username=%s AND keyword=%s AND timestamp BETWEEN %s AND %s
-            """, (username, keyword, start, end))
-            return cur.fetchone() is not None
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT 1 FROM messages
+            WHERE username=%s AND keyword=%s AND timestamp BETWEEN %s AND %s
+        """, (username, keyword, start, end))
+        return cur.fetchone() is not None
 
 async def send_welcome(update_or_msg, name):
     welcome_text = (
@@ -216,7 +216,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if isinstance(ts, str): ts = parse(ts)
         ts = ts.astimezone(BEIJING_TZ)
 
-        # ✅ 如果是凌晨下班(0~6点)，归属前一天
         date_key = ts.date()
         if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
@@ -231,7 +230,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if isinstance(ts2, str): ts2 = parse(ts2)
                 ts2 = ts2.astimezone(BEIJING_TZ)
                 if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=10):
-                    # 跨天处理
                     if ts2.hour < 6:
                         daily_map[ts.date()]["#下班打卡"] = ts2
                     else:
@@ -240,7 +238,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 j += 1
             i = j
         else:
-            # 单独下班打卡(没匹配到上班)
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
