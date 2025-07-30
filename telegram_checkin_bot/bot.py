@@ -222,15 +222,15 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
 
-    logs = sorted(logs, key=lambda x: parse(x[0]) if isinstance(x[0], str) else x[0])
-    daily_map = defaultdict(dict)
+    # 统一转为北京时间
+    logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
+    logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
+    logs = sorted(logs, key=lambda x: x[0])
 
+    daily_map = defaultdict(dict)
     i = 0
     while i < len(logs):
         ts, kw, shift = logs[i]
-        if isinstance(ts, str): ts = parse(ts)
-        ts = ts.astimezone(BEIJING_TZ)
-
         date_key = ts.date()
         if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
@@ -238,12 +238,9 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if kw == "#上班打卡":
             daily_map[date_key]["shift"] = shift
             daily_map[date_key]["#上班打卡"] = ts
-
             j = i + 1
             while j < len(logs):
                 ts2, kw2, _ = logs[j]
-                if isinstance(ts2, str): ts2 = parse(ts2)
-                ts2 = ts2.astimezone(BEIJING_TZ)
                 if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=12):
                     if ts2.hour < 6:
                         daily_map[ts.date()]["#下班打卡"] = ts2
@@ -256,13 +253,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
-    # daily_map = {d: v for d, v in daily_map.items() if d.month == now.month}
-    logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
-    logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
-
-    if not daily_map:
-        await update.message.reply_text("📭 本月暂无打卡记录。")
-        return
+    # ❌ 不再做 month 过滤，因为 start/end 已经限制本月
 
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
     complete = 0
@@ -271,26 +262,19 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         shift_full = kw_map.get("shift", "未选择班次")
         shift = shift_full.split("（")[0]
 
-        # 检查缺少的打卡
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
 
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}\n"
-        if has_up:
-            reply += f"   └─ 上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}\n"
-        else:
-            reply += f"   └─ 缺少上班打卡\n"
-
-        if has_down:
-            reply += f"   └─ 下班打卡：{kw_map['#下班打卡'].strftime('%H:%M')}\n"
-        else:
-            reply += f"   └─ 缺少下班打卡\n"
+        reply += f"   └─ {'上班打卡：' + kw_map['#上班打卡'].strftime('%H:%M') if has_up else '❌ 缺少#上班打卡'}\n"
+        reply += f"   └─ {'下班打卡：' + kw_map['#下班打卡'].strftime('%H:%M') if has_down else '❌ 缺少#下班打卡'}\n"
 
         if has_up and has_down:
             complete += 1
 
     reply += f"\n✅ 本月完整打卡：{complete} 天"
     await update.message.reply_text(reply)
+
 
 # ========== 导出数据 ==========
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
