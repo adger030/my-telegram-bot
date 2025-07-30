@@ -214,8 +214,8 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
     now = datetime.now(BEIJING_TZ)
-    start = (now.replace(day=1) - timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
-    end = (now.replace(day=28) + timedelta(days=10)).replace(day=1)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = (start + timedelta(days=32)).replace(day=1)
 
     logs = get_user_logs(username, start, end)
     if not logs:
@@ -267,16 +267,25 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for idx, day in enumerate(sorted(daily_map), start=1):
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
-        # 去掉括号及内容，只保留班次名称
         shift = shift_full.split("（")[0]
-        if "#上班打卡" in kw_map and "#下班打卡" in kw_map:
-            reply += f"{idx}. {day.strftime('%m月%d日')} - {shift} \n"
-            complete += 1
+
+        # 检查缺少的打卡
+        has_up = "#上班打卡" in kw_map
+        has_down = "#下班打卡" in kw_map
+
+        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}\n"
+        if has_up:
+            reply += f"   └─ 上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}\n"
         else:
-            reply += f"{idx}. {day.strftime('%m月%d日')} - {shift} \n"
-        for kw in ["#上班打卡", "#下班打卡"]:
-            if kw in kw_map:
-                reply += f"   └─ {kw}：{kw_map[kw].strftime('%H:%M')}\n"
+            reply += f"   └─ 缺少上班打卡\n"
+
+        if has_down:
+            reply += f"   └─ 下班打卡：{kw_map['#下班打卡'].strftime('%H:%M')}\n"
+        else:
+            reply += f"   └─ 缺少下班打卡\n"
+
+        if has_up and has_down:
+            complete += 1
 
     reply += f"\n✅ 本月完整打卡：{complete} 天"
     await update.message.reply_text(reply)
