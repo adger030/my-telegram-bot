@@ -256,7 +256,9 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
-    daily_map = {d: v for d, v in daily_map.items() if d.month == now.month}
+    # daily_map = {d: v for d, v in daily_map.items() if d.month == now.month}
+    logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
+    logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
 
     if not daily_map:
         await update.message.reply_text("📭 本月暂无打卡记录。")
