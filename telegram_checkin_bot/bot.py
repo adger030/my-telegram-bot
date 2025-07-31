@@ -272,8 +272,8 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_down = "#下班打卡" in kw_map
 
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}\n"
-        reply += f"   └─ {'上班打卡：' + kw_map['#上班打卡'].strftime('%H:%M') if has_up else '❌ 缺少#上班打卡'}\n"
-        reply += f"   └─ {'下班打卡：' + kw_map['#下班打卡'].strftime('%H:%M') if has_down else '❌ 缺少#下班打卡'}\n"
+        reply += f"   └─ {'#上班打卡：' + kw_map['#上班打卡'].strftime('%H:%M') if has_up else '❌ 缺少上班打卡'}\n"
+        reply += f"   └─ {'#下班打卡：' + kw_map['#下班打卡'].strftime('%H:%M') if has_down else '❌ 缺少下班打卡'}\n"
 
         if has_up and has_down:
             complete += 1
