@@ -215,9 +215,11 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
     now = datetime.now(BEIJING_TZ)
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    prev_day = start - timedelta(days=1)  # 👈 向前多取一天（抓取跨月上班卡）
     end = (start + timedelta(days=32)).replace(day=1)
 
-    logs = get_user_logs(username, start, end)
+    # 查询区间改为前一天到下月初
+    logs = get_user_logs(username, prev_day, end)
     if not logs:
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
@@ -232,7 +234,8 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     while i < len(logs):
         ts, kw, shift = logs[i]
         date_key = ts.date()
-        # 下班打卡凌晨归前一天
+
+        # 下班卡凌晨归前一天
         if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
 
@@ -240,7 +243,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["shift"] = shift
             daily_map[date_key]["#上班打卡"] = ts
 
-            # 查找对应的下班卡
+            # 查找对应下班卡
             j = i + 1
             found_down = False
             while j < len(logs):
@@ -255,14 +258,16 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 j += 1
             i = j if found_down else i + 1
         else:
-            # 只有下班卡（没有上班卡）
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
+
+    # ✅ 过滤掉不属于本月的日期，保留跨月上班匹配到本月的情况
+    month_days = [d for d in sorted(daily_map) if d >= start.date()]
 
     # 生成输出
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
     complete = 0
-    for idx, day in enumerate(sorted(daily_map), start=1):
+    for idx, day in enumerate(month_days, start=1):
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
         shift = shift_full.split("（")[0]
@@ -272,7 +277,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}\n"
 
-        # ✅ 上班卡输出，增加跨月下班判断
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}\n"
         else:
@@ -281,7 +285,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 reply += "   └─ ❌ 缺少上班打卡\n"
 
-        # ✅ 下班卡输出（跨日显示次日）
         if has_down:
             ts_down = kw_map["#下班打卡"]
             next_day = ts_down.date() > day
@@ -289,7 +292,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             reply += "   └─ ❌ 缺少下班打卡\n"
 
-        # ✅ 仅上下班卡齐全才计入完整
         if has_up and has_down:
             complete += 1
 
