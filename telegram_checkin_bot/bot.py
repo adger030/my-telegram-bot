@@ -208,7 +208,7 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     shift_code = query.data.split(":")[1]
     shift_name = SHIFT_OPTIONS[shift_code]
     save_shift(username, shift_name)
-    await query.edit_message_text(f"✅ 上班打卡成功！你的班次：{shift_name}")
+    await query.edit_message_text(f"✅ 上班打卡成功！班次：{shift_name}")
 
 # ========== 查看本月打卡 ==========
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
