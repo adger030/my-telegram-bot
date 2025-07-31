@@ -222,7 +222,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
 
-    # 统一转为北京时间
+    # 转换为北京时间并排序
     logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
     logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
     logs = sorted(logs, key=lambda x: x[0])
@@ -232,29 +232,35 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     while i < len(logs):
         ts, kw, shift = logs[i]
         date_key = ts.date()
+        # 下班打卡凌晨归前一天
         if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
 
         if kw == "#上班打卡":
             daily_map[date_key]["shift"] = shift
             daily_map[date_key]["#上班打卡"] = ts
+
+            # 查找对应的下班卡
             j = i + 1
+            found_down = False
             while j < len(logs):
                 ts2, kw2, _ = logs[j]
                 if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=12):
+                    # 判断下班卡是否凌晨归前一天
                     if ts2.hour < 6:
                         daily_map[ts.date()]["#下班打卡"] = ts2
                     else:
                         daily_map[date_key]["#下班打卡"] = ts2
+                    found_down = True
                     break
                 j += 1
-            i = j
+            i = j if found_down else i + 1  # ✅ 如果没找到下班卡，只前进一步
         else:
+            # 只有下班卡（没有上班卡）
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
-    # ❌ 不再做 month 过滤，因为 start/end 已经限制本月
-
+    # 生成输出
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
     complete = 0
     for idx, day in enumerate(sorted(daily_map), start=1):
