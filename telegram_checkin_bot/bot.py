@@ -271,9 +271,17 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_down = "#下班打卡" in kw_map
 
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}\n"
-        reply += f"   └─ {'#上班打卡：' + kw_map['#上班打卡'].strftime('%H:%M') if has_up else '❌ 缺少上班打卡'}\n"
 
-        # ✅ 优化下班跨日显示「次日」
+        # ✅ 上班卡输出，增加跨月下班判断
+        if has_up:
+            reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}\n"
+        else:
+            if has_down and kw_map["#下班打卡"].hour < 6:
+                reply += "   └─ 🌙 跨月下班，无上班记录\n"
+            else:
+                reply += "   └─ ❌ 缺少上班打卡\n"
+
+        # ✅ 下班卡输出（跨日显示次日）
         if has_down:
             ts_down = kw_map["#下班打卡"]
             next_day = ts_down.date() > day
@@ -281,6 +289,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             reply += "   └─ ❌ 缺少下班打卡\n"
 
+        # ✅ 仅上下班卡齐全才计入完整
         if has_up and has_down:
             complete += 1
 
