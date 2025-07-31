@@ -246,7 +246,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             while j < len(logs):
                 ts2, kw2, _ = logs[j]
                 if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=12):
-                    # 判断下班卡是否凌晨归前一天
                     if ts2.hour < 6:
                         daily_map[ts.date()]["#下班打卡"] = ts2
                     else:
@@ -254,7 +253,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     found_down = True
                     break
                 j += 1
-            i = j if found_down else i + 1  # ✅ 如果没找到下班卡，只前进一步
+            i = j if found_down else i + 1
         else:
             # 只有下班卡（没有上班卡）
             daily_map[date_key]["#下班打卡"] = ts
@@ -273,7 +272,14 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}\n"
         reply += f"   └─ {'#上班打卡：' + kw_map['#上班打卡'].strftime('%H:%M') if has_up else '❌ 缺少上班打卡'}\n"
-        reply += f"   └─ {'#下班打卡：' + kw_map['#下班打卡'].strftime('%H:%M') if has_down else '❌ 缺少下班打卡'}\n"
+
+        # ✅ 优化下班跨日显示「次日」
+        if has_down:
+            ts_down = kw_map["#下班打卡"]
+            next_day = ts_down.date() > day
+            reply += f"   └─ #下班打卡：{ts_down.strftime('%H:%M')}{'（次日）' if next_day else ''}\n"
+        else:
+            reply += "   └─ ❌ 缺少下班打卡\n"
 
         if has_up and has_down:
             complete += 1
