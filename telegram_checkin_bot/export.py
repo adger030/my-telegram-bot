@@ -61,7 +61,7 @@ def export_messages(start_datetime, end_datetime):
     # ✅ Excel 导出
     excel_path = os.path.join(export_dir, f"打卡记录_{start_str}_{end_str}.xlsx")
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
-        filtered['date'] = filtered['timestamp'].dt.strftime("%Y-%m-%d")
+        filtered.loc[:, 'date'] = filtered['timestamp'].dt.strftime("%Y-%m-%d")
         for day, group_df in filtered.groupby("date"):
             slim_df = group_df[["name", "timestamp", "keyword", "shift"]].sort_values("timestamp")
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次"]
