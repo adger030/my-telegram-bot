@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from sqlalchemy import create_engine
 from concurrent.futures import ThreadPoolExecutor
-from config import DATA_DIR, DATABASE_URL, CLOUDINARY_UPLOAD_URL, CLOUDINARY_UPLOAD_PRESET
+from config import DATA_DIR, DATABASE_URL
 import cloudinary
 import cloudinary.uploader
 
