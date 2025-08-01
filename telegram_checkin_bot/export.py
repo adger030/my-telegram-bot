@@ -13,7 +13,7 @@ import cloudinary
 import cloudinary.uploader
 
 # 日志配置
-logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
+logging.basicConfig(level=logging.WARNING, format="[%(asctime)s] %(levelname)s: %(message)s")
 
 MAX_TELEGRAM_FILE_MB = 50  # Telegram 文件限制
 
