@@ -9,6 +9,8 @@ from datetime import datetime
 from sqlalchemy import create_engine
 from concurrent.futures import ThreadPoolExecutor
 from config import DATA_DIR, DATABASE_URL, CLOUDINARY_UPLOAD_URL, CLOUDINARY_UPLOAD_PRESET
+import cloudinary
+import cloudinary.uploader
 
 # 日志配置
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
@@ -125,21 +127,25 @@ def export_messages(start_datetime, end_datetime):
     return zip_path  # 返回文件路径
 
 
-def upload_to_cloudinary(file_path):
-    """上传文件到 Cloudinary 并返回下载链接"""
+def upload_to_cloudinary(file_path: str) -> str | None:
+    """
+    上传文件到 Cloudinary 并返回下载链接 (secure_url)
+    :param file_path: 本地文件路径
+    :return: 文件的 HTTPS 下载链接 (secure_url)，失败则返回 None
+    """
     try:
-        with open(file_path, "rb") as f:
-            response = requests.post(
-                CLOUDINARY_UPLOAD_URL,
-                files={"file": f},
-                data={"upload_preset": CLOUDINARY_UPLOAD_PRESET},
-                timeout=30
-            )
-        if response.status_code == 200:
-            return response.json().get("secure_url")
+        result = cloudinary.uploader.upload(
+            file_path,
+            resource_type="raw",  # raw 允许上传非图片文件，如 ZIP/Excel
+            folder="telegram_exports"  # 可选：在 Cloudinary 上存储到指定文件夹
+        )
+        secure_url = result.get("secure_url")
+        if secure_url:
+            logging.info(f"✅ Cloudinary 上传成功: {secure_url}")
+            return secure_url
         else:
-            logging.error(f"Cloudinary 上传失败: {response.text}")
+            logging.error("❌ Cloudinary 上传未返回 secure_url")
             return None
     except Exception as e:
-        logging.error(f"❌ 上传异常: {e}")
+        logging.error(f"❌ Cloudinary 上传失败: {e}")
         return None
