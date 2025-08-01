@@ -306,6 +306,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tz = BEIJING_TZ
     args = context.args
 
+    # 解析日期参数
     if len(args) == 2:
         try:
             start = parse(args[0]).replace(tzinfo=tz, hour=0, minute=0, second=0, microsecond=0)
@@ -318,15 +319,30 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         end = (start + timedelta(days=32)).replace(day=1)
 
+    # 发送导出中提示
+    status_msg = await update.message.reply_text("⏳ 正在导出数据，请稍等...")
+
+    # 执行导出
     file_path = export_messages(start, end)
+
+    # 删除“正在导出中”提示
+    try:
+        await status_msg.delete()
+    except:
+        pass
+
     if not file_path:
         await update.message.reply_text("⚠️ 指定日期内没有数据。")
         return
 
+    # 发送文件或链接
     try:
-        await update.message.reply_document(document=open(file_path, "rb"))
+        if file_path.startswith("http"):  # Cloudinary 链接
+            await update.message.reply_text(f"✅ 导出完成，文件过大已上传到云端：\n{file_path}")
+        else:
+            await update.message.reply_document(document=open(file_path, "rb"))
     finally:
-        if os.path.exists(file_path):
+        if os.path.exists(file_path) and not file_path.startswith("http"):
             os.remove(file_path)
 
 # ========== 主程序 ==========
