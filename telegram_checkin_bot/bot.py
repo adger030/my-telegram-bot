@@ -292,35 +292,63 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
     complete = 0
+    late_count = 0
+    early_count = 0
+    makeup_count = 0
+
     for idx, day in enumerate(sorted(daily_map), start=1):
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
-        is_makeup = "补卡" in shift_full  # 是否补卡
-        shift = shift_full.split("（")[0]
+        is_makeup = "补卡" in shift_full
+        shift_name = shift_full.split("（")[0]
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
 
-        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}{'（补卡）' if is_makeup else ''}\n"
-        if has_up:
-            reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}{'（补卡）' if is_makeup else ''}\n"
-        else:
-            if has_down and kw_map["#下班打卡"].hour < 6:
-                reply += "   └─ 🌙 跨月下班，无上班记录\n"
-            else:
-                reply += "   └─ ❌ 缺少上班打卡\n"
+        if is_makeup:
+            makeup_count += 1
 
+        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}{' 🟡（补卡）' if is_makeup else ''}\n"
+
+        # 上班打卡
+        if has_up:
+            up_ts = kw_map["#上班打卡"]
+            up_status = ""
+            if shift_name in SHIFT_TIMES:
+                start_time, _ = SHIFT_TIMES[shift_name]
+                if up_ts.time() > start_time:
+                    up_status = " 🔴（迟到）"
+                    late_count += 1
+            reply += f"   └─ #上班打卡：{up_ts.strftime('%H:%M')}{' 🟡（补卡）' if is_makeup else ''}{up_status}\n"
+        else:
+            reply += "   └─ ❌ 缺少上班打卡\n"
+
+        # 下班打卡
         if has_down:
-            ts_down = kw_map["#下班打卡"]
-            next_day = ts_down.date() > day
-            reply += f"   └─ #下班打卡：{ts_down.strftime('%H:%M')}{'（次日）' if next_day else ''}\n"
+            down_ts = kw_map["#下班打卡"]
+            down_status = ""
+            if shift_name in SHIFT_TIMES:
+                _, end_time = SHIFT_TIMES[shift_name]
+                if shift_name == "I班" and down_ts.hour < 12:
+                    pass  # I班跨天不判早退
+                elif down_ts.time() < end_time:
+                    down_status = " 🔴（早退）"
+                    early_count += 1
+            next_day = down_ts.date() > day
+            reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{down_status}\n"
         else:
             reply += "   └─ ❌ 缺少下班打卡\n"
 
-        # 完整打卡不计补卡
         if has_up and has_down and not is_makeup:
             complete += 1
 
-    reply += f"\n✅ 本月完整打卡：{complete} 天"
+    # ✅ 绿色标识完整打卡
+    reply += (
+        f"\n🟢 本月完整打卡：{complete} 天\n"
+        f"🔴 迟到次数：{late_count} 次\n"
+        f"🔴 早退次数：{early_count} 次\n"
+        f"🟡 补卡次数：{makeup_count} 次"
+    )
+
     await update.message.reply_text(reply)
 
 def get_default_month_range():
