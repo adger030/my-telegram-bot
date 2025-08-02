@@ -345,7 +345,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             makeup_count += 1
 
-        # 日期行：只显示班次名称（不加补卡）
+        # 日期行：只显示班次，不标记补卡
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
 
         # 上班打卡
@@ -368,7 +368,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if shift_name in SHIFT_TIMES:
                 _, end_time = SHIFT_TIMES[shift_name]
                 if shift_name == "I班" and down_ts.hour == 0:
-                    pass  # I班跨天正常下班
+                    pass  # I班跨天 00:xx 不判早退
                 elif down_ts.time() < end_time:
                     has_early = True
                     down_status = "（早退）"
