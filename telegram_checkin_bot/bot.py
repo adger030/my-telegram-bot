@@ -345,7 +345,8 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             makeup_count += 1
 
-        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}{'（补卡）' if is_makeup else ''}\n"
+        # 日期行：只显示班次名称（不加补卡）
+        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
 
         # 上班打卡
         if has_up:
