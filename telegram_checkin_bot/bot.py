@@ -129,21 +129,29 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_makeup_checkin(update, context)
 
 async def handle_makeup_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """补上班卡功能"""
+    """补上班卡功能：先选择日期，再选班次"""
     msg = update.message
     username = msg.from_user.username or f"user{msg.from_user.id}"
     name = get_user_name(username)
     now = datetime.now(BEIJING_TZ)
 
+    # 处理补卡的参考日期（凌晨补卡算前一天）
     if now.hour < 6:
-        timestamp = (now - timedelta(days=1)).replace(hour=23, minute=59, second=59)
+        ref_date = (now - timedelta(days=1)).date()
     else:
-        timestamp = now.replace(hour=9, minute=0, second=0)
+        ref_date = now.date()
 
     keyboard = [[InlineKeyboardButton(v, callback_data=f"makeup_shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
     await msg.reply_text("请选择要补卡的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
-    context.user_data["makeup_data"] = {"username": username, "name": name, "timestamp": timestamp}
+
+    # 只保存基本信息，时间等用户选完班次后再确定
+    context.user_data["makeup_data"] = {
+        "username": username,
+        "name": name,
+        "date": ref_date  # 仅保存日期，时间将在回调中计算
+    }
     context.user_data.pop("awaiting_makeup", None)
+
 
 async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -158,20 +166,23 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     try:
-        # 调试日志
-        print(f"💾 [补卡写入数据库] 用户: {data['username']}, 班次: {shift_name}, 时间: {data['timestamp']}")
-        
-        # 调用 save_message 将补卡信息写入数据库
+        # 根据班次获取上班时间，并组合成补卡时间戳
+        shift_short = shift_name.split("（")[0]  # 提取 "F班" / "G班"...
+        start_time, _ = SHIFT_TIMES[shift_short]
+        makeup_datetime = datetime.combine(data["date"], start_time, tzinfo=BEIJING_TZ)
+
+        print(f"💾 [补卡写入数据库] 用户: {data['username']}, 班次: {shift_name}, 时间: {makeup_datetime}")
+
+        # 保存补卡记录
         save_message(
             username=data["username"],
             name=data["name"],
-            content="补卡",  # 固定写 "补卡" 作为占位内容
-            timestamp=data["timestamp"],
+            content="补卡",
+            timestamp=makeup_datetime,
             keyword="#上班打卡",
             shift=shift_name
         )
 
-        # 成功提示
         await query.edit_message_text(f"✅ 补上班卡成功！班次：{shift_name}")
 
     except Exception as e:
@@ -179,7 +190,6 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text("❌ 补卡失败，数据库写入错误，请重试或联系管理员。")
 
     finally:
-        # 清除临时补卡数据，防止重复提交
         context.user_data.pop("makeup_data", None)
 
 
