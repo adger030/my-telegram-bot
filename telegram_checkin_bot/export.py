@@ -124,15 +124,20 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     os.makedirs(export_dir, exist_ok=True)
     excel_path = os.path.join(export_dir, f"打卡记录_{start_str}_{end_str}.xlsx")
 
-    # 格式化班次函数
+    # 格式化班次函数，避免重复添加时间段
     def format_shift(shift):
         if pd.isna(shift):
             return shift
         shift_text = str(shift)
+
+        # 如果已存在 "（HH:MM-HH:MM）" 格式，直接返回
+        if re.search(r'（\d{2}:\d{2}-\d{2}:\d{2}）', shift_text):
+            return shift_text
+
         shift_name = shift_text.split("（")[0]  # 去掉“补卡”标记等
         if shift_name in SHIFT_TIMES:
             start, end = SHIFT_TIMES[shift_name]
-            end_str = end.strftime('%H:%M')  # 不显示“次日”
+            end_str = end.strftime('%H:%M')  # I班也显示00:00，不加“次日”
             return f"{shift_text}（{start.strftime('%H:%M')}-{end_str}）"
         return shift_text
 
@@ -143,7 +148,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次"]
             slim_df["打卡时间"] = slim_df["打卡时间"].dt.strftime("%Y-%m-%d %H:%M:%S")
 
-            # 格式化班次列（如：I班 → I班（15:00-00:00））
+            # 格式化班次列（如 I班 → I班（15:00-00:00））
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
 
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
