@@ -377,11 +377,11 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if has_up and has_down and not is_makeup:
             complete += 1
 
-    # ✅ 绿色标识完整打卡
+    # 统计异常打卡（迟到+早退合并）
+    abnormal_count = late_count + early_count
     reply += (
         f"\n🟢 本月完整打卡：{complete} 天\n"
-        f"🔴 迟到次数：{late_count} 次\n"
-        f"🔴 早退次数：{early_count} 次\n"
+        f"🔴 异常打卡（迟到/早退）：{abnormal_count} 次\n"
         f"🟡 补卡次数：{makeup_count} 次"
     )
 
