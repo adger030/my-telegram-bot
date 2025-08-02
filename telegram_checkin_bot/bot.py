@@ -190,7 +190,78 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"✅ 上班打卡成功！班次：{shift_name}")
 
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # ... (原有 mylogs 逻辑保持不变)
+    username = update.effective_user.username or f"user{update.effective_user.id}"
+    now = datetime.now(BEIJING_TZ)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = (start + timedelta(days=32)).replace(day=1)
+
+    logs = get_user_logs(username, start, end)
+    if not logs:
+        await update.message.reply_text("📭 本月暂无打卡记录。")
+        return
+
+    logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
+    logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
+    logs = sorted(logs, key=lambda x: x[0])
+
+    daily_map = defaultdict(dict)
+    i = 0
+    while i < len(logs):
+        ts, kw, shift = logs[i]
+        date_key = ts.date()
+        if kw == "#下班打卡" and ts.hour < 6:
+            date_key = (ts - timedelta(days=1)).date()
+
+        if kw == "#上班打卡":
+            daily_map[date_key]["shift"] = shift
+            daily_map[date_key]["#上班打卡"] = ts
+            j = i + 1
+            found_down = False
+            while j < len(logs):
+                ts2, kw2, _ = logs[j]
+                if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=12):
+                    if ts2.hour < 6:
+                        daily_map[ts.date()]["#下班打卡"] = ts2
+                    else:
+                        daily_map[date_key]["#下班打卡"] = ts2
+                    found_down = True
+                    break
+                j += 1
+            i = j if found_down else i + 1
+        else:
+            daily_map[date_key]["#下班打卡"] = ts
+            i += 1
+
+    reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
+    complete = 0
+    for idx, day in enumerate(sorted(daily_map), start=1):
+        kw_map = daily_map[day]
+        shift_full = kw_map.get("shift", "未选择班次")
+        shift = shift_full.split("（")[0]
+        has_up = "#上班打卡" in kw_map
+        has_down = "#下班打卡" in kw_map
+
+        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}\n"
+        if has_up:
+            reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}\n"
+        else:
+            if has_down and kw_map["#下班打卡"].hour < 6:
+                reply += "   └─ 🌙 跨月下班，无上班记录\n"
+            else:
+                reply += "   └─ ❌ 缺少上班打卡\n"
+
+        if has_down:
+            ts_down = kw_map["#下班打卡"]
+            next_day = ts_down.date() > day
+            reply += f"   └─ #下班打卡：{ts_down.strftime('%H:%M')}{'（次日）' if next_day else ''}\n"
+        else:
+            reply += "   └─ ❌ 缺少下班打卡\n"
+
+        if has_up and has_down:
+            complete += 1
+
+    reply += f"\n✅ 本月完整打卡：{complete} 天"
+    await update.message.reply_text(reply)
     pass
 
 def get_default_month_range():
