@@ -269,14 +269,14 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for idx, day in enumerate(sorted(daily_map), start=1):
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
-        补卡标记 = "（补卡）" if "补卡" in shift_full else ""
+        is_makeup = "补卡" in shift_full  # 是否补卡
         shift = shift_full.split("（")[0]
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
 
-        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}{补卡标记}\n"
+        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}{'（补卡）' if is_makeup else ''}\n"
         if has_up:
-            reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}\n"
+            reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}{'（补卡）' if is_makeup else ''}\n"
         else:
             if has_down and kw_map["#下班打卡"].hour < 6:
                 reply += "   └─ 🌙 跨月下班，无上班记录\n"
@@ -290,7 +290,8 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             reply += "   └─ ❌ 缺少下班打卡\n"
 
-        if has_up and has_down:
+        # 完整打卡不计补卡
+        if has_up and has_down and not is_makeup:
             complete += 1
 
     reply += f"\n✅ 本月完整打卡：{complete} 天"
