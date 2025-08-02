@@ -222,7 +222,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 last_shift = shift
                 break
         if not last_check_in:
-            await msg.reply_text("❗ 找不到上班打卡记录，下班打卡无效。是否要补上班卡？回复“#补卡”以补卡。")
+            await msg.reply_text("❗ 你今天还没有打上班卡呢，请先打上班卡哦～ 上班时间过了？是否要补上班卡？回复“#补卡”。")
             context.user_data["awaiting_makeup"] = True
             return
         last_check_in = last_check_in.astimezone(BEIJING_TZ)
