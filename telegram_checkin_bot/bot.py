@@ -294,16 +294,18 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
 
+    # 转换时区 & 排序
     logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
     logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
     logs = sorted(logs, key=lambda x: x[0])
 
+    # 按天组合上下班打卡
     daily_map = defaultdict(dict)
     i = 0
     while i < len(logs):
         ts, kw, shift = logs[i]
         date_key = ts.date()
-        if kw == "#下班打卡" and ts.hour < 6:
+        if kw == "#下班打卡" and ts.hour < 6:  # 凌晨下班算前一天
             date_key = (ts - timedelta(days=1)).date()
 
         if kw == "#上班打卡":
@@ -326,6 +328,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
+    # 生成回复
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
     complete = 0
     abnormal_count = 0
@@ -345,7 +348,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             makeup_count += 1
 
-        # 日期行：只显示班次，不标记补卡
+        # 日期行（班次不显示补卡）
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
 
         # 上班打卡
@@ -367,22 +370,29 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             down_status = ""
             if shift_name in SHIFT_TIMES:
                 _, end_time = SHIFT_TIMES[shift_name]
-                if shift_name == "I班" and down_ts.hour == 0:
-                    pass  # I班跨天 00:xx 不判早退
-                elif down_ts.time() < end_time:
-                    has_early = True
-                    down_status = "（早退）"
+                if shift_name == "I班":
+                    # I班：00:xx 正常，23:xx 视为早退
+                    if down_ts.hour == 0:
+                        pass  # 正常跨天
+                    elif down_ts.time() < end_time:
+                        has_early = True
+                        down_status = "（早退）"
+                else:
+                    if down_ts.time() < end_time:
+                        has_early = True
+                        down_status = "（早退）"
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{down_status}\n"
         else:
             reply += "   └─ ❌ 缺少下班打卡\n"
 
-        # 统计完整/异常
+        # 统计完整 & 异常
         if has_up and has_down and not is_makeup and not has_late and not has_early:
             complete += 1
         if has_late or has_early:
             abnormal_count += 1
 
+    # 统计汇总
     reply += (
         f"\n🟢 本月正常打卡：{complete} 天\n"
         f"🔴 异常打卡（迟到/早退）：{abnormal_count} 次\n"
