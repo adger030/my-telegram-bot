@@ -114,7 +114,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         logging.warning("⚠️ 指定日期内没有数据")
         return None
 
+    # 添加日期列
     df["date"] = df["timestamp"].dt.strftime("%Y-%m-%d")
+
     start_str = start_datetime.strftime("%Y-%m-%d")
     end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
 
@@ -122,13 +124,31 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     os.makedirs(export_dir, exist_ok=True)
     excel_path = os.path.join(export_dir, f"打卡记录_{start_str}_{end_str}.xlsx")
 
+    # 格式化班次函数
+    def format_shift(shift):
+        if pd.isna(shift):
+            return shift
+        shift_text = str(shift)
+        shift_name = shift_text.split("（")[0]  # 去掉“补卡”标记等
+        if shift_name in SHIFT_TIMES:
+            start, end = SHIFT_TIMES[shift_name]
+            end_str = end.strftime('%H:%M')  # 不显示“次日”
+            return f"{shift_text}（{start.strftime('%H:%M')}-{end_str}）"
+        return shift_text
+
+    # 按日期分表写入 Excel
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         for day, group_df in df.groupby("date"):
             slim_df = group_df[["name", "timestamp", "keyword", "shift"]].sort_values("timestamp").copy()
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次"]
             slim_df["打卡时间"] = slim_df["打卡时间"].dt.strftime("%Y-%m-%d %H:%M:%S")
+
+            # 格式化班次列（如：I班 → I班（15:00-00:00））
+            slim_df["班次"] = slim_df["班次"].apply(format_shift)
+
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
 
+    # 标注迟到/早退和补卡
     _mark_late_early(excel_path)
     logging.info(f"✅ Excel 导出完成并标注迟到/早退: {excel_path}")
     return excel_path
