@@ -2,6 +2,7 @@ import os
 import sys
 import asyncio
 from datetime import datetime, timedelta, timezone
+from collections import defaultdict
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -9,7 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from dateutil.parser import parse
 
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
-from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_logs, save_shift, get_user_name, set_user_name, get_db
+from db_pg import init_db, save_message, get_user_logs, save_shift, get_user_name, set_user_name, get_db
 from export import export_excel, export_images
 from upload_image import upload_image
 from cleaner import delete_last_month_data
@@ -127,20 +128,17 @@ async def handle_makeup_checkin(update: Update, context: ContextTypes.DEFAULT_TY
     name = get_user_name(username)
     now = datetime.now(BEIJING_TZ)
 
-    # 判断是否跨天班次（凌晨补卡时）
     if now.hour < 6:
         timestamp = (now - timedelta(days=1)).replace(hour=23, minute=59, second=59)
     else:
-        timestamp = now.replace(hour=9, minute=0, second=0)  # 默认补卡为上午9点
+        timestamp = now.replace(hour=9, minute=0, second=0)
 
-    # 让用户选择班次
     keyboard = [[InlineKeyboardButton(v, callback_data=f"makeup_shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
     await msg.reply_text("请选择要补卡的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
     context.user_data["makeup_data"] = {"username": username, "name": name, "timestamp": timestamp}
     context.user_data.pop("awaiting_makeup", None)
 
 async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """补卡时选择班次"""
     query = update.callback_query
     await query.answer()
     shift_code = query.data.split(":")[1]
@@ -171,7 +169,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(f"⚠️ 你今天已经提交过“{matched_keyword}”了哦！")
         return
 
-    # 下班打卡验证
     if matched_keyword == "#下班打卡":
         now = datetime.now(BEIJING_TZ)
         logs = get_user_logs(username, now - timedelta(days=1), now)
@@ -272,11 +269,12 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for idx, day in enumerate(sorted(daily_map), start=1):
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
+        补卡标记 = "（补卡）" if "补卡" in shift_full else ""
         shift = shift_full.split("（")[0]
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
 
-        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}\n"
+        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}{补卡标记}\n"
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}\n"
         else:
@@ -297,6 +295,45 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply += f"\n✅ 本月完整打卡：{complete} 天"
     await update.message.reply_text(reply)
+
+def get_default_month_range():
+    now = datetime.now(BEIJING_TZ)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if now.month == 12:
+        end = start.replace(year=now.year + 1, month=1)
+    else:
+        end = start.replace(month=now.month + 1)
+    return start, end
+
+async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ 无权限，仅管理员可导出记录。")
+        return
+    tz = BEIJING_TZ
+    args = context.args
+    if len(args) == 2:
+        try:
+            start = parse(args[0]).replace(tzinfo=tz, hour=0, minute=0, second=0, microsecond=0)
+            end = parse(args[1]).replace(tzinfo=tz, hour=23, minute=59, second=59, microsecond=999999)
+        except Exception:
+            await update.message.reply_text("⚠️ 日期格式错误，请使用 /export YYYY-MM-DD YYYY-MM-DD")
+            return
+    else:
+        start, end = get_default_month_range()
+    status_msg = await update.message.reply_text("⏳ 正在导出 Excel，请稍等...")
+    file_path = export_excel(start, end)
+    try:
+        await status_msg.delete()
+    except:
+        pass
+    if not file_path:
+        await update.message.reply_text("⚠️ 指定日期内没有数据。")
+        return
+    if file_path.startswith("http"):
+        await update.message.reply_text(f"✅ 导出完成，文件过大已上传到云端：\n{file_path}")
+    else:
+        await update.message.reply_document(document=open(file_path, "rb"))
+        os.remove(file_path)
 
 async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
