@@ -7,7 +7,6 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dateutil.parser import parse
-from collections import defaultdict
 
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
 from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_logs, save_shift, get_user_name, set_user_name, get_db
@@ -137,27 +136,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(f"⚠️ 你今天已经提交过“{matched_keyword}”了哦！")
         return
 
-    # 下班打卡验证
-    if matched_keyword == "#下班打卡":
-        now = datetime.now(BEIJING_TZ)
-        logs = get_user_logs(username, now - timedelta(days=1), now)
-        last_check_in, last_shift = None, None
-        for ts, kw, shift in reversed(logs):
-            if kw == "#上班打卡":
-                last_check_in = parse(ts) if isinstance(ts, str) else ts
-                last_shift = shift
-                break
-        if not last_check_in:
-            await msg.reply_text("❗ 找不到上班打卡记录，下班打卡无效。")
-            return
-        last_check_in = last_check_in.astimezone(BEIJING_TZ)
-        if now < last_check_in:
-            await msg.reply_text("❗ 下班时间不能早于上班时间。")
-            return
-        if now - last_check_in > timedelta(hours=12):
-            await msg.reply_text("❗ 上班打卡已超过12小时，下班打卡无效。")
-            return
-
     photo = msg.photo[-1]
     file = await photo.get_file()
     if file.file_size > 1024 * 1024:
@@ -176,7 +154,32 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_message(username=username, name=name, content=image_url, timestamp=now, keyword=matched_keyword)
         keyboard = [[InlineKeyboardButton(v, callback_data=f"shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
         await msg.reply_text("请选择今天的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
-    else:
+    else:  # 下班打卡
+        logs = get_user_logs(username, now - timedelta(days=1), now)
+        last_check_in, last_shift = None, None
+        for ts, kw, shift in reversed(logs):
+            if kw == "#上班打卡":
+                last_check_in = ts if isinstance(ts, datetime) else parse(ts)
+                last_shift = shift
+                break
+
+        if not last_check_in:
+            # 没有上班卡 → 提示补卡
+            keyboard = [[InlineKeyboardButton("补上班卡", callback_data="补卡")],
+                        [InlineKeyboardButton("取消", callback_data="取消补卡")]]
+            await msg.reply_text("❗ 找不到今天的上班打卡记录，是否要补卡？", reply_markup=InlineKeyboardMarkup(keyboard))
+            context.user_data["pending_checkout"] = {"username": username, "image_url": image_url}
+            return
+
+        # 验证下班时间
+        last_check_in = last_check_in.astimezone(BEIJING_TZ)
+        if now < last_check_in:
+            await msg.reply_text("❗ 下班时间不能早于上班时间。")
+            return
+        if now - last_check_in > timedelta(hours=12):
+            await msg.reply_text("❗ 上班打卡已超过12小时，下班打卡无效。")
+            return
+
         save_message(username=username, name=name, content=image_url, timestamp=now, keyword=matched_keyword, shift=last_shift)
         await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}")
 
@@ -189,149 +192,42 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_shift(username, shift_name)
     await query.edit_message_text(f"✅ 上班打卡成功！班次：{shift_name}")
 
-async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    username = update.effective_user.username or f"user{update.effective_user.id}"
-    now = datetime.now(BEIJING_TZ)
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    end = (start + timedelta(days=32)).replace(day=1)
+async def buka_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    username = query.from_user.username or f"user{query.from_user.id}"
 
-    logs = get_user_logs(username, start, end)
-    if not logs:
-        await update.message.reply_text("📭 本月暂无打卡记录。")
+    if query.data == "取消补卡":
+        await query.edit_message_text("❌ 已取消补卡操作。")
+        context.user_data.pop("pending_checkout", None)
         return
 
-    logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
-    logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
-    logs = sorted(logs, key=lambda x: x[0])
+    if query.data == "补卡":
+        keyboard = [[InlineKeyboardButton(v, callback_data=f"补卡班次:{k}")] for k, v in SHIFT_OPTIONS.items()]
+        await query.edit_message_text("请选择要补的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
 
-    daily_map = defaultdict(dict)
-    i = 0
-    while i < len(logs):
-        ts, kw, shift = logs[i]
-        date_key = ts.date()
-        if kw == "#下班打卡" and ts.hour < 6:
-            date_key = (ts - timedelta(days=1)).date()
+    if query.data.startswith("补卡班次:"):
+        shift_code = query.data.split(":")[1]
+        shift_name = SHIFT_OPTIONS[shift_code]
+        now = datetime.now(BEIJING_TZ)
 
-        if kw == "#上班打卡":
-            daily_map[date_key]["shift"] = shift
-            daily_map[date_key]["#上班打卡"] = ts
-            j = i + 1
-            found_down = False
-            while j < len(logs):
-                ts2, kw2, _ = logs[j]
-                if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=12):
-                    if ts2.hour < 6:
-                        daily_map[ts.date()]["#下班打卡"] = ts2
-                    else:
-                        daily_map[date_key]["#下班打卡"] = ts2
-                    found_down = True
-                    break
-                j += 1
-            i = j if found_down else i + 1
+        # 判断跨天补卡
+        if shift_code == "I" and now.hour < 6:
+            补卡时间 = (now - timedelta(days=1)).replace(hour=23, minute=59, second=59)
         else:
-            daily_map[date_key]["#下班打卡"] = ts
-            i += 1
+            start_hour = int(shift_name.split("（")[1].split("-")[0].split(":")[0])
+            补卡时间 = now.replace(hour=start_hour, minute=0, second=0)
 
-    reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
-    complete = 0
-    for idx, day in enumerate(sorted(daily_map), start=1):
-        kw_map = daily_map[day]
-        shift_full = kw_map.get("shift", "未选择班次")
-        shift = shift_full.split("（")[0]
-        has_up = "#上班打卡" in kw_map
-        has_down = "#下班打卡" in kw_map
+        name = get_user_name(username)
+        save_message(username=username, name=name, content="补卡", timestamp=补卡时间, keyword="#上班打卡", shift=shift_name)
+        await query.edit_message_text(f"✅ 已补上班卡（{shift_name}，{补卡时间.strftime('%Y-%m-%d %H:%M')}）")
 
-        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}\n"
-        if has_up:
-            reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}\n"
-        else:
-            if has_down and kw_map["#下班打卡"].hour < 6:
-                reply += "   └─ 🌙 跨月下班，无上班记录\n"
-            else:
-                reply += "   └─ ❌ 缺少上班打卡\n"
-
-        if has_down:
-            ts_down = kw_map["#下班打卡"]
-            next_day = ts_down.date() > day
-            reply += f"   └─ #下班打卡：{ts_down.strftime('%H:%M')}{'（次日）' if next_day else ''}\n"
-        else:
-            reply += "   └─ ❌ 缺少下班打卡\n"
-
-        if has_up and has_down:
-            complete += 1
-
-    reply += f"\n✅ 本月完整打卡：{complete} 天"
-    await update.message.reply_text(reply)
-    pass
-
-def get_default_month_range():
-    now = datetime.now(BEIJING_TZ)
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    if now.month == 12:
-        end = start.replace(year=now.year + 1, month=1)
-    else:
-        end = start.replace(month=now.month + 1)
-    return start, end
-
-async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ 无权限，仅管理员可导出记录。")
-        return
-    tz = BEIJING_TZ
-    args = context.args
-    if len(args) == 2:
-        try:
-            start = parse(args[0]).replace(tzinfo=tz, hour=0, minute=0, second=0, microsecond=0)
-            end = parse(args[1]).replace(tzinfo=tz, hour=23, minute=59, second=59, microsecond=999999)
-        except Exception:
-            await update.message.reply_text("⚠️ 日期格式错误，请使用 /export YYYY-MM-DD YYYY-MM-DD")
-            return
-    else:
-        start, end = get_default_month_range()
-    status_msg = await update.message.reply_text("⏳ 正在导出 Excel，请稍等...")
-    file_path = export_excel(start, end)
-    try:
-        await status_msg.delete()
-    except:
-        pass
-    if not file_path:
-        await update.message.reply_text("⚠️ 指定日期内没有数据。")
-        return
-    if file_path.startswith("http"):
-        await update.message.reply_text(f"✅ 导出完成，文件过大已上传到云端：\n{file_path}")
-    else:
-        await update.message.reply_document(document=open(file_path, "rb"))
-        os.remove(file_path)
-
-async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ 无权限，仅管理员可导出记录。")
-        return
-    tz = BEIJING_TZ
-    args = context.args
-    if len(args) == 2:
-        try:
-            start = parse(args[0]).replace(tzinfo=tz, hour=0, minute=0, second=0, microsecond=0)
-            end = parse(args[1]).replace(tzinfo=tz, hour=23, minute=59, second=59, microsecond=999999)
-        except Exception:
-            await update.message.reply_text("⚠️ 日期格式错误，请使用 /export_images YYYY-MM-DD YYYY-MM-DD")
-            return
-    else:
-        start, end = get_default_month_range()
-    status_msg = await update.message.reply_text("⏳ 正在导出图片，请稍等...")
-    file_path = export_images(start, end)
-    try:
-        await status_msg.delete()
-    except:
-        pass
-    if not file_path:
-        await update.message.reply_text("⚠️ 指定日期内没有图片。")
-        return
-    if file_path.startswith("http"):
-        await update.message.reply_text(f"✅ 图片打包完成，文件过大已上传到云端：\n{file_path}")
-    else:
-        await update.message.reply_document(document=open(file_path, "rb"))
-        os.remove(file_path)
+        # 继续补下班卡
+        pending = context.user_data.pop("pending_checkout", None)
+        if pending:
+            save_message(username=username, name=name, content=pending["image_url"], timestamp=now, keyword="#下班打卡", shift=shift_name)
+            await query.message.reply_text(f"✅ 下班打卡成功！班次：{shift_name}（含补卡）")
 
 def check_existing_instance():
     lock_file = "/tmp/bot.lock"
@@ -354,12 +250,10 @@ def main():
     scheduler.start()
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start_cmd))
-    app.add_handler(CommandHandler("mylogs", mylogs_cmd))
-    app.add_handler(CommandHandler("export", export_cmd))
-    app.add_handler(CommandHandler("export_images", export_images_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))
+    app.add_handler(CallbackQueryHandler(buka_callback, pattern=r"^(补卡|取消补卡|补卡班次:)"))
     print("🤖 Bot 正在运行...")
     app.run_polling()
 
