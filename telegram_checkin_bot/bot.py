@@ -141,14 +141,40 @@ async def handle_makeup_checkin(update: Update, context: ContextTypes.DEFAULT_TY
 async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     shift_code = query.data.split(":")[1]
     shift_name = SHIFT_OPTIONS[shift_code] + "（补卡）"
     data = context.user_data.get("makeup_data")
 
-    if data:
-        save_message(username=data["username"], name=data["name"], content="补卡", timestamp=data["timestamp"], keyword="#上班打卡", shift=shift_name)
+    if not data:
+        await query.edit_message_text("⚠️ 未找到补卡数据，请重新发送“补卡”命令。")
+        return
+
+    try:
+        # 调试日志
+        print(f"💾 [补卡写入数据库] 用户: {data['username']}, 班次: {shift_name}, 时间: {data['timestamp']}")
+        
+        # 调用 save_message 将补卡信息写入数据库
+        save_message(
+            username=data["username"],
+            name=data["name"],
+            content="补卡",  # 固定写 "补卡" 作为占位内容
+            timestamp=data["timestamp"],
+            keyword="#上班打卡",
+            shift=shift_name
+        )
+
+        # 成功提示
         await query.edit_message_text(f"✅ 补上班卡成功！班次：{shift_name}")
+
+    except Exception as e:
+        print(f"❌ [补卡写入失败] {e}")
+        await query.edit_message_text("❌ 补卡失败，数据库写入错误，请重试或联系管理员。")
+
+    finally:
+        # 清除临时补卡数据，防止重复提交
         context.user_data.pop("makeup_data", None)
+
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
