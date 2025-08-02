@@ -282,6 +282,83 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     shift_name = SHIFT_OPTIONS[shift_code]
     save_shift(username, shift_name)
     await query.edit_message_text(f"✅ 上班打卡成功！班次：{shift_name}")
+    
+async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    管理员手动补卡:
+    /admin_makeup @username YYYY-MM-DD 班次(F/G/H/I) [类型: 上班/下班]
+    示例:
+    /admin_makeup @user123 2025-08-01 I 上班
+    /admin_makeup @user123 2025-08-01 I 下班
+    """
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ 无权限，仅管理员可操作。")
+        return
+
+    if len(context.args) not in (3, 4):
+        await update.message.reply_text(
+            "⚠️ 用法：/admin_makeup @username YYYY-MM-DD 班次(F/G/H/I) [上班/下班]\n"
+            "默认补上班，若要补下班需额外指定“下班”。"
+        )
+        return
+
+    username_arg, date_str, shift_code = context.args[:3]
+    username = username_arg.lstrip("@")
+    shift_code = shift_code.upper()
+    punch_type = context.args[3] if len(context.args) == 4 else "上班"
+
+    if shift_code not in SHIFT_OPTIONS:
+        await update.message.reply_text("⚠️ 班次无效，请使用 F/G/H/I。")
+        return
+    if punch_type not in ("上班", "下班"):
+        await update.message.reply_text("⚠️ 类型必须是“上班”或“下班”。")
+        return
+
+    try:
+        makeup_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        await update.message.reply_text("⚠️ 日期格式错误，应为 YYYY-MM-DD")
+        return
+
+    # 获取用户姓名
+    name = get_user_name(username)
+    if not name:
+        await update.message.reply_text(f"⚠️ 用户 {username} 未登记姓名，无法补卡。")
+        return
+
+    # 确定补卡时间
+    shift_name = SHIFT_OPTIONS[shift_code] + "（补卡）"
+    shift_short = shift_name.split("（")[0]
+    start_time, end_time = SHIFT_TIMES[shift_short]
+
+    if punch_type == "上班":
+        punch_dt = datetime.combine(makeup_date, start_time, tzinfo=BEIJING_TZ)
+        keyword = "#上班打卡"
+    else:  # 下班补卡
+        # I班的下班时间跨天处理
+        if shift_short == "I班" and end_time == datetime.strptime("00:00", "%H:%M").time():
+            punch_dt = datetime.combine(makeup_date + timedelta(days=1), end_time, tzinfo=BEIJING_TZ)
+        else:
+            punch_dt = datetime.combine(makeup_date, end_time, tzinfo=BEIJING_TZ)
+        keyword = "#下班打卡"
+
+    # 写入数据库
+    save_message(
+        username=username,
+        name=name,
+        content=f"补卡（管理员-{punch_type}）",
+        timestamp=punch_dt,
+        keyword=keyword,
+        shift=shift_name
+    )
+
+    await update.message.reply_text(
+        f"✅ 管理员已为 {name}（{username}）补卡：\n"
+        f"📅 日期：{makeup_date}\n"
+        f"🏷 班次：{shift_name}\n"
+        f"🔹 类型：{punch_type}\n"
+        f"⏰ 时间：{punch_dt.strftime('%Y-%m-%d %H:%M')}"
+    )
 
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
@@ -494,10 +571,11 @@ def main():
     app.add_handler(CommandHandler("mylogs", mylogs_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
     app.add_handler(CommandHandler("export_images", export_images_cmd))
+    app.add_handler(CommandHandler("admin_makeup", admin_makeup_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))
-    app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:"))
+    app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:"))  
     print("🤖 Bot 正在运行...")
     app.run_polling()
 
