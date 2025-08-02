@@ -72,9 +72,9 @@ def _fetch_data(start_datetime: datetime, end_datetime: datetime) -> pd.DataFram
     return df
 
 def _mark_late_early(excel_path: str):
-    """标注迟到、早退（红色）和补卡（黄色）"""
+    """在班次列标注迟到/早退/补卡，并上色"""
     wb = load_workbook(excel_path)
-    fill_red = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")   # 迟到/早退
+    fill_red = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")     # 迟到/早退
     fill_yellow = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")  # 补卡
 
     for sheet in wb.worksheets:
@@ -83,28 +83,46 @@ def _mark_late_early(excel_path: str):
             time_cell = row[1]       # 打卡时间列
             keyword_cell = row[2]    # 关键词列
 
-            if shift_cell.value:
-                shift_text = str(shift_cell.value)
-                if "补卡" in shift_text:  
-                    # 标记补卡为黄色
-                    time_cell.fill = fill_yellow
-                    shift_cell.fill = fill_yellow
-                    continue  # 补卡不检查迟到早退
+            if not shift_cell.value or not time_cell.value:
+                continue
 
-            # 迟到 / 早退标记
-            if shift_cell.value and time_cell.value:
-                shift_name = str(shift_cell.value).split("（")[0]
-                if shift_name in SHIFT_TIMES:
-                    start_time, end_time = SHIFT_TIMES[shift_name]
-                    dt: datetime = datetime.strptime(time_cell.value, "%Y-%m-%d %H:%M:%S")
+            shift_text = str(shift_cell.value)
+            keyword_text = str(keyword_cell.value)
 
-                    if keyword_cell.value == "#上班打卡" and dt.time() > start_time:
-                        time_cell.fill = fill_red
-                    elif keyword_cell.value == "#下班打卡":
-                        if shift_name == "I班" and dt.hour < 12:  # 跨天下班不标记
-                            pass
-                        elif dt.time() < end_time:
-                            time_cell.fill = fill_red
+            # 补卡标注
+            if "补卡" in shift_text:
+                time_cell.fill = fill_yellow
+                shift_cell.fill = fill_yellow
+                if "（补卡）" not in shift_text:
+                    shift_cell.value = shift_text + "（补卡）"
+                continue
+
+            # 提取班次名
+            shift_name = re.split(r'[（(]', shift_text)[0]
+            if shift_name not in SHIFT_TIMES:
+                continue
+
+            try:
+                dt = datetime.strptime(time_cell.value, "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                continue
+
+            # 检查迟到
+            start_time, end_time = SHIFT_TIMES[shift_name]
+            if keyword_text == "#上班打卡" and dt.time() > start_time:
+                time_cell.fill = fill_red
+                shift_cell.fill = fill_red
+                if "（迟到）" not in shift_text:
+                    shift_cell.value = shift_text + "（迟到）"
+            # 检查早退
+            elif keyword_text == "#下班打卡":
+                if shift_name == "I班" and dt.hour < 12:
+                    continue  # 跨天下班不算早退
+                elif dt.time() < end_time:
+                    time_cell.fill = fill_red
+                    shift_cell.fill = fill_red
+                    if "（早退）" not in shift_text:
+                        shift_cell.value = shift_text + "（早退）"
 
     wb.save(excel_path)
 
