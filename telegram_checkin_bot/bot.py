@@ -11,7 +11,7 @@ from collections import defaultdict
 
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
 from db_pg import init_db, has_user_checked_keyword_today, save_message, delete_old_data, get_user_logs, save_shift, get_user_name, set_user_name, get_db
-from export import export_messages
+from export import export_excel, export_images  # ✅ 导入图片导出函数
 from upload_image import upload_image
 from cleaner import delete_last_month_data
 
@@ -27,18 +27,14 @@ SHIFT_OPTIONS = {
 }
 
 def extract_keyword(text: str):
-    """从文本中提取打卡关键词"""
     text = text.strip().replace(" ", "")
     for kw in KEYWORDS:
         if kw in text:
             return kw
     return None
 
-# ✅ 修正后的“今天是否已打卡”逻辑（支持跨天下班）
 def has_user_checked_keyword_today_fixed(username, keyword):
     now = datetime.now(BEIJING_TZ)
-
-    # 确定参考日期
     if keyword == "#下班打卡" and now.hour < 6:
         ref_day = now - timedelta(days=1)
     else:
@@ -57,14 +53,12 @@ def has_user_checked_keyword_today_fixed(username, keyword):
         """, (username, keyword, start, end))
         rows = cur.fetchall()
 
-    # 过滤掉凌晨的下班记录（它属于前一天）
     for (ts,) in rows:
         ts_local = ts.astimezone(BEIJING_TZ)
         if keyword == "#下班打卡" and ts_local.hour < 6:
-            continue  # 归前一天，不算今天
-        return True  # 有有效下班卡
+            continue
+        return True
     return False
-
 
 async def send_welcome(update_or_msg, name):
     welcome_text = (
@@ -152,7 +146,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(f"⚠️ 你今天已经提交过“{matched_keyword}”了哦！")
         return
 
-    # 下班打卡验证
     if matched_keyword == "#下班打卡":
         now = datetime.now(BEIJING_TZ)
         logs = get_user_logs(username, now - timedelta(days=1), now)
@@ -221,7 +214,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
 
-    # 转换为北京时间并排序
     logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
     logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
     logs = sorted(logs, key=lambda x: x[0])
@@ -231,15 +223,12 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     while i < len(logs):
         ts, kw, shift = logs[i]
         date_key = ts.date()
-        # 下班打卡凌晨归前一天
         if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
 
         if kw == "#上班打卡":
             daily_map[date_key]["shift"] = shift
             daily_map[date_key]["#上班打卡"] = ts
-
-            # 查找对应的下班卡
             j = i + 1
             found_down = False
             while j < len(logs):
@@ -254,24 +243,19 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 j += 1
             i = j if found_down else i + 1
         else:
-            # 只有下班卡（没有上班卡）
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
-    # 生成输出
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
     complete = 0
     for idx, day in enumerate(sorted(daily_map), start=1):
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
         shift = shift_full.split("（")[0]
-
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
 
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift}\n"
-
-        # ✅ 上班卡输出，增加跨月下班判断
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}\n"
         else:
@@ -280,7 +264,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 reply += "   └─ ❌ 缺少上班打卡\n"
 
-        # ✅ 下班卡输出（跨日显示次日）
         if has_down:
             ts_down = kw_map["#下班打卡"]
             next_day = ts_down.date() > day
@@ -288,15 +271,13 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             reply += "   └─ ❌ 缺少下班打卡\n"
 
-        # ✅ 仅上下班卡齐全才计入完整
         if has_up and has_down:
             complete += 1
 
     reply += f"\n✅ 本月完整打卡：{complete} 天"
     await update.message.reply_text(reply)
 
-
-# ========== 导出数据 ==========
+# ========== 导出Excel ==========
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ 无权限，仅管理员可导出记录。")
@@ -304,8 +285,6 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     tz = BEIJING_TZ
     args = context.args
-
-    # 解析日期参数
     if len(args) == 2:
         try:
             start = parse(args[0]).replace(tzinfo=tz, hour=0, minute=0, second=0, microsecond=0)
@@ -318,13 +297,8 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         end = (start + timedelta(days=32)).replace(day=1)
 
-    # 发送导出中提示
     status_msg = await update.message.reply_text("⏳ 正在导出数据，请稍等...")
-
-    # 执行导出
-    file_path = export_messages(start, end)
-
-    # 删除“正在导出中”提示
+    file_path = export_excel(start, end)
     try:
         await status_msg.delete()
     except:
@@ -334,10 +308,49 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 指定日期内没有数据。")
         return
 
-    # 发送文件或链接
     try:
-        if file_path.startswith("http"):  # Cloudinary 链接
+        if file_path.startswith("http"):
             await update.message.reply_text(f"✅ 导出完成，文件过大已上传到云端：\n{file_path}")
+        else:
+            await update.message.reply_document(document=open(file_path, "rb"))
+    finally:
+        if os.path.exists(file_path) and not file_path.startswith("http"):
+            os.remove(file_path)
+
+# ========== 导出图片 ==========
+async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ 无权限，仅管理员可导出图片。")
+        return
+
+    tz = BEIJING_TZ
+    args = context.args
+    if len(args) == 2:
+        try:
+            start = parse(args[0]).replace(tzinfo=tz, hour=0, minute=0, second=0, microsecond=0)
+            end = parse(args[1]).replace(tzinfo=tz, hour=23, minute=59, second=59, microsecond=999999)
+        except Exception:
+            await update.message.reply_text("⚠️ 日期格式错误，请使用 /export_images YYYY-MM-DD YYYY-MM-DD")
+            return
+    else:
+        now = datetime.now(tz)
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = (start + timedelta(days=32)).replace(day=1)
+
+    status_msg = await update.message.reply_text("⏳ 正在导出图片，请稍等...")
+    file_path = export_images(start, end)
+    try:
+        await status_msg.delete()
+    except:
+        pass
+
+    if not file_path:
+        await update.message.reply_text("⚠️ 指定日期内没有图片。")
+        return
+
+    try:
+        if file_path.startswith("http"):
+            await update.message.reply_text(f"✅ 图片导出完成，文件过大已上传到云端：\n{file_path}")
         else:
             await update.message.reply_document(document=open(file_path, "rb"))
     finally:
@@ -370,6 +383,7 @@ def main():
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("mylogs", mylogs_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
+    app.add_handler(CommandHandler("export_images", export_images_cmd))  # ✅ 新增命令
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))
