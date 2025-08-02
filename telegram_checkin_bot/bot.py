@@ -324,7 +324,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             makeup_count += 1
 
-        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}{' 🟡（补卡）' if is_makeup else ''}\n"
+        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}{'（补卡）' if is_makeup else ''}\n"
 
         # 上班打卡
         if has_up:
@@ -333,9 +333,9 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if shift_name in SHIFT_TIMES:
                 start_time, _ = SHIFT_TIMES[shift_name]
                 if up_ts.time() > start_time:
-                    up_status = " 🔴（迟到）"
+                    up_status = "（迟到）"
                     late_count += 1
-            reply += f"   └─ #上班打卡：{up_ts.strftime('%H:%M')}{' 🟡（补卡）' if is_makeup else ''}{up_status}\n"
+            reply += f"   └─ #上班打卡：{up_ts.strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{up_status}\n"
         else:
             reply += "   └─ ❌ 缺少上班打卡\n"
 
@@ -348,7 +348,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if shift_name == "I班" and down_ts.hour < 12:
                     pass  # I班跨天不判早退
                 elif down_ts.time() < end_time:
-                    down_status = " 🔴（早退）"
+                    down_status = "（早退）"
                     early_count += 1
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{down_status}\n"
