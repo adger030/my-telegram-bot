@@ -245,6 +245,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
 
+    # 生成记录文本
     record_lines = [f"🗓️ 本月打卡情况（北京时间）：\n"]
     day_map = {}
 
@@ -255,7 +256,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if date_str not in day_map:
             day_map[date_str] = {"shift": shift or "未选择", "records": []}
-        tag = "（补卡）" if shift and "补卡" in shift else ""
+        tag = "（补卡）" if keyword == "#上班打卡" and shift and "补卡" in (shift or "") else ""
         day_map[date_str]["records"].append(f"└─ {keyword}{tag}：{time_str}")
 
     for date, info in sorted(day_map.items()):
@@ -264,45 +265,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             record_lines.append(r)
 
     await update.message.reply_text("\n".join(record_lines))
-
-def get_default_month_range():
-    now = datetime.now(BEIJING_TZ)
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    if now.month == 12:
-        end = start.replace(year=now.year + 1, month=1)
-    else:
-        end = start.replace(month=now.month + 1)
-    return start, end
-
-async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ 无权限，仅管理员可导出记录。")
-        return
-    tz = BEIJING_TZ
-    args = context.args
-    if len(args) == 2:
-        try:
-            start = parse(args[0]).replace(tzinfo=tz, hour=0, minute=0, second=0, microsecond=0)
-            end = parse(args[1]).replace(tzinfo=tz, hour=23, minute=59, second=59, microsecond=999999)
-        except Exception:
-            await update.message.reply_text("⚠️ 日期格式错误，请使用 /export YYYY-MM-DD YYYY-MM-DD")
-            return
-    else:
-        start, end = get_default_month_range()
-    status_msg = await update.message.reply_text("⏳ 正在导出 Excel，请稍等...")
-    file_path = export_excel(start, end)
-    try:
-        await status_msg.delete()
-    except:
-        pass
-    if not file_path:
-        await update.message.reply_text("⚠️ 指定日期内没有数据。")
-        return
-    if file_path.startswith("http"):
-        await update.message.reply_text(f"✅ 导出完成，文件过大已上传到云端：\n{file_path}")
-    else:
-        await update.message.reply_document(document=open(file_path, "rb"))
-        os.remove(file_path)
 
 async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
