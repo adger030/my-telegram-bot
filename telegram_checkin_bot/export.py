@@ -32,7 +32,7 @@ def upload_to_cloudinary(file_path: str) -> str | None:
             file_path,
             resource_type="raw",
             folder="telegram_exports",
-            public_id=os.path.splitext(os.path.basename(file_path))[0]  # 用文件名作为 ID
+            public_id=os.path.splitext(os.path.basename(file_path))[0]
         )
         secure_url = result.get("secure_url")
         if secure_url:
@@ -53,9 +53,14 @@ def _fetch_data(start_datetime: datetime, end_datetime: datetime) -> pd.DataFram
         query = """
         SELECT username, name, content, timestamp, keyword, shift 
         FROM messages 
-        WHERE timestamp BETWEEN :start AND :end
+        WHERE timestamp BETWEEN %(start)s AND %(end)s
         """
-        df_iter = pd.read_sql_query(query, engine, params={"start": start_datetime, "end": end_datetime}, chunksize=50000)
+        # 转换为 UTC 存储时区
+        params = {
+            "start": start_datetime.astimezone(pytz.UTC),
+            "end": end_datetime.astimezone(pytz.UTC)
+        }
+        df_iter = pd.read_sql_query(query, engine, params=params, chunksize=50000)
         df = pd.concat(df_iter, ignore_index=True)
         logging.info(f"✅ 数据读取完成，共 {len(df)} 条记录")
     except Exception as e:
@@ -79,13 +84,13 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         return None
 
     df["date"] = df["timestamp"].dt.strftime("%Y-%m-%d")
-
     start_str = start_datetime.strftime("%Y-%m-%d")
     end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
+
     export_dir = os.path.join(DATA_DIR, f"excel_{start_str}_{end_str}")
     os.makedirs(export_dir, exist_ok=True)
-
     excel_path = os.path.join(export_dir, f"打卡记录_{start_str}_{end_str}.xlsx")
+
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         for day, group_df in df.groupby("date"):
             slim_df = group_df[["name", "timestamp", "keyword", "shift"]].sort_values("timestamp").copy()
@@ -104,7 +109,7 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
         logging.warning("⚠️ 指定日期内没有数据")
         return None
 
-    photo_df = df[df["content"].str.endswith(".jpg", na=False)]
+    photo_df = df[df["content"].str.contains(r"\.jpg|\.jpeg|\.png", case=False, na=False)]
     if photo_df.empty:
         logging.warning("⚠️ 指定日期内没有图片")
         return None
