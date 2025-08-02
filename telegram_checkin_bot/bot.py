@@ -26,6 +26,13 @@ SHIFT_OPTIONS = {
     "I": "I班（15:00-00:00）"
 }
 
+SHIFT_TIMES = {
+    "F班": (datetime.strptime("12:00", "%H:%M").time(), datetime.strptime("21:00", "%H:%M").time()),
+    "G班": (datetime.strptime("13:00", "%H:%M").time(), datetime.strptime("22:00", "%H:%M").time()),
+    "H班": (datetime.strptime("14:00", "%H:%M").time(), datetime.strptime("23:00", "%H:%M").time()),
+    "I班": (datetime.strptime("15:00", "%H:%M").time(), datetime.strptime("00:00", "%H:%M").time()),  # I班跨天
+}
+
 def extract_keyword(text: str):
     text = text.strip().replace(" ", "")
     for kw in KEYWORDS:
