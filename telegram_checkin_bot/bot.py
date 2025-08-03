@@ -99,6 +99,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = msg.from_user.username or f"user{msg.from_user.id}"
     text = msg.text.strip()
 
+    # 1️⃣ 姓名登记逻辑
     if username in WAITING_NAME:
         if len(text) < 2:
             await msg.reply_text("❗ 姓名太短，请重新输入：")
@@ -113,20 +114,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_welcome(update.message, name)
         return
 
+    # 2️⃣ 必须先登记姓名
     if not get_user_name(username):
         WAITING_NAME[username] = True
         await msg.reply_text("👤 请先输入姓名后再打卡：")
         return
 
+    # 3️⃣ 关键词处理
     keyword = extract_keyword(text)
     if keyword:
         if keyword == "#下班打卡" and not has_user_checked_keyword_today_fixed(username, "#上班打卡"):
             await msg.reply_text("❗ 你今天还没有打上班卡呢，请先打上班卡哦～ 上班时间过了？是否要补上班卡？回复“#补卡”。")
-            context.user_data["awaiting_makeup"] = True
             return
         await msg.reply_text("❗️请附带上IP截图哦。")
-    elif text == "#补卡" and context.user_data.get("awaiting_makeup"):
+    
+    # 4️⃣ 用户随时输入 #补卡
+    elif text == "#补卡":
         await handle_makeup_checkin(update, context)
+        return
 
 async def handle_makeup_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """补上班卡功能：先选择日期，再选班次"""
