@@ -498,17 +498,10 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             down_status = ""
             if shift_name in SHIFT_TIMES:
                 _, end_time = SHIFT_TIMES[shift_name]
-                if shift_name == "I班":
-                    # I班：00:xx 正常，23:xx 视为早退
-                    if down_ts.hour == 0:
-                        pass  # 正常跨天
-                    elif down_ts.time() < end_time:
-                        has_early = True
-                        down_status = "（早退）"
-                else:
-                    if down_ts.time() < end_time:
-                        has_early = True
-                        down_status = "（早退）"
+                # ✅ 在班次规定下班时间以内都算早退
+                if down_ts.time() < end_time:
+                    has_early = True
+                    down_status = "（早退）"
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{down_status}\n"
         else:
@@ -528,6 +521,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_text(reply)
+
 
 def get_default_month_range():
     now = datetime.now(BEIJING_TZ)
