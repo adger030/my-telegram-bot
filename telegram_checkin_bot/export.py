@@ -174,7 +174,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             return f"{shift_text}（{start.strftime('%H:%M')}-{end_str}）"
         return shift_text
 
-    # 按日期分表写入 Excel
+    # 写入 Excel：每个日期一个 Sheet
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         for day, group_df in df.groupby("date"):
             slim_df = group_df[["name", "timestamp", "keyword", "shift"]].sort_values("timestamp").copy()
@@ -186,10 +186,11 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     # 标注迟到/早退和补卡
     _mark_late_early(excel_path)
 
-    # 生成统计 Sheet
+    # 加载 Excel 以便后续修改
     wb = load_workbook(excel_path)
-    stats = []
 
+    # -------------------- 生成统计 Sheet --------------------
+    stats = []
     for sheet in wb.worksheets:
         if sheet.title == "统计":
             continue
@@ -215,35 +216,52 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             if col not in summary_df.columns:
                 summary_df[col] = 0
 
-        # 计算“异常总数”（= 迟到/早退 + 补卡）
+        # 计算“异常总数”
         summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"]
 
-        # 根据异常总数降序排序
-        summary_df = summary_df.sort_values(by="异常总数", ascending=False)
+        # ✅ 按“正常打卡次数”降序排序
+        summary_df = summary_df.sort_values(by="正常", ascending=False)
 
         # 调整列顺序
         summary_df = summary_df[["姓名", "正常", "迟到/早退", "补卡", "异常总数"]]
 
-        # 创建统计 Sheet并放在第一位
+        # 创建统计 Sheet
         stats_sheet = wb.create_sheet("统计", 0)
         headers = ["姓名", "正常打卡", "迟到/早退", "补卡次数", "异常总数"]
         for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
             for c_idx, value in enumerate(row, 1):
                 stats_sheet.cell(row=r_idx, column=c_idx, value=value)
 
-        # 设置颜色填充
-        fill_red = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")  # 红色
+        # ✅ 表头样式：加粗、居中、冻结首行
+        from openpyxl.styles import Font, Alignment
+        stats_sheet.freeze_panes = "A2"
+        for cell in stats_sheet[1]:
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal="center")
 
-        for r_idx in range(2, stats_sheet.max_row + 1):  # 从第2行开始
-            abnormal = stats_sheet.cell(row=r_idx, column=5).value  # 异常总数
-            if abnormal is None or abnormal == "":
-                continue
-            if abnormal >= 3:
-                for c_idx in range(1, 6):
-                    stats_sheet.cell(row=r_idx, column=c_idx).fill = fill_red  # 整行红色
+    # -------------------- 所有 Sheet 自动列宽调整 --------------------
+    for sheet in wb.worksheets:
+        # 冻结首行并加粗居中表头
+        sheet.freeze_panes = "A2"
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal="center")
+
+        # 自动列宽
+        for col in sheet.columns:
+            max_length = 0
+            col_letter = col[0].column_letter
+            for cell in col:
+                try:
+                    length = len(str(cell.value)) if cell.value is not None else 0
+                    if length > max_length:
+                        max_length = length
+                except:
+                    pass
+            sheet.column_dimensions[col_letter].width = max_length + 2
 
     wb.save(excel_path)
-    logging.info(f"✅ Excel 导出完成，统计 Sheet 已按异常总数排序并标注颜色: {excel_path}")
+    logging.info(f"✅ Excel 导出完成（含自动列宽、正常打卡排序、统一表头样式）: {excel_path}")
     return excel_path
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
