@@ -498,10 +498,16 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             down_status = ""
             if shift_name in SHIFT_TIMES:
                 _, end_time = SHIFT_TIMES[shift_name]
-                # ✅ 在班次规定下班时间以内都算早退
-                if down_ts.time() < end_time:
-                    has_early = True
-                    down_status = "（早退）"
+                if shift_name == "I班":
+                    # I班：次日 00:00 正常，若下班当天未跨天则算早退
+                    if down_ts.date() == day:  
+                        has_early = True
+                        down_status = "（早退）"
+                else:
+                    # 其他班次：下班时间以内算早退
+                    if down_ts.time() < end_time:
+                        has_early = True
+                        down_status = "（早退）"
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{down_status}\n"
         else:
