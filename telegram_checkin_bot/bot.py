@@ -420,14 +420,14 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 生成回复
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
-    complete = 0
+    complete = 0  # 改为正常打卡次数
     abnormal_count = 0
     makeup_count = 0
 
     for idx, day in enumerate(sorted(daily_map), start=1):
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
-        is_makeup = "补卡" in shift_full
+        is_makeup = shift_full.endswith("（补卡）")
         shift_name = shift_full.split("（")[0]
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
@@ -451,6 +451,8 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     has_late = True
                     up_status = "（迟到）"
             reply += f"   └─ #上班打卡：{up_ts.strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{up_status}\n"
+            if not is_makeup and not has_late:
+                complete += 1  # 正常上班计一次
         else:
             reply += "   └─ ❌ 缺少上班打卡\n"
 
@@ -461,31 +463,29 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if shift_name in SHIFT_TIMES:
                 _, end_time = SHIFT_TIMES[shift_name]
                 if shift_name == "I班":
-                    # I班：次日 00:00 正常，若下班当天未跨天则算早退
                     if down_ts.date() == day:  
                         has_early = True
                         down_status = "（早退）"
                 else:
-                    # 其他班次：下班时间以内算早退
                     if down_ts.time() < end_time:
                         has_early = True
                         down_status = "（早退）"
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{down_status}\n"
+            if not is_makeup and not has_early:
+                complete += 1  # 正常下班计一次
         else:
             reply += "   └─ ❌ 缺少下班打卡\n"
 
-        # 统计完整 & 异常
-        if has_up and has_down and not is_makeup and not has_late and not has_early:
-            complete += 1
+        # 统计异常
         if has_late or has_early:
             abnormal_count += 1
 
-    # 统计汇总
+    # 统计汇总（改为次数）
     reply += (
-        f"\n🟢 本月正常打卡：{complete} 天\n"
+        f"\n🟢 本月正常打卡：{complete} 次\n"
         f"🔴 异常打卡（迟到/早退）：{abnormal_count} 次\n"
-        f"🟡 补卡次数：{makeup_count} 次"
+        f"🟡 补卡：{makeup_count} 次"
     )
 
     await update.message.reply_text(reply)
