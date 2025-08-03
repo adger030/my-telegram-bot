@@ -262,6 +262,7 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
     export_dir = os.path.join(DATA_DIR, f"images_{start_str}_{end_str}")
     os.makedirs(export_dir, exist_ok=True)
 
+    # 下载图片
     def download_image(row):
         url = row["content"]
         if url and url.startswith("http"):
@@ -288,25 +289,47 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
     with ThreadPoolExecutor(max_workers=8) as executor:
         executor.map(download_image, photo_df.to_dict("records"))
 
-    zip_path = os.path.join(DATA_DIR, f"图片打包_{start_str}_{end_str}.zip")
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for root, _, files in os.walk(export_dir):
-            for file in files:
-                full_path = os.path.join(root, file)
-                arcname = os.path.relpath(full_path, export_dir)
-                zipf.write(full_path, arcname)
+    # 分卷打包 ZIP
+    zip_base = os.path.join(DATA_DIR, f"图片打包_{start_str}_{end_str}")
+    zip_files = []
+    part_idx = 1
+    current_size = 0
+    zipf = zipfile.ZipFile(f"{zip_base}_part{part_idx}.zip", "w", zipfile.ZIP_DEFLATED)
+
+    for root, _, files in os.walk(export_dir):
+        for file in files:
+            full_path = os.path.join(root, file)
+            arcname = os.path.relpath(full_path, export_dir)
+            file_size = os.path.getsize(full_path)
+
+            # 如果加上这个文件会超过 50MB → 关闭当前 ZIP，新建下一卷
+            if current_size + file_size > MAX_TELEGRAM_FILE_MB * 1024 * 1024:
+                zipf.close()
+                zip_files.append(f"{zip_base}_part{part_idx}.zip")
+                part_idx += 1
+                zipf = zipfile.ZipFile(f"{zip_base}_part{part_idx}.zip", "w", zipfile.ZIP_DEFLATED)
+                current_size = 0
+
+            zipf.write(full_path, arcname)
+            current_size += file_size
+
+    zipf.close()
+    zip_files.append(f"{zip_base}_part{part_idx}.zip")
 
     shutil.rmtree(export_dir)
-    logging.info(f"✅ 图片打包完成: {zip_path}")
+    logging.info(f"✅ 图片分卷打包完成，共 {len(zip_files)} 卷")
 
-    file_size_mb = os.path.getsize(zip_path) / (1024 * 1024)
-    if file_size_mb > MAX_TELEGRAM_FILE_MB:
-        logging.warning(f"⚠️ 文件超过 {MAX_TELEGRAM_FILE_MB}MB，尝试上传到 Cloudinary...")
-        url = upload_to_cloudinary(zip_path)
-        if url:
-            os.remove(zip_path)
-            return url
+    # 上传到 Cloudinary（大于 50MB 的 ZIP）
+    cloud_urls = []
+    for zf in zip_files:
+        file_size_mb = os.path.getsize(zf) / (1024 * 1024)
+        if file_size_mb > MAX_TELEGRAM_FILE_MB:
+            logging.warning(f"⚠️ {zf} 超过 50MB，上传至 Cloudinary...")
+            url = upload_to_cloudinary(zf)
+            if url:
+                cloud_urls.append(url)
+                os.remove(zf)
         else:
-            return None
+            cloud_urls.append(zf)  # 直接本地文件返回
 
-    return zip_path
+    return cloud_urls
