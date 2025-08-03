@@ -160,20 +160,17 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     os.makedirs(export_dir, exist_ok=True)
     excel_path = os.path.join(export_dir, f"打卡记录_{start_str}_{end_str}.xlsx")
 
-    # 格式化班次函数，避免重复添加时间段
+    # 格式化班次函数
     def format_shift(shift):
         if pd.isna(shift):
             return shift
         shift_text = str(shift)
-
-        # 如果已存在 "（HH:MM-HH:MM）" 格式，直接返回
         if re.search(r'（\d{2}:\d{2}-\d{2}:\d{2}）', shift_text):
             return shift_text
-
-        shift_name = shift_text.split("（")[0]  # 去掉“补卡”标记等
+        shift_name = shift_text.split("（")[0]
         if shift_name in SHIFT_TIMES:
             start, end = SHIFT_TIMES[shift_name]
-            end_str = end.strftime('%H:%M')  # I班也显示00:00，不加“次日”
+            end_str = end.strftime('%H:%M')
             return f"{shift_text}（{start.strftime('%H:%M')}-{end_str}）"
         return shift_text
 
@@ -183,15 +180,52 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             slim_df = group_df[["name", "timestamp", "keyword", "shift"]].sort_values("timestamp").copy()
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次"]
             slim_df["打卡时间"] = slim_df["打卡时间"].dt.strftime("%Y-%m-%d %H:%M:%S")
-
-            # 格式化班次列（如 I班 → I班（15:00-00:00））
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
-
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
 
     # 标注迟到/早退和补卡
     _mark_late_early(excel_path)
-    logging.info(f"✅ Excel 导出完成并标注迟到/早退: {excel_path}")
+
+    # 生成统计 Sheet
+    wb = load_workbook(excel_path)
+    stats = []
+
+    # 遍历所有工作表，统计用户状态
+    for sheet in wb.worksheets:
+        if sheet.title == "统计":  # 跳过统计表
+            continue
+        for row in sheet.iter_rows(min_row=2, values_only=True):  # 姓名, 打卡时间, 关键词, 班次
+            name, _, keyword, shift_text = row
+            if not name or not keyword or not shift_text:
+                continue
+            shift_str = str(shift_text)
+            if "补卡" in shift_str:
+                status = "补卡"
+            elif "迟到" in shift_str or "早退" in shift_str:
+                status = "异常"
+            else:
+                status = "正常"
+            stats.append({"姓名": name, "状态": status})
+
+    stats_df = pd.DataFrame(stats)
+    if not stats_df.empty:
+        summary_df = stats_df.groupby(["姓名", "状态"]).size().unstack(fill_value=0).reset_index()
+        # 确保列存在
+        for col in ["正常", "异常", "补卡"]:
+            if col not in summary_df.columns:
+                summary_df[col] = 0
+
+        # 调整列顺序
+        summary_df = summary_df[["姓名", "正常", "异常", "补卡"]]
+
+        # 写入统计 Sheet
+        stats_sheet = wb.create_sheet("统计")
+        for r_idx, row in enumerate([["姓名", "正常打卡", "异常打卡", "补卡次数"]] + summary_df.values.tolist(), 1):
+            for c_idx, value in enumerate(row, 1):
+                stats_sheet.cell(row=r_idx, column=c_idx, value=value)
+
+    wb.save(excel_path)
+    logging.info(f"✅ Excel 导出完成，包含统计 Sheet: {excel_path}")
     return excel_path
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
