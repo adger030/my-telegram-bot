@@ -147,10 +147,25 @@ async def handle_makeup_checkin(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         ref_date = now.date()
 
+    # 🚩【新增】检查该日期是否已有正常上班卡
+    start = datetime.combine(ref_date, datetime.min.time(), tzinfo=BEIJING_TZ)
+    end = start + timedelta(days=1)
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT shift FROM messages
+            WHERE username=%s AND keyword=%s AND timestamp >= %s AND timestamp < %s
+        """, (username, "#上班打卡", start, end))
+        rows = cur.fetchall()
+
+    if rows:
+        await msg.reply_text(f"⚠️ {ref_date.strftime('%m月%d日')} 已有上班打卡记录，不能重复补卡。")
+        return
+
+    # ✅ 如果没打卡，正常进入补卡流程
     keyboard = [[InlineKeyboardButton(v, callback_data=f"makeup_shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
     await msg.reply_text("请选择要补卡的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
-    # 只保存基本信息，时间等用户选完班次后再确定
     context.user_data["makeup_data"] = {
         "username": username,
         "name": name,
