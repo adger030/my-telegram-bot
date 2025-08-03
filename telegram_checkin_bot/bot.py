@@ -420,7 +420,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 生成回复
     reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
-    complete = 0  # 改为正常打卡次数
+    complete = 0  # 正常打卡次数
     abnormal_count = 0
     makeup_count = 0
 
@@ -438,7 +438,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             makeup_count += 1
 
-        # 日期行（班次不显示补卡）
+        # 日期行
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
 
         # 上班打卡
@@ -452,7 +452,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     up_status = "（迟到）"
             reply += f"   └─ #上班打卡：{up_ts.strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{up_status}\n"
             if not is_makeup and not has_late:
-                complete += 1  # 正常上班计一次
+                complete += 1
         else:
             reply += "   └─ ❌ 缺少上班打卡\n"
 
@@ -473,15 +473,17 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{down_status}\n"
             if not is_makeup and not has_early:
-                complete += 1  # 正常下班计一次
+                complete += 1
         else:
             reply += "   └─ ❌ 缺少下班打卡\n"
 
-        # 统计异常
-        if has_late or has_early:
+        # 统计异常（迟到+早退分别计数）
+        if has_late:
+            abnormal_count += 1
+        if has_early:
             abnormal_count += 1
 
-    # 统计汇总（改为次数）
+    # 统计汇总
     reply += (
         f"\n🟢 本月正常打卡：{complete} 次\n"
         f"🔴 异常打卡（迟到/早退）：{abnormal_count} 次\n"
@@ -489,6 +491,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_text(reply)
+
 
 
 def get_default_month_range():
