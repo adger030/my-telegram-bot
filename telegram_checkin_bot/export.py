@@ -227,27 +227,34 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
         # 创建统计 Sheet
         stats_sheet = wb.create_sheet("统计", 0)
-        headers = ["姓名", "正常打卡", "迟到/早退", "补卡次数", "异常总数"]
+        headers = ["姓名", "正常打卡", "迟到/早退", "补卡", "异常总数"]
         for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
             for c_idx, value in enumerate(row, 1):
                 stats_sheet.cell(row=r_idx, column=c_idx, value=value)
 
         # ✅ 表头样式：加粗、居中、冻结首行
-        from openpyxl.styles import Font, Alignment
+        from openpyxl.styles import Font, Alignment, PatternFill
         stats_sheet.freeze_panes = "A2"
         for cell in stats_sheet[1]:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center")
 
+        # ✅ 异常总数 ≥ 3 高亮红色整行
+        fill_red = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
+        for r_idx in range(2, stats_sheet.max_row + 1):
+            abnormal = stats_sheet.cell(row=r_idx, column=5).value  # 异常总数列
+            if abnormal is not None and abnormal >= 3:
+                for c_idx in range(1, 6):
+                    stats_sheet.cell(row=r_idx, column=c_idx).fill = fill_red
+
     # -------------------- 所有 Sheet 自动列宽调整 --------------------
+    from openpyxl.styles import Font, Alignment
     for sheet in wb.worksheets:
-        # 冻结首行并加粗居中表头
         sheet.freeze_panes = "A2"
         for cell in sheet[1]:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center")
 
-        # 自动列宽
         for col in sheet.columns:
             max_length = 0
             col_letter = col[0].column_letter
@@ -261,7 +268,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             sheet.column_dimensions[col_letter].width = max_length + 2
 
     wb.save(excel_path)
-    logging.info(f"✅ Excel 导出完成（含自动列宽、正常打卡排序、统一表头样式）: {excel_path}")
+    logging.info(f"✅ Excel 导出完成（含自动列宽、正常打卡排序、异常高亮）: {excel_path}")
     return excel_path
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
