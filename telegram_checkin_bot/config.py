@@ -1,7 +1,7 @@
 import os
 import cloudinary
 
-KEYWORDS = ["#上班打卡", "#下班打卡"]
+KEYWORDS = ["#上班打卡", "#下班打卡", "#补卡"]
 ADMIN_IDS = [6337749385, 6447602744, 6396094777, 6725923773, 6420133169, 6566783362]
 
 TOKEN = os.getenv("TOKEN")
