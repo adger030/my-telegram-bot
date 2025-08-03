@@ -144,10 +144,6 @@ def _mark_late_early(excel_path: str):
 
     wb.save(excel_path)
 
-from openpyxl.styles import PatternFill, Font
-
-from openpyxl.styles import PatternFill
-
 def export_excel(start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
     if df.empty:
