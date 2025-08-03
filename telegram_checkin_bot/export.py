@@ -146,6 +146,8 @@ def _mark_late_early(excel_path: str):
 
 from openpyxl.styles import PatternFill, Font
 
+from openpyxl.styles import PatternFill
+
 def export_excel(start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
     if df.empty:
@@ -220,13 +222,13 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         # 计算“异常总数”（= 迟到/早退 + 补卡）
         summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"]
 
-        # 根据异常总数排序（降序）
+        # 根据异常总数降序排序
         summary_df = summary_df.sort_values(by="异常总数", ascending=False)
 
         # 调整列顺序
         summary_df = summary_df[["姓名", "正常", "迟到/早退", "补卡", "异常总数"]]
 
-        # 创建统计 Sheet，并放在第一位
+        # 创建统计 Sheet并放在第一位
         stats_sheet = wb.create_sheet("统计", 0)
         headers = ["姓名", "正常打卡", "迟到/早退", "补卡次数", "异常总数"]
         for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
@@ -234,27 +236,18 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 stats_sheet.cell(row=r_idx, column=c_idx, value=value)
 
         # 设置颜色填充
-        fill_green = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")  # 绿色
-        fill_yellow = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid") # 黄色
-        fill_red = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")    # 红色
+        fill_red = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")  # 红色
 
         for r_idx in range(2, stats_sheet.max_row + 1):  # 从第2行开始
             abnormal = stats_sheet.cell(row=r_idx, column=5).value  # 异常总数
             if abnormal is None or abnormal == "":
                 continue
-            if abnormal <= 2:
-                fill = fill_green
-            elif 3 <= abnormal <= 4:
-                fill = fill_yellow
-            else:
-                fill = fill_red
-
-            # 给整行填色
-            for c_idx in range(1, 6):
-                stats_sheet.cell(row=r_idx, column=c_idx).fill = fill
+            if abnormal >= 3:
+                for c_idx in range(1, 6):
+                    stats_sheet.cell(row=r_idx, column=c_idx).fill = fill_red  # 整行红色
 
     wb.save(excel_path)
-    logging.info(f"✅ Excel 导出完成，统计 Sheet 已按异常总数排序并高亮: {excel_path}")
+    logging.info(f"✅ Excel 导出完成，统计 Sheet 已按异常总数排序并标注颜色: {excel_path}")
     return excel_path
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
