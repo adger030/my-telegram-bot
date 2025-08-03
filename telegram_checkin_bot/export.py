@@ -247,7 +247,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 for c_idx in range(1, 6):
                     stats_sheet.cell(row=r_idx, column=c_idx).fill = fill_red
 
-    # -------------------- 所有 Sheet 自动列宽调整 --------------------
+    # -------------------- 所有 Sheet 样式设置 --------------------
     from openpyxl.styles import Font, Alignment
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
@@ -255,6 +255,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center")
 
+        # 自动列宽 + 全部文字居中
         for col in sheet.columns:
             max_length = 0
             col_letter = col[0].column_letter
@@ -263,12 +264,13 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     length = len(str(cell.value)) if cell.value is not None else 0
                     if length > max_length:
                         max_length = length
+                    cell.alignment = Alignment(horizontal="center", vertical="center")  # ✅ 所有单元格文字居中
                 except:
                     pass
             sheet.column_dimensions[col_letter].width = max_length + 2
 
     wb.save(excel_path)
-    logging.info(f"✅ Excel 导出完成（含自动列宽、正常打卡排序、异常高亮）: {excel_path}")
+    logging.info(f"✅ Excel 导出完成（含自动列宽、正常打卡排序、异常高亮、文字居中）: {excel_path}")
     return excel_path
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
