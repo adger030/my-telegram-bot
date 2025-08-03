@@ -144,6 +144,8 @@ def _mark_late_early(excel_path: str):
 
     wb.save(excel_path)
 
+from openpyxl.styles import PatternFill, Font
+
 def export_excel(start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
     if df.empty:
@@ -190,11 +192,10 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb = load_workbook(excel_path)
     stats = []
 
-    # 遍历所有工作表，统计用户状态
     for sheet in wb.worksheets:
-        if sheet.title == "统计":  # 跳过统计表
+        if sheet.title == "统计":
             continue
-        for row in sheet.iter_rows(min_row=2, values_only=True):  # 姓名, 打卡时间, 关键词, 班次
+        for row in sheet.iter_rows(min_row=2, values_only=True):
             name, _, keyword, shift_text = row
             if not name or not keyword or not shift_text:
                 continue
@@ -202,7 +203,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             if "补卡" in shift_str:
                 status = "补卡"
             elif "迟到" in shift_str or "早退" in shift_str:
-                status = "异常"
+                status = "迟到/早退"
             else:
                 status = "正常"
             stats.append({"姓名": name, "状态": status})
@@ -210,22 +211,50 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     stats_df = pd.DataFrame(stats)
     if not stats_df.empty:
         summary_df = stats_df.groupby(["姓名", "状态"]).size().unstack(fill_value=0).reset_index()
+
         # 确保列存在
-        for col in ["正常", "异常", "补卡"]:
+        for col in ["正常", "迟到/早退", "补卡"]:
             if col not in summary_df.columns:
                 summary_df[col] = 0
 
-        # 调整列顺序
-        summary_df = summary_df[["姓名", "正常", "异常", "补卡"]]
+        # 计算“异常总数”（= 迟到/早退 + 补卡）
+        summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"]
 
-        # 写入统计 Sheet
-        stats_sheet = wb.create_sheet("统计")
-        for r_idx, row in enumerate([["姓名", "正常打卡", "异常打卡", "补卡次数"]] + summary_df.values.tolist(), 1):
+        # 根据异常总数排序（降序）
+        summary_df = summary_df.sort_values(by="异常总数", ascending=False)
+
+        # 调整列顺序
+        summary_df = summary_df[["姓名", "正常", "迟到/早退", "补卡", "异常总数"]]
+
+        # 创建统计 Sheet，并放在第一位
+        stats_sheet = wb.create_sheet("统计", 0)
+        headers = ["姓名", "正常打卡", "迟到/早退", "补卡次数", "异常总数"]
+        for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
             for c_idx, value in enumerate(row, 1):
                 stats_sheet.cell(row=r_idx, column=c_idx, value=value)
 
+        # 设置颜色填充
+        fill_green = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")  # 绿色
+        fill_yellow = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid") # 黄色
+        fill_red = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")    # 红色
+
+        for r_idx in range(2, stats_sheet.max_row + 1):  # 从第2行开始
+            abnormal = stats_sheet.cell(row=r_idx, column=5).value  # 异常总数
+            if abnormal is None or abnormal == "":
+                continue
+            if abnormal <= 2:
+                fill = fill_green
+            elif 3 <= abnormal <= 4:
+                fill = fill_yellow
+            else:
+                fill = fill_red
+
+            # 给整行填色
+            for c_idx in range(1, 6):
+                stats_sheet.cell(row=r_idx, column=c_idx).fill = fill
+
     wb.save(excel_path)
-    logging.info(f"✅ Excel 导出完成，包含统计 Sheet: {excel_path}")
+    logging.info(f"✅ Excel 导出完成，统计 Sheet 已按异常总数排序并高亮: {excel_path}")
     return excel_path
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
