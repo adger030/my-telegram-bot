@@ -107,11 +107,11 @@ def _mark_late_early(excel_path: str):
                     shift_cell.value = f"{shift_text}（补卡）"
                 continue
 
-            # 2️⃣ 迟到/早退判定（红色）
+            # 2️⃣ 迟到/早退判定
             if shift_name in SHIFT_TIMES:
                 start_time, end_time = SHIFT_TIMES[shift_name]
 
-                # ---- 迟到判定：上班打卡时间晚于班次开始时间 ----
+                # ---- 迟到判定 ----
                 if keyword_cell.value == "#上班打卡":
                     if dt.time() > start_time:
                         time_cell.fill = fill_red
@@ -119,20 +119,28 @@ def _mark_late_early(excel_path: str):
                         if "（迟到）" not in shift_text:
                             shift_cell.value = f"{shift_text}（迟到）"
 
-                # ---- 早退判定：下班打卡时间早于班次结束时间 ----
+                # ---- 早退判定 ----
                 elif keyword_cell.value == "#下班打卡":
-                    # 允许凌晨 0:00~1:00 下班正常（跨天）
-                    if 0 <= dt.hour <= 1:
-                        continue
-                    # I班凌晨下班（正常）
-                    if shift_name == "I班" and dt.hour == 0:
-                        continue
-                    # 早退：下班打卡早于规定结束时间
-                    if dt.time() < end_time:
-                        time_cell.fill = fill_red
-                        shift_cell.fill = fill_red
-                        if "（早退）" not in shift_text:
-                            shift_cell.value = f"{shift_text}（早退）"
+                    if shift_name == "I班":
+                        # I班：次日 00:00 下班正常
+                        if dt.hour == 0:
+                            continue
+                        # 当天 15:00-23:59 下班 → 早退
+                        elif 15 <= dt.hour <= 23:
+                            time_cell.fill = fill_red
+                            shift_cell.fill = fill_red
+                            if "（早退）" not in shift_text:
+                                shift_cell.value = f"{shift_text}（早退）"
+                    else:
+                        # 其他班次：正常下班时间内判定早退
+                        # 允许凌晨 0:00~1:00 正常下班（跨天）
+                        if 0 <= dt.hour <= 1:
+                            continue
+                        if dt.time() < end_time:
+                            time_cell.fill = fill_red
+                            shift_cell.fill = fill_red
+                            if "（早退）" not in shift_text:
+                                shift_cell.value = f"{shift_text}（早退）"
 
     wb.save(excel_path)
 
