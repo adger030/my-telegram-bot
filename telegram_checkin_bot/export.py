@@ -72,21 +72,34 @@ def _fetch_data(start_datetime: datetime, end_datetime: datetime) -> pd.DataFram
     return df
 
 def _mark_late_early(excel_path: str):
-    """标注迟到、早退（红色+班次标识）和补卡（黄色+班次标识），下班超过时间正常"""
+    """
+    标注迟到（红色+班次标识）、早退（红色+班次标识）、补卡（黄色+班次标识）。
+    支持跨天班次（如 I班次日下班）以及凌晨下班的正常打卡判定。
+    """
     wb = load_workbook(excel_path)
-    fill_red = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
-    fill_yellow = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+    fill_red = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")      # 浅红
+    fill_yellow = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")  # 浅黄
 
     for sheet in wb.worksheets:
-        for row in sheet.iter_rows(min_row=2):
+        for row in sheet.iter_rows(min_row=2):  # 跳过表头
             shift_cell, time_cell, keyword_cell = row[3], row[1], row[2]
+
             if not shift_cell.value or not time_cell.value:
                 continue
 
-            shift_text = str(shift_cell.value)
-            shift_name = re.split(r'[（(]', shift_text)[0]
+            shift_text = str(shift_cell.value).strip()
+            shift_name = re.split(r'[（(]', shift_text)[0]  # 提取班次名（如 I班）
 
-            # 补卡标记
+            # 时间解析：兼容 Excel datetime 对象或字符串
+            if isinstance(time_cell.value, datetime):
+                dt = time_cell.value
+            else:
+                try:
+                    dt = datetime.strptime(str(time_cell.value), "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    continue  # 时间格式异常跳过
+
+            # 1️⃣ 补卡标记（黄色）
             if "补卡" in shift_text:
                 time_cell.fill = fill_yellow
                 shift_cell.fill = fill_yellow
@@ -94,12 +107,11 @@ def _mark_late_early(excel_path: str):
                     shift_cell.value = f"{shift_text}（补卡）"
                 continue
 
-            # 迟到/早退判定
+            # 2️⃣ 迟到/早退判定（红色）
             if shift_name in SHIFT_TIMES:
                 start_time, end_time = SHIFT_TIMES[shift_name]
-                dt = datetime.strptime(time_cell.value, "%Y-%m-%d %H:%M:%S")
 
-                # 迟到：上班打卡 > 开始时间
+                # ---- 迟到判定：上班打卡时间晚于班次开始时间 ----
                 if keyword_cell.value == "#上班打卡":
                     if dt.time() > start_time:
                         time_cell.fill = fill_red
@@ -107,10 +119,15 @@ def _mark_late_early(excel_path: str):
                         if "（迟到）" not in shift_text:
                             shift_cell.value = f"{shift_text}（迟到）"
 
-                # 早退：下班打卡 < 结束时间（超过时间正常，不提示加班）
+                # ---- 早退判定：下班打卡时间早于班次结束时间 ----
                 elif keyword_cell.value == "#下班打卡":
+                    # 允许凌晨 0:00~1:00 下班正常（跨天）
+                    if 0 <= dt.hour <= 1:
+                        continue
+                    # I班凌晨下班（正常）
                     if shift_name == "I班" and dt.hour == 0:
-                        continue  # I班凌晨下班正常
+                        continue
+                    # 早退：下班打卡早于规定结束时间
                     if dt.time() < end_time:
                         time_cell.fill = fill_red
                         shift_cell.fill = fill_red
@@ -118,7 +135,6 @@ def _mark_late_early(excel_path: str):
                             shift_cell.value = f"{shift_text}（早退）"
 
     wb.save(excel_path)
-
 
 def export_excel(start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
