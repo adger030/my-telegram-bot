@@ -485,7 +485,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 统计汇总
     reply += (
-        f"\n🟢 本月正常打卡：{complete} 次\n"
+        f"\n🟢 正常打卡：{complete} 次\n"
         f"🔴 异常打卡（迟到/早退）：{abnormal_count} 次\n"
         f"🟡 补卡：{makeup_count} 次"
     )
