@@ -1,11 +1,10 @@
-TOKEN = "8462739794:AAEd1ZCbu9srOaay87FC0t-2VXSdNJCbGP0"
+import os
+import cloudinary
+
 KEYWORDS = ["#上班打卡", "#下班打卡"]
- # Y_MS_KIDLAT，Y_MS_Rubus1，Y_MS_podhale，Y_MS_Jehoshwu，Y_MS_Menbo，Y_MS_Racheluua
 ADMIN_IDS = [6337749385, 6447602744, 6396094777, 6725923773, 6420133169, 6566783362]
 
-import cloudinary
-import os
-
+TOKEN = os.getenv("TOKEN")
 DATA_DIR = os.getenv("DATA_DIR", "./data")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
