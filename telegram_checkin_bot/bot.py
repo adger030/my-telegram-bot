@@ -190,7 +190,7 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
         await query.edit_message_text(
-            f"✅ 补上班卡成功！班次：{shift_name}\n\n📌 请继续发送“#下班打卡”并附带IP截图。"
+            f"✅ 补上班卡成功！班次：{shift_name}"
         )
 
     except Exception as e:
