@@ -100,7 +100,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = msg.from_user.username or f"user{msg.from_user.id}"
     text = msg.text.strip()
 
-    # 姓名登记逻辑
     if username in WAITING_NAME:
         if len(text) < 2:
             await msg.reply_text("❗ 姓名太短，请重新输入：")
@@ -111,24 +110,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text(f"⚠️ {e}")
             return
         WAITING_NAME.pop(username)
-        name = get_user_name(username)
-        await send_welcome(update.message, name)
+        await send_welcome(update.message, text)
         return
 
-    # 必须先登记姓名
     if not get_user_name(username):
         WAITING_NAME[username] = True
         await msg.reply_text("👤 请先输入姓名后再打卡：")
         return
 
-    # 关键词处理
     keyword = extract_keyword(text)
     if keyword:
         if keyword == "#下班打卡" and not has_user_checked_keyword_today_fixed(username, "#上班打卡"):
-            await msg.reply_text("❗ 你今天还没有打上班卡呢，请先打上班卡哦～ 上班时间过了？是否要补卡？请直接发送“#补卡”并附IP截图。")
+            await msg.reply_text("❗ 你今天还没打上班卡。上班时间过了？请发送“#补卡”+IP截图补卡后再打下班卡。")
             return
         if keyword == "#补卡":
-            await msg.reply_text("📌 请发送 #补卡 并附带 IP 截图完成补卡操作。")
+            await msg.reply_text("📌 请发送“#补卡”并附IP截图完成补卡。")
             return
         await msg.reply_text("❗️请附带IP截图。")
 
@@ -184,10 +180,8 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     shift_name = SHIFT_OPTIONS[shift_code]
     shift_short = shift_name.split("（")[0]
     start_time, _ = SHIFT_TIMES[shift_short]
-
     punch_dt = datetime.combine(data["date"], start_time, tzinfo=BEIJING_TZ)
 
-    # 保存补卡记录
     save_message(
         username=data["username"],
         name=data["name"],
@@ -207,17 +201,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = msg.caption or ""
     keyword = extract_keyword(caption)
 
-    # 校验姓名
     if not get_user_name(username):
         WAITING_NAME[username] = True
         await msg.reply_text("👤 请先输入姓名后再打卡：")
         return
 
     if not keyword:
-        await msg.reply_text("❗ 图片必须附加关键词，例如：“#上班打卡”、“#下班打卡”或“#补卡”。")
+        await msg.reply_text("❗ 图片必须附加关键词：#上班打卡 / #下班打卡 / #补卡")
         return
 
-    # 上传图片
+    # 下载并上传图片
     photo = msg.photo[-1]
     file = await photo.get_file()
     if file.file_size > 1024 * 1024:
@@ -233,13 +226,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now(BEIJING_TZ)
 
     if keyword == "#上班打卡":
-        # 正常上班打卡
         save_message(username=username, name=name, content=image_url, timestamp=now, keyword=keyword)
         keyboard = [[InlineKeyboardButton(v, callback_data=f"shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
         await msg.reply_text("请选择今天的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif keyword == "#补卡":
-        # 补卡逻辑：先存图，后选班次
         context.user_data["makeup_data"] = {
             "username": username,
             "name": name,
@@ -250,7 +241,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("请选择要补卡的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif keyword == "#下班打卡":
-        # 下班打卡逻辑（保持不变）
         if has_user_checked_keyword_today_fixed(username, keyword):
             await msg.reply_text(f"⚠️ 你今天已经提交过“{keyword}”了哦！")
             return
@@ -262,11 +252,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 last_shift = shift.split("（")[0] if shift else None
                 break
         if not last_check_in:
-            await msg.reply_text("❗ 你今天还没有打上班卡呢，请先打上班卡或补卡。")
+            await msg.reply_text("❗ 你今天还没有打上班卡，请先打卡或补卡。")
             return
         save_message(username=username, name=name, content=image_url, timestamp=now, keyword=keyword, shift=last_shift)
         await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}")
-
+	    
 async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
