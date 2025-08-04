@@ -278,58 +278,50 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
     """
-    从 Cloudinary 获取指定时间范围的图片，自动检测按年月分的文件夹，并生成打包下载链接（无需本地下载）
-    :param start_datetime: 开始时间（datetime 对象）
-    :param end_datetime: 结束时间（datetime 对象）
-    :return: Cloudinary 生成的 ZIP 下载链接 (str) 或 None
+    从数据库中提取图片 URL，解析 Cloudinary public_id 并生成 ZIP 下载链接（基于数据库 URL）
     """
     try:
-        # 格式化时间
+        # 从数据库获取消息数据
+        df = _fetch_data(start_datetime, end_datetime)
+        if df.empty:
+            logging.warning("⚠️ 指定日期内没有数据")
+            return None
+
+        # 仅筛选包含图片 URL 的记录
+        photo_df = df[df["content"].str.contains(r"\.(jpg|jpeg|png|gif)$", case=False, na=False)].copy()
+        if photo_df.empty:
+            logging.warning("⚠️ 指定日期内没有图片。")
+            return None
+
+        # 解析 Cloudinary public_id
+        def extract_public_id(url: str) -> str | None:
+            """
+            从 Cloudinary URL 提取 public_id
+            例如：https://res.cloudinary.com/demo/image/upload/v1234567890/telegram_exports/2025-08/filename.jpg
+            返回：telegram_exports/2025-08/filename
+            """
+            match = re.search(r'/upload/(?:v\d+/)?([^\.]+)\.(jpg|jpeg|png|gif)$', url)
+            if match:
+                return match.group(1)  # public_id 不含扩展名
+            return None
+
+        photo_df["public_id"] = photo_df["content"].apply(extract_public_id)
+        public_ids = photo_df["public_id"].dropna().unique().tolist()
+
+        if not public_ids:
+            logging.warning("⚠️ 未能从数据库 URL 提取有效的 Cloudinary public_id")
+            return None
+
+        logging.info(f"✅ 共解析到 {len(public_ids)} 张图片，正在生成 Cloudinary ZIP 链接...")
+
+        # 生成 ZIP 打包下载链接
         start_str = start_datetime.strftime("%Y-%m-%d")
         end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
-
-        # 根据起始时间自动拼接 Cloudinary 文件夹路径（按年月）
-        folder_prefix = f"telegram_exports/{start_datetime.strftime('%Y-%m')}"
-        logging.info(f"🔍 正在从 Cloudinary 文件夹 [{folder_prefix}] 查询图片: {start_str} ~ {end_str}")
-
-        # 1️⃣ 查询 Cloudinary 指定文件夹下的所有图片
-        all_images = []
-        next_cursor = None
-        while True:
-            resources = cloudinary.api.resources(
-                type="upload",
-                prefix=folder_prefix,
-                resource_type="image",
-                max_results=500,
-                next_cursor=next_cursor
-            )
-            all_images.extend(resources.get("resources", []))
-            next_cursor = resources.get("next_cursor")
-            if not next_cursor:
-                break
-
-        if not all_images:
-            logging.warning(f"⚠️ 文件夹 {folder_prefix} 下没有图片资源")
-            return None
-
-        # 2️⃣ 过滤符合时间范围的图片
-        images = []
-        for res in all_images:
-            created_at = datetime.fromisoformat(res["created_at"].replace("Z", "+00:00"))
-            if start_datetime <= created_at <= end_datetime:
-                images.append(res["public_id"])
-
-        if not images:
-            logging.warning("⚠️ 指定日期范围内无符合条件的图片")
-            return None
-
-        logging.info(f"✅ 匹配到 {len(images)} 张图片，正在生成压缩包下载链接...")
-
-        # 3️⃣ 生成 Cloudinary ZIP 下载链接
         zip_name = f"图片打包_{start_str}_{end_str}"
+
         zip_url = cloudinary.utils.download_zip_url(
             options={
-                "public_ids": images,
+                "public_ids": public_ids,
                 "target_public_id": zip_name,
                 "resource_type": "image"
             }
@@ -339,5 +331,5 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
         return zip_url
 
     except Exception as e:
-        logging.error(f"❌ Cloudinary 图片打包失败: {e}")
+        logging.error(f"❌ export_images 失败: {e}")
         return None
