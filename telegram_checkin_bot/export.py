@@ -275,89 +275,63 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     return excel_path
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
-    df = _fetch_data(start_datetime, end_datetime)
-    if df.empty:
-        logging.warning("⚠️ 指定日期内没有数据")
+    """
+    基于数据库 URL 生成 Cloudinary ZIP 下载链接，自动分卷（每卷 1000 张）
+    返回: 单卷 -> str， 多卷 -> list[str]
+    """
+    try:
+        df = _fetch_data(start_datetime, end_datetime)
+        if df.empty:
+            logging.warning("⚠️ 指定日期内没有数据")
+            return None
+
+        # 仅筛选图片 URL
+        photo_df = df[df["content"].str.contains(r"\.(?:jpg|jpeg|png|gif)$", case=False, na=False)].copy()
+        if photo_df.empty:
+            logging.warning("⚠️ 指定日期内没有图片。")
+            return None
+
+        def extract_public_id(url: str) -> str | None:
+            """ 从 Cloudinary URL 中提取 public_id """
+            match = re.search(r'/upload/(?:v\d+/)?(.+?)\.(?:jpg|jpeg|png|gif)$', url)
+            if match:
+                return match.group(1)
+            logging.warning(f"⚠️ 无法解析 public_id: {url}")
+            return None
+
+        # 提取 public_id
+        photo_df["public_id"] = photo_df["content"].apply(extract_public_id)
+        public_ids = [pid for pid in photo_df["public_id"].dropna().unique() if pid.strip()]
+
+        logging.info(f"🔍 初步提取到 {len(public_ids)} 个 public_id")
+        if not public_ids:
+            logging.error("❌ 没有有效的 public_id，可能 URL 不是 Cloudinary 链接")
+            return None
+
+        # ---------------- 分卷处理 ----------------
+        MAX_PER_ZIP = 1000
+        zip_links = []
+        start_str = start_datetime.strftime("%Y-%m-%d")
+        end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
+
+        chunks = [public_ids[i:i + MAX_PER_ZIP] for i in range(0, len(public_ids), MAX_PER_ZIP)]
+        logging.info(f"📦 需要分成 {len(chunks)} 卷进行打包")
+
+        for idx, chunk in enumerate(chunks, 1):
+            zip_name = f"图片打包_{start_str}_{end_str}_卷{idx}"
+            logging.info(f"📦 正在生成第 {idx} 卷 ZIP，共 {len(chunk)} 张图片")
+            zip_url = cloudinary.utils.download_zip_url(
+                options={
+                    "public_ids": chunk,
+                    "target_public_id": zip_name,
+                    "resource_type": "image"
+                }
+            )
+            zip_links.append(zip_url)
+
+        logging.info(f"✅ 图片分卷打包完成，共 {len(zip_links)} 卷")
+        return zip_links[0] if len(zip_links) == 1 else zip_links
+
+    except Exception as e:
+        logging.error(f"❌ export_images 失败: {e}")
         return None
-
-    photo_df = df[df["content"].str.contains(r"\.jpg|\.jpeg|\.png", case=False, na=False)]
-    if photo_df.empty:
-        logging.warning("⚠️ 指定日期内没有图片")
-        return None
-
-    start_str = start_datetime.strftime("%Y-%m-%d")
-    end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
-    export_dir = os.path.join(DATA_DIR, f"images_{start_str}_{end_str}")
-    os.makedirs(export_dir, exist_ok=True)
-
-    # 下载图片
-    def download_image(row):
-        url = row["content"]
-        if url and url.startswith("http"):
-            try:
-                ts = row["timestamp"].strftime("%Y-%m-%d_%H-%M-%S")
-                date_folder = row["timestamp"].strftime("%Y-%m-%d")
-                day_dir = os.path.join(export_dir, date_folder)
-                os.makedirs(day_dir, exist_ok=True)
-
-                name = safe_filename(row["name"] or "匿名")
-                keyword = safe_filename(row["keyword"] or "无关键词")
-                filename = f"{ts}_{name}_{keyword}.jpg"
-                save_path = os.path.join(day_dir, filename)
-
-                response = requests.get(url, stream=True, timeout=10)
-                if response.status_code == 200:
-                    with open(save_path, "wb") as f:
-                        for chunk in response.iter_content(1024):
-                            f.write(chunk)
-                logging.info(f"📥 下载成功: {filename}")
-            except Exception as e:
-                logging.warning(f"[图片下载失败] {url} - {e}")
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        executor.map(download_image, photo_df.to_dict("records"))
-
-    # 分卷打包 ZIP
-    zip_base = os.path.join(DATA_DIR, f"图片打包_{start_str}_{end_str}")
-    zip_files = []
-    part_idx = 1
-    current_size = 0
-    zipf = zipfile.ZipFile(f"{zip_base}_part{part_idx}.zip", "w", zipfile.ZIP_DEFLATED)
-
-    for root, _, files in os.walk(export_dir):
-        for file in files:
-            full_path = os.path.join(root, file)
-            arcname = os.path.relpath(full_path, export_dir)
-            file_size = os.path.getsize(full_path)
-
-            # 如果加上这个文件会超过 50MB → 关闭当前 ZIP，新建下一卷
-            if current_size + file_size > MAX_TELEGRAM_FILE_MB * 1024 * 1024:
-                zipf.close()
-                zip_files.append(f"{zip_base}_part{part_idx}.zip")
-                part_idx += 1
-                zipf = zipfile.ZipFile(f"{zip_base}_part{part_idx}.zip", "w", zipfile.ZIP_DEFLATED)
-                current_size = 0
-
-            zipf.write(full_path, arcname)
-            current_size += file_size
-
-    zipf.close()
-    zip_files.append(f"{zip_base}_part{part_idx}.zip")
-
-    shutil.rmtree(export_dir)
-    logging.info(f"✅ 图片分卷打包完成，共 {len(zip_files)} 卷")
-
-    # 上传到 Cloudinary（大于 50MB 的 ZIP）
-    cloud_urls = []
-    for zf in zip_files:
-        file_size_mb = os.path.getsize(zf) / (1024 * 1024)
-        if file_size_mb > MAX_TELEGRAM_FILE_MB:
-            logging.warning(f"⚠️ {zf} 超过 50MB，上传至 Cloudinary...")
-            url = upload_to_cloudinary(zf)
-            if url:
-                cloud_urls.append(url)
-                os.remove(zf)
-        else:
-            cloud_urls.append(zf)  # 直接本地文件返回
-
-    return cloud_urls
