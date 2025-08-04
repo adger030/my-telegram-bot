@@ -274,10 +274,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     logging.info(f"✅ Excel 导出完成（含自动列宽、正常打卡排序、异常高亮、文字居中）: {excel_path}")
     return excel_path
 
-def export_images(start_datetime: datetime, end_datetime: datetime, max_zip_size_mb: int = 40):
+def export_images(start_datetime: datetime, end_datetime: datetime):
     """
-    导出指定时间范围内的所有图片，默认本月，按大小分包（每包 40MB）
-    返回：list[str] -> 每包一个 ZIP 文件路径
+    导出指定日期范围内的图片，按 40MB 分包保存到本地，返回 (zip_paths, export_dir)
     """
     try:
         df = _fetch_data(start_datetime, end_datetime)
@@ -291,78 +290,75 @@ def export_images(start_datetime: datetime, end_datetime: datetime, max_zip_size
             logging.warning("⚠️ 指定日期内没有图片。")
             return None
 
+        def extract_public_id(url: str) -> str | None:
+            """ 从 Cloudinary URL 中提取 public_id """
+            match = re.search(r'/upload/(?:v\d+/)?(.+?)\.(?:jpg|jpeg|png|gif)$', url)
+            if match:
+                return match.group(1)
+            logging.warning(f"⚠️ 无法解析 public_id: {url}")
+            return None
+
+        # 提取 public_id
+        photo_df["public_id"] = photo_df["content"].apply(extract_public_id)
+        public_ids = [pid for pid in photo_df["public_id"].dropna().unique() if pid.strip()]
+
+        logging.info(f"🔍 共提取到 {len(public_ids)} 个图片 public_id")
+        if not public_ids:
+            logging.error("❌ 没有有效的 public_id，可能 URL 不是 Cloudinary 链接")
+            return None
+
+        # 创建导出目录
         start_str = start_datetime.strftime("%Y-%m-%d")
         end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
-
         export_dir = os.path.join(DATA_DIR, f"images_{start_str}_{end_str}")
-        if os.path.exists(export_dir):
-            shutil.rmtree(export_dir)
         os.makedirs(export_dir, exist_ok=True)
 
-        # 临时下载文件夹
-        download_dir = os.path.join(export_dir, "downloads")
-        os.makedirs(download_dir, exist_ok=True)
-
-        # 并发下载所有图片
-        logging.info(f"📥 正在下载图片，共 {len(photo_df)} 张")
-        def download_image(url, filename):
-            try:
-                r = requests.get(url, stream=True, timeout=15)
-                if r.status_code == 200:
-                    with open(filename, "wb") as f:
-                        shutil.copyfileobj(r.raw, f)
-                    return True
-                else:
-                    logging.warning(f"⚠️ 下载失败（状态码 {r.status_code}）: {url}")
-            except Exception as e:
-                logging.warning(f"⚠️ 下载失败: {url} ({e})")
-            return False
-
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = []
-            for _, row in photo_df.iterrows():
-                url = row["content"]
-                filename = safe_filename(f"{row['name']}_{row['timestamp'].strftime('%Y%m%d_%H%M%S')}{os.path.splitext(url)[-1]}")
-                file_path = os.path.join(download_dir, filename)
-                futures.append(executor.submit(download_image, url, file_path))
-            for future in futures:
-                future.result()
-
-        # ---------------- 按大小分包 ----------------
-        zip_paths = []
-        current_zip_files = []
+        zip_paths = []  # 存储分包路径
+        current_zip_idx = 1
         current_zip_size = 0
-        zip_index = 1
+        current_zip_path = os.path.join(export_dir, f"图片打包_{start_str}_{end_str}_包{current_zip_idx}.zip")
+        current_zip = zipfile.ZipFile(current_zip_path, "w", zipfile.ZIP_DEFLATED)
 
-        def create_zip(files, index):
-            zip_name = f"图片_{start_str}_to_{end_str}_包{index}.zip"
-            zip_path = os.path.join(export_dir, zip_name)
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for f in files:
-                    zf.write(f, arcname=os.path.basename(f))
-            logging.info(f"✅ 生成 ZIP: {zip_path}")
-            return zip_path
+        logging.info(f"📦 开始生成 ZIP 包: {current_zip_path}")
 
-        for file in sorted(os.listdir(download_dir)):
-            file_path = os.path.join(download_dir, file)
-            file_size = os.path.getsize(file_path)
-            if current_zip_size + file_size > max_zip_size_mb * 1024 * 1024:
-                # 打包当前文件集并重置
-                if current_zip_files:
-                    zip_paths.append(create_zip(current_zip_files, zip_index))
-                    zip_index += 1
-                    current_zip_files = []
-                    current_zip_size = 0
-            current_zip_files.append(file_path)
-            current_zip_size += file_size
+        for idx, pid in enumerate(public_ids, 1):
+            # 生成下载 URL
+            url = cloudinary.CloudinaryImage(pid).build_url()
+            filename = safe_filename(f"{os.path.basename(pid)}.jpg")
 
-        # 打包最后一包
-        if current_zip_files:
-            zip_paths.append(create_zip(current_zip_files, zip_index))
+            # 下载图片到临时文件
+            try:
+                resp = requests.get(url, stream=True, timeout=15)
+                resp.raise_for_status()
+                content = resp.content
+            except Exception as e:
+                logging.warning(f"⚠️ 下载失败 {url}: {e}")
+                continue
 
-        shutil.rmtree(download_dir)  # 清理下载文件
-        logging.info(f"✅ 图片打包完成，共 {len(zip_paths)} 包")
-        return zip_paths
+            # 检查分包大小（40MB）
+            if current_zip_size + len(content) > 40 * 1024 * 1024:
+                current_zip.close()
+                zip_paths.append(current_zip_path)
+                logging.info(f"📦 完成 ZIP 包 {current_zip_idx}: {current_zip_path} (约 {current_zip_size/1024/1024:.2f} MB)")
+
+                # 新建下一个分包
+                current_zip_idx += 1
+                current_zip_size = 0
+                current_zip_path = os.path.join(export_dir, f"图片打包_{start_str}_{end_str}_包{current_zip_idx}.zip")
+                current_zip = zipfile.ZipFile(current_zip_path, "w", zipfile.ZIP_DEFLATED)
+                logging.info(f"📦 新建 ZIP 包: {current_zip_path}")
+
+            # 写入当前 ZIP
+            current_zip.writestr(filename, content)
+            current_zip_size += len(content)
+
+        # 关闭最后一个 ZIP
+        current_zip.close()
+        zip_paths.append(current_zip_path)
+        logging.info(f"📦 完成最后 ZIP 包 {current_zip_idx}: {current_zip_path} (约 {current_zip_size/1024/1024:.2f} MB)")
+
+        logging.info(f"✅ 图片分包导出完成，共 {len(zip_paths)} 包，目录: {export_dir}")
+        return zip_paths, export_dir
 
     except Exception as e:
         logging.error(f"❌ export_images 失败: {e}")
