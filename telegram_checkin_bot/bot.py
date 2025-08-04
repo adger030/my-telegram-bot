@@ -551,29 +551,22 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start, end = get_default_month_range()
 
     status_msg = await update.message.reply_text("⏳ 正在导出图片，请稍等...")
-    result = export_images(start, end)  # 可能返回 str 或 list[str]
+    zip_paths = export_images(start, end)
 
     try:
         await status_msg.delete()
     except:
         pass
 
-    if not result:
+    if not zip_paths:
         await update.message.reply_text("⚠️ 指定日期内没有图片。")
         return
 
-    # ✅ 处理单卷和多卷
-    if isinstance(result, list):  
-        reply = f"✅ 图片打包完成，共 {len(result)} 卷：\n\n"
-        for i, link in enumerate(result, 1):
-            reply += f"📦 第{i}卷：{link}\n"
-        await update.message.reply_text(reply, disable_web_page_preview=True)
-    elif isinstance(result, str):
-        if result.startswith("http"):
-            await update.message.reply_text(f"✅ 图片打包完成，文件过大已上传到云端：\n{result}")
-        else:
-            await update.message.reply_document(document=open(result, "rb"))
-            os.remove(result)
+    # 逐包发送 ZIP 文件
+    for idx, zip_path in enumerate(zip_paths, 1):
+        await update.message.reply_document(document=open(zip_path, "rb"), caption=f"📦 第 {idx} 包")
+        os.remove(zip_path)
+
 
 def check_existing_instance():
     lock_file = "/tmp/bot.lock"
