@@ -375,7 +375,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-LOGS_PER_PAGE = 2  
+LOGS_PER_PAGE = 1  
 
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
@@ -497,12 +497,11 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if has_down:
             down_ts = kw_map["#下班打卡"]
             next_day = down_ts.date() > day
-            reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{' 🌙（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
+            reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
 
     # ✅ 汇总信息固定不变
     reply += (
-        f"\n📊 本月汇总：\n"
-        f"🟢 正常：{total_complete} 次\n"
+        f"\n🟢 正常：{total_complete} 次\n"
         f"🔴 异常（迟到/早退）：{total_abnormal} 次\n"
         f"🟡 补卡：{total_makeup} 次"
     )
