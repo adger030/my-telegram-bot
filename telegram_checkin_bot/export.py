@@ -274,10 +274,10 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     logging.info(f"✅ Excel 导出完成（含自动列宽、正常打卡排序、异常高亮、文字居中）: {excel_path}")
     return excel_path
 
-def export_images(start_datetime: datetime, end_datetime: datetime):
+def export_images(start_datetime: datetime, end_datetime: datetime, max_zip_size_mb: int = 40):
     """
-    从数据库读取图片 URL，下载到本地后按周打包成多个 ZIP 文件（并发下载）
-    返回：list[str] -> 每周一个 ZIP 文件路径
+    导出指定时间范围内的所有图片，默认本月，按大小分包（每包 40MB）
+    返回：list[str] -> 每包一个 ZIP 文件路径
     """
     try:
         df = _fetch_data(start_datetime, end_datetime)
@@ -291,10 +291,6 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
             logging.warning("⚠️ 指定日期内没有图片。")
             return None
 
-        # 添加日期列并按周分组
-        photo_df["date"] = photo_df["timestamp"].dt.date
-        photo_df["week_start"] = photo_df["timestamp"].dt.to_period("W").apply(lambda r: r.start_time.date())
-
         start_str = start_datetime.strftime("%Y-%m-%d")
         end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
 
@@ -303,10 +299,13 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
             shutil.rmtree(export_dir)
         os.makedirs(export_dir, exist_ok=True)
 
-        zip_paths = []
+        # 临时下载文件夹
+        download_dir = os.path.join(export_dir, "downloads")
+        os.makedirs(download_dir, exist_ok=True)
 
+        # 并发下载所有图片
+        logging.info(f"📥 正在下载图片，共 {len(photo_df)} 张")
         def download_image(url, filename):
-            """下载单张图片"""
             try:
                 r = requests.get(url, stream=True, timeout=15)
                 if r.status_code == 200:
@@ -319,42 +318,50 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
                 logging.warning(f"⚠️ 下载失败: {url} ({e})")
             return False
 
-        # 按周分组下载并打包
-        for week_start, group_df in photo_df.groupby("week_start"):
-            week_end = (week_start + pd.Timedelta(days=6))
-            week_dir = os.path.join(export_dir, f"{week_start}_to_{week_end}")
-            os.makedirs(week_dir, exist_ok=True)
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = []
+            for _, row in photo_df.iterrows():
+                url = row["content"]
+                filename = safe_filename(f"{row['name']}_{row['timestamp'].strftime('%Y%m%d_%H%M%S')}{os.path.splitext(url)[-1]}")
+                file_path = os.path.join(download_dir, filename)
+                futures.append(executor.submit(download_image, url, file_path))
+            for future in futures:
+                future.result()
 
-            logging.info(f"📥 正在下载 {week_start} ~ {week_end} 的图片，共 {len(group_df)} 张")
+        # ---------------- 按大小分包 ----------------
+        zip_paths = []
+        current_zip_files = []
+        current_zip_size = 0
+        zip_index = 1
 
-            # 并发下载图片
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = []
-                for _, row in group_df.iterrows():
-                    url = row["content"]
-                    filename = safe_filename(f"{row['name']}_{row['timestamp'].strftime('%Y%m%d_%H%M%S')}{os.path.splitext(url)[-1]}")
-                    file_path = os.path.join(week_dir, filename)
-                    futures.append(executor.submit(download_image, url, file_path))
-
-                # 等待所有任务完成
-                for future in futures:
-                    future.result()
-
-            # 打包 ZIP
-            zip_name = f"图片_{week_start}_to_{week_end}.zip"
+        def create_zip(files, index):
+            zip_name = f"图片_{start_str}_to_{end_str}_包{index}.zip"
             zip_path = os.path.join(export_dir, zip_name)
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for root, _, files in os.walk(week_dir):
-                    for file in files:
-                        zf.write(os.path.join(root, file), arcname=file)
-
+                for f in files:
+                    zf.write(f, arcname=os.path.basename(f))
             logging.info(f"✅ 生成 ZIP: {zip_path}")
-            zip_paths.append(zip_path)
+            return zip_path
 
-            # 删除周临时文件夹
-            shutil.rmtree(week_dir)
+        for file in sorted(os.listdir(download_dir)):
+            file_path = os.path.join(download_dir, file)
+            file_size = os.path.getsize(file_path)
+            if current_zip_size + file_size > max_zip_size_mb * 1024 * 1024:
+                # 打包当前文件集并重置
+                if current_zip_files:
+                    zip_paths.append(create_zip(current_zip_files, zip_index))
+                    zip_index += 1
+                    current_zip_files = []
+                    current_zip_size = 0
+            current_zip_files.append(file_path)
+            current_zip_size += file_size
 
-        logging.info(f"✅ 全部图片打包完成，共 {len(zip_paths)} 包")
+        # 打包最后一包
+        if current_zip_files:
+            zip_paths.append(create_zip(current_zip_files, zip_index))
+
+        shutil.rmtree(download_dir)  # 清理下载文件
+        logging.info(f"✅ 图片打包完成，共 {len(zip_paths)} 包")
         return zip_paths
 
     except Exception as e:
