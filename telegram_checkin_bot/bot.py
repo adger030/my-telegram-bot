@@ -375,7 +375,8 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-PAGE_SIZE = 3  # 每页显示天数
+# 每页显示的天数
+LOGS_PER_PAGE = 3  
 
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
@@ -401,84 +402,156 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         date_key = ts.date()
         if kw == "#下班打卡" and ts.hour < 6:  # 凌晨下班算前一天
             date_key = (ts - timedelta(days=1)).date()
+
         if kw == "#上班打卡":
             daily_map[date_key]["shift"] = shift
             daily_map[date_key]["#上班打卡"] = ts
-        elif kw == "#下班打卡":
+            j = i + 1
+            found_down = False
+            while j < len(logs):
+                ts2, kw2, _ = logs[j]
+                if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=12):
+                    if ts2.hour < 6:
+                        daily_map[ts.date()]["#下班打卡"] = ts2
+                    else:
+                        daily_map[date_key]["#下班打卡"] = ts2
+                    found_down = True
+                    break
+                j += 1
+            i = j if found_down else i + 1
+        else:
             daily_map[date_key]["#下班打卡"] = ts
-        i += 1
-
-    # 将 daily_map 转换为列表，方便分页
-    daily_list = sorted(daily_map.items(), key=lambda x: x[0])
+            i += 1
 
     # 汇总统计
-    summary = {"normal": 0, "abnormal": 0, "makeup": 0}
-    for day, kw_map in daily_list:
-        shift_full = kw_map.get("shift", "未选择班次")
-        is_makeup = shift_full.endswith("（补卡）")
+    complete = 0
+    abnormal_count = 0
+    makeup_count = 0
 
-        if is_makeup:
-            summary["makeup"] += 1
-        else:
-            summary["normal"] += 1  # 默认正常（异常需另加判断逻辑）
-
-    context.user_data["mylogs"] = {
-        "daily_list": daily_list,
-        "summary": summary
+    # 生成分页数据
+    all_days = sorted(daily_map)
+    pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
+    context.user_data["mylogs_pages"] = {
+        "pages": pages,
+        "daily_map": daily_map,
+        "page_index": 0
     }
 
-    await send_mylogs_page(update, context, page=1)
+    await send_mylogs_page(update, context)
 
+async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = context.user_data["mylogs_pages"]
+    pages, daily_map, page_index = data["pages"], data["daily_map"], data["page_index"]
+    current_page_days = pages[page_index]
 
-async def send_mylogs_page(update_or_query, context, page: int):
-    data = context.user_data.get("mylogs")
-    if not data:
-        return
+    reply = f"🗓️ 本月打卡情况（第 {page_index+1}/{len(pages)} 页）：\n\n"
 
-    daily_list = data["daily_list"]
-    summary = data["summary"]
-    total_pages = (len(daily_list) + PAGE_SIZE - 1) // PAGE_SIZE
+    # 状态统计
+    complete = abnormal_count = makeup_count = 0
 
-    start_idx = (page - 1) * PAGE_SIZE
-    end_idx = start_idx + PAGE_SIZE
-    page_data = daily_list[start_idx:end_idx]
-
-    reply = f"🗓️ 本月打卡情况（第 {page}/{total_pages} 页）：\n\n"
-    for idx, (day, kw_map) in enumerate(page_data, start=start_idx + 1):
+    for idx, day in enumerate(current_page_days, start=1 + page_index * LOGS_PER_PAGE):
+        kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
+        is_makeup = shift_full.endswith("（补卡）")
         shift_name = shift_full.split("（")[0]
-        up = kw_map.get("#上班打卡")
-        down = kw_map.get("#下班打卡")
+        has_up = "#上班打卡" in kw_map
+        has_down = "#下班打卡" in kw_map
 
-        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
-        reply += f"   └─ #上班打卡：{up.strftime('%H:%M') if up else '❌ 无'}\n"
-        reply += f"   └─ #下班打卡：{down.strftime('%H:%M') if down else '❌ 无'}\n"
+        has_late = False
+        has_early = False
 
+        if is_makeup:
+            makeup_count += 1
+
+        # 判断迟到/早退
+        if has_up and shift_name in SHIFT_TIMES:
+            start_time, _ = SHIFT_TIMES[shift_name]
+            if kw_map["#上班打卡"].time() > start_time:
+                has_late = True
+        if has_down and shift_name in SHIFT_TIMES:
+            _, end_time = SHIFT_TIMES[shift_name]
+            down_ts = kw_map["#下班打卡"]
+            if shift_name == "I班":
+                if down_ts.date() == day:  # I班下班当天走为早退
+                    has_early = True
+            elif down_ts.time() < end_time:
+                has_early = True
+
+        # 状态 Emoji
+        if is_makeup:
+            status_emoji = "🟡"
+        elif has_late or has_early:
+            status_emoji = "🔴"
+        else:
+            status_emoji = "🟢"
+
+        # 日期行
+        reply += f"{idx}. {status_emoji} {day.strftime('%m月%d日')} - {shift_name}\n"
+
+        # 上班
+        if has_up:
+            up_ts = kw_map["#上班打卡"]
+            up_status = "（迟到）" if has_late else ""
+            reply += f"   └─ #上班打卡：{up_ts.strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{up_status}\n"
+            if not is_makeup and not has_late:
+                complete += 1
+        else:
+            reply += "   └─ ❌ 缺少上班打卡\n"
+
+        # 下班
+        if has_down:
+            down_ts = kw_map["#下班打卡"]
+            next_day = down_ts.date() > day
+            down_status = ""
+            if has_early:
+                down_status = "（早退）"
+            reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{down_status}\n"
+            if not is_makeup and not has_early:
+                complete += 1
+        else:
+            reply += "   └─ ❌ 缺少下班打卡\n"
+
+        if has_late:
+            abnormal_count += 1
+        if has_early:
+            abnormal_count += 1
+
+    # 汇总统计
     reply += (
-        f"🟢 正常：{summary['normal']} 次\n"
-        f"🔴 异常：{summary['abnormal']} 次\n"
-        f"🟡 补卡：{summary['makeup']} 次"
+        f"\n🟢 正常：{complete} 次\n"
+        f"🔴 异常（迟到/早退）：{abnormal_count} 次\n"
+        f"🟡 补卡：{makeup_count} 次"
     )
 
+    # 分页按钮
     buttons = []
-    if page > 1:
-        buttons.append(InlineKeyboardButton("⬅ 上一页", callback_data=f"logs_page:{page-1}"))
-    if page < total_pages:
-        buttons.append(InlineKeyboardButton("➡ 下一页", callback_data=f"logs_page:{page+1}"))
+    if page_index > 0:
+        buttons.append(InlineKeyboardButton("⬅ 上一页", callback_data="mylogs_prev"))
+    if page_index < len(pages) - 1:
+        buttons.append(InlineKeyboardButton("➡ 下一页", callback_data="mylogs_next"))
 
-    markup = InlineKeyboardMarkup([buttons] if buttons else [])
+    markup = InlineKeyboardMarkup([buttons]) if buttons else None
 
-    if isinstance(update_or_query, Update):
-        await update_or_query.message.reply_text(reply, reply_markup=markup)
+    if update.callback_query:
+        await update.callback_query.edit_message_text(reply, reply_markup=markup)
     else:
-        await update_or_query.edit_message_text(reply, reply_markup=markup)
+        await update.message.reply_text(reply, reply_markup=markup)
 
-# 分页回调
-async def logs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# 分页按钮回调
+async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    page = int(query.data.split(":")[1])
-    await send_mylogs_page(query, context, page)
+
+    if "mylogs_pages" not in context.user_data:
+        await query.edit_message_text("⚠️ 会话已过期，请重新使用 /mylogs")
+        return
+
+    if query.data == "mylogs_prev":
+        context.user_data["mylogs_pages"]["page_index"] -= 1
+    elif query.data == "mylogs_next":
+        context.user_data["mylogs_pages"]["page_index"] += 1
+
+    await send_mylogs_page(update, context)
 
 
 def get_default_month_range():
@@ -605,6 +678,7 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))
     app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:"))  
+    app.add_handler(CallbackQueryHandler(mylogs_page_callback, pattern=r"^mylogs_(prev|next)$"))
     print("🤖 Bot 正在运行...")
     app.run_polling()
 
