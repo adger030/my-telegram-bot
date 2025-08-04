@@ -278,7 +278,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
     """
-    基于数据库 URL 生成 Cloudinary ZIP 下载链接，验证 public_id 存在性，防止空压缩包
+    基于数据库 URL 生成 Cloudinary ZIP 下载链接，批量列资源避免 API 限额
     """
     try:
         df = _fetch_data(start_datetime, end_datetime)
@@ -293,45 +293,63 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
             return None
 
         def extract_public_id(url: str) -> str | None:
+            """从 Cloudinary URL 中提取 public_id"""
             match = re.search(r'/upload/(?:v\d+/)?(.+?)\.(jpg|jpeg|png|gif)$', url)
-            if match:
-                return match.group(1)
-            logging.warning(f"⚠️ 无法解析 public_id: {url}")
-            return None
+            return match.group(1) if match else None
 
         # 提取 public_id
         photo_df["public_id"] = photo_df["content"].apply(extract_public_id)
-        all_ids = [pid for pid in photo_df["public_id"].dropna().unique() if pid.strip()]
-        logging.info(f"🔍 初步提取到 {len(all_ids)} 个 public_id，开始验证 Cloudinary 存在性...")
+        all_public_ids = [pid for pid in photo_df["public_id"].dropna().unique() if pid.strip()]
+        logging.info(f"🔍 初步提取到 {len(all_public_ids)} 个 public_id")
 
-        valid_ids = []
-        for pid in all_ids:
-            try:
-                cloudinary.api.resource(pid)  # 验证资源存在
-                valid_ids.append(pid)
-            except cloudinary.exceptions.NotFound:
-                logging.warning(f"❌ Cloudinary 中不存在: {pid}")
-                continue
-
-        if not valid_ids:
-            logging.error("❌ 所有 public_id 均不存在于 Cloudinary，返回空")
+        if not all_public_ids:
+            logging.warning("⚠️ 无有效 public_id")
             return None
 
-        logging.info(f"✅ 通过验证的有效图片: {len(valid_ids)} 张")
+        # 根据 public_id 自动提取文件夹（年月），只取第一个作为主文件夹
+        sample_pid = all_public_ids[0]
+        folder_prefix = "/".join(sample_pid.split("/")[:-1])  # 去掉文件名部分
+        logging.info(f"📂 自动检测 Cloudinary 文件夹: {folder_prefix}")
 
-        # 生成 ZIP 下载链接
+        # 1️⃣ 列出文件夹下所有资源（一次 API 调用）
+        folder_resources = []
+        next_cursor = None
+        while True:
+            res = cloudinary.api.resources(
+                type="upload",
+                prefix=folder_prefix,
+                resource_type="image",
+                max_results=500,
+                next_cursor=next_cursor
+            )
+            folder_resources.extend(res.get("resources", []))
+            next_cursor = res.get("next_cursor")
+            if not next_cursor:
+                break
+
+        # 2️⃣ 转换为 set 进行交集过滤
+        folder_public_ids = {r["public_id"] for r in folder_resources}
+        valid_public_ids = list(set(all_public_ids) & folder_public_ids)
+
+        logging.info(f"✅ 文件夹内存在 {len(valid_public_ids)} 张有效图片")
+        if not valid_public_ids:
+            logging.warning("⚠️ 没有匹配到有效图片")
+            return None
+
+        # 3️⃣ 生成压缩包
         start_str = start_datetime.strftime("%Y-%m-%d")
         end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
         zip_name = f"图片打包_{start_str}_{end_str}"
 
-        logging.info(f"📦 生成 Cloudinary ZIP 压缩包: {zip_name}")
+        logging.info(f"📦 生成 Cloudinary ZIP: {zip_name}，共 {len(valid_public_ids)} 张图片")
         zip_url = cloudinary.utils.download_zip_url(
             options={
-                "public_ids": valid_ids,
+                "public_ids": valid_public_ids,
                 "target_public_id": zip_name,
                 "resource_type": "image"
             }
         )
+
         logging.info(f"✅ Cloudinary ZIP 链接生成成功: {zip_url}")
         return zip_url
 
