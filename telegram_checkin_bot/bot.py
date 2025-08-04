@@ -562,7 +562,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 指定日期内没有图片。")
         return
 
-    # 逐包发送 ZIP 文件
+    # 逐包发送
     for idx, zip_path in enumerate(zip_paths, 1):
         await update.message.reply_document(document=open(zip_path, "rb"), caption=f"📦 第 {idx} 包")
         os.remove(zip_path)
