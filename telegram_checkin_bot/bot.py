@@ -374,126 +374,134 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏰ 时间：{punch_dt.strftime('%Y-%m-%d %H:%M')}"
     )
 
+PAGE_SIZE = 5  # 每页显示 5 天
+
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
     now = datetime.now(BEIJING_TZ)
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    end = (start + timedelta(days=32)).replace(day=1)
-
+    end = now  # 只统计到昨天
     logs = get_user_logs(username, start, end)
+
     if not logs:
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
 
-    # 转换时区 & 排序
+    # 处理打卡数据
+    data, stats = process_logs_for_ui(logs)
+    context.user_data["mylogs_data"] = data
+    context.user_data["mylogs_stats"] = stats
+    context.user_data["mylogs_page"] = 0
+
+    await send_mylogs_page(update, context, page=0)
+
+def process_logs_for_ui(logs):
+    """处理日志，返回 daily_data 和统计结果"""
     logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
     logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
-    logs = sorted(logs, key=lambda x: x[0])
+    logs.sort(key=lambda x: x[0])
 
-    # 按天组合上下班打卡
+    # 按天整理
     daily_map = defaultdict(dict)
-    i = 0
-    while i < len(logs):
-        ts, kw, shift = logs[i]
+    for ts, kw, shift in logs:
         date_key = ts.date()
-        if kw == "#下班打卡" and ts.hour < 6:  # 凌晨下班算前一天
+        if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
+        daily_map[date_key].setdefault("shift", shift or "未选择班次")
+        daily_map[date_key][kw] = ts
 
-        if kw == "#上班打卡":
-            daily_map[date_key]["shift"] = shift
-            daily_map[date_key]["#上班打卡"] = ts
-            j = i + 1
-            found_down = False
-            while j < len(logs):
-                ts2, kw2, _ = logs[j]
-                if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=12):
-                    if ts2.hour < 6:
-                        daily_map[ts.date()]["#下班打卡"] = ts2
-                    else:
-                        daily_map[date_key]["#下班打卡"] = ts2
-                    found_down = True
-                    break
-                j += 1
-            i = j if found_down else i + 1
-        else:
-            daily_map[date_key]["#下班打卡"] = ts
-            i += 1
+    daily_data = []
+    stats = {"normal": 0, "abnormal": 0, "makeup": 0, "miss": 0}
+    for day in sorted(daily_map.keys(), reverse=True):
+        d = daily_map[day]
+        shift = d.get("shift", "未选择班次")
+        is_makeup = shift.endswith("（补卡）")
+        shift_name = shift.split("（")[0]
 
-    # 生成回复
-    reply = "🗓️ 本月打卡情况（北京时间）：\n\n"
-    complete = 0  # 正常打卡次数
-    abnormal_count = 0
-    makeup_count = 0
-
-    for idx, day in enumerate(sorted(daily_map), start=1):
-        kw_map = daily_map[day]
-        shift_full = kw_map.get("shift", "未选择班次")
-        is_makeup = shift_full.endswith("（补卡）")
-        shift_name = shift_full.split("（")[0]
-        has_up = "#上班打卡" in kw_map
-        has_down = "#下班打卡" in kw_map
-
+        up_ts = d.get("#上班打卡")
+        down_ts = d.get("#下班打卡")
         has_late = False
         has_early = False
 
+        # 迟到/早退判定
+        if shift_name in SHIFT_TIMES:
+            start_time, end_time = SHIFT_TIMES[shift_name]
+            if up_ts and up_ts.time() > start_time:
+                has_late = True
+            if down_ts:
+                if shift_name == "I班" and down_ts.date() == day:
+                    has_early = True
+                elif shift_name != "I班" and down_ts.time() < end_time:
+                    has_early = True
+
+        # 状态 & 统计
+        if not up_ts or not down_ts:
+            status = "⚠ 漏卡"
+            stats["miss"] += 1
+        elif has_late or has_early:
+            status = "🔴 异常"
+            stats["abnormal"] += 1
+        else:
+            status = "✅ 正常"
+            stats["normal"] += 1
         if is_makeup:
-            makeup_count += 1
+            stats["makeup"] += 1
 
-        # 日期行
-        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
+        daily_data.append({
+            "date": day,
+            "shift": shift_name,
+            "up": up_ts,
+            "down": down_ts,
+            "status": status,
+        })
+    return daily_data, stats
 
-        # 上班打卡
-        if has_up:
-            up_ts = kw_map["#上班打卡"]
-            up_status = ""
-            if shift_name in SHIFT_TIMES:
-                start_time, _ = SHIFT_TIMES[shift_name]
-                if up_ts.time() > start_time:
-                    has_late = True
-                    up_status = "（迟到）"
-            reply += f"   └─ #上班打卡：{up_ts.strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{up_status}\n"
-            if not is_makeup and not has_late:
-                complete += 1
-        else:
-            reply += "   └─ ❌ 缺少上班打卡\n"
+async def send_mylogs_page(update_or_query, context, page):
+    data = context.user_data["mylogs_data"]
+    stats = context.user_data["mylogs_stats"]
+    total_pages = (len(data) + PAGE_SIZE - 1) // PAGE_SIZE
 
-        # 下班打卡
-        if has_down:
-            down_ts = kw_map["#下班打卡"]
-            down_status = ""
-            if shift_name in SHIFT_TIMES:
-                _, end_time = SHIFT_TIMES[shift_name]
-                if shift_name == "I班":
-                    if down_ts.date() == day:  
-                        has_early = True
-                        down_status = "（早退）"
-                else:
-                    if down_ts.time() < end_time:
-                        has_early = True
-                        down_status = "（早退）"
-            next_day = down_ts.date() > day
-            reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{down_status}\n"
-            if not is_makeup and not has_early:
-                complete += 1
-        else:
-            reply += "   └─ ❌ 缺少下班打卡\n"
+    start_idx = page * PAGE_SIZE
+    end_idx = min(start_idx + PAGE_SIZE, len(data))
+    page_data = data[start_idx:end_idx]
 
-        # 统计异常（迟到+早退分别计数）
-        if has_late:
-            abnormal_count += 1
-        if has_early:
-            abnormal_count += 1
+    text = "📅 本月打卡记录（北京时间）\n\n"
+    for item in page_data:
+        date_str = item["date"].strftime("%m-%d(%a)")
+        up_str = item["up"].strftime("%H:%M") if item["up"] else "❌ 缺卡"
+        down_str = item["down"].strftime("%H:%M") + ("（次日）" if item["down"] and item["down"].date() > item["date"] else "") if item["down"] else "❌ 缺卡"
+        text += f"{date_str} 🏷 {item['shift']} | 上班 {up_str} | 下班 {down_str} {item['status']}\n"
 
-    # 统计汇总
-    reply += (
-        f"\n🟢 正常打卡：{complete} 次\n"
-        f"🔴 异常打卡（迟到/早退）：{abnormal_count} 次\n"
-        f"🟡 补卡：{makeup_count} 次"
-    )
+    text += "\n━━━━━━━━━━━━━━━\n"
+    text += f"✅ 正常：{stats['normal']} | 🔴 异常：{stats['abnormal']} | ⚠ 漏卡：{stats['miss']} | 🟡 补卡：{stats['makeup']}\n"
+    text += f"📄 第 {page+1}/{total_pages} 页"
 
-    await update.message.reply_text(reply)
+    # 翻页按钮
+    buttons = []
+    if page > 0:
+        buttons.append(InlineKeyboardButton("⬅ 上一页", callback_data="mylogs_page:prev"))
+    if page < total_pages - 1:
+        buttons.append(InlineKeyboardButton("下一页 ➡", callback_data="mylogs_page:next"))
+    keyboard = InlineKeyboardMarkup([buttons] if buttons else [])
 
+    if isinstance(update_or_query, Update):  # 初次发送
+        await update_or_query.message.reply_text(text, reply_markup=keyboard)
+    else:  # 回调翻页
+        await update_or_query.edit_message_text(text, reply_markup=keyboard)
 
+async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if "mylogs_data" not in context.user_data:
+        await query.edit_message_text("⚠️ 数据已过期，请重新发送 /mylogs。")
+        return
+    page = context.user_data["mylogs_page"]
+    if query.data.endswith("prev"):
+        page -= 1
+    else:
+        page += 1
+    context.user_data["mylogs_page"] = page
+    await send_mylogs_page(query, context, page)
 
 def get_default_month_range():
     now = datetime.now(BEIJING_TZ)
@@ -619,6 +627,7 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))
     app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:"))  
+    app.add_handler(CallbackQueryHandler(mylogs_page_callback, pattern=r"^mylogs_page:")) # ✅ 注册新回调
     print("🤖 Bot 正在运行...")
     app.run_polling()
 
