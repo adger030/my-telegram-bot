@@ -278,47 +278,49 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
     """
-    从数据库中提取图片 URL，解析 Cloudinary public_id 并生成 ZIP 下载链接（基于数据库 URL）
+    基于数据库 URL 生成 Cloudinary ZIP 下载链接，自动解析 public_id，防止空压缩包
     """
     try:
-        # 从数据库获取消息数据
         df = _fetch_data(start_datetime, end_datetime)
         if df.empty:
             logging.warning("⚠️ 指定日期内没有数据")
             return None
 
-        # 仅筛选包含图片 URL 的记录
+        # 仅筛选图片 URL
         photo_df = df[df["content"].str.contains(r"\.(jpg|jpeg|png|gif)$", case=False, na=False)].copy()
         if photo_df.empty:
             logging.warning("⚠️ 指定日期内没有图片。")
             return None
 
-        # 解析 Cloudinary public_id
         def extract_public_id(url: str) -> str | None:
             """
-            从 Cloudinary URL 提取 public_id
-            例如：https://res.cloudinary.com/demo/image/upload/v1234567890/telegram_exports/2025-08/filename.jpg
-            返回：telegram_exports/2025-08/filename
+            从 Cloudinary URL 中提取 public_id
+            支持格式：
+            1) https://res.cloudinary.com/<cloud>/image/upload/v1234567890/folder/subfolder/file.jpg
+            2) https://res.cloudinary.com/<cloud>/image/upload/folder/file.png
+            返回：folder/subfolder/file
             """
-            match = re.search(r'/upload/(?:v\d+/)?([^\.]+)\.(jpg|jpeg|png|gif)$', url)
+            match = re.search(r'/upload/(?:v\d+/)?(.+?)\.(jpg|jpeg|png|gif)$', url)
             if match:
-                return match.group(1)  # public_id 不含扩展名
+                return match.group(1)
+            logging.warning(f"⚠️ 无法解析 public_id: {url}")
             return None
 
+        # 提取 public_id
         photo_df["public_id"] = photo_df["content"].apply(extract_public_id)
-        public_ids = photo_df["public_id"].dropna().unique().tolist()
+        public_ids = [pid for pid in photo_df["public_id"].dropna().unique() if pid.strip()]
 
+        logging.info(f"🔍 共提取到 {len(public_ids)} 个 public_id")
         if not public_ids:
-            logging.warning("⚠️ 未能从数据库 URL 提取有效的 Cloudinary public_id")
+            logging.error("❌ 没有有效的 public_id，可能 URL 不是 Cloudinary 链接")
             return None
 
-        logging.info(f"✅ 共解析到 {len(public_ids)} 张图片，正在生成 Cloudinary ZIP 链接...")
-
-        # 生成 ZIP 打包下载链接
+        # 生成压缩包
         start_str = start_datetime.strftime("%Y-%m-%d")
         end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
         zip_name = f"图片打包_{start_str}_{end_str}"
 
+        logging.info(f"📦 正在生成 Cloudinary ZIP: {zip_name}，共 {len(public_ids)} 张图片")
         zip_url = cloudinary.utils.download_zip_url(
             options={
                 "public_ids": public_ids,
@@ -333,3 +335,4 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
     except Exception as e:
         logging.error(f"❌ export_images 失败: {e}")
         return None
+
