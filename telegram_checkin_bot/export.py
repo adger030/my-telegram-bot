@@ -12,8 +12,11 @@ from concurrent.futures import ThreadPoolExecutor
 from config import DATA_DIR, DATABASE_URL
 import cloudinary
 import cloudinary.uploader
+import cloudinary.api
+import cloudinary.utils
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
+
 
 # 日志配置
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
@@ -274,89 +277,67 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     return excel_path
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
-    df = _fetch_data(start_datetime, end_datetime)
-    if df.empty:
-        logging.warning("⚠️ 指定日期内没有数据")
+    """
+    从 Cloudinary 获取指定时间范围的图片，自动检测按年月分的文件夹，并生成打包下载链接（无需本地下载）
+    :param start_datetime: 开始时间（datetime 对象）
+    :param end_datetime: 结束时间（datetime 对象）
+    :return: Cloudinary 生成的 ZIP 下载链接 (str) 或 None
+    """
+    try:
+        # 格式化时间
+        start_str = start_datetime.strftime("%Y-%m-%d")
+        end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
+
+        # 根据起始时间自动拼接 Cloudinary 文件夹路径（按年月）
+        folder_prefix = f"telegram_exports/{start_datetime.strftime('%Y-%m')}"
+        logging.info(f"🔍 正在从 Cloudinary 文件夹 [{folder_prefix}] 查询图片: {start_str} ~ {end_str}")
+
+        # 1️⃣ 查询 Cloudinary 指定文件夹下的所有图片
+        all_images = []
+        next_cursor = None
+        while True:
+            resources = cloudinary.api.resources(
+                type="upload",
+                prefix=folder_prefix,
+                resource_type="image",
+                max_results=500,
+                next_cursor=next_cursor
+            )
+            all_images.extend(resources.get("resources", []))
+            next_cursor = resources.get("next_cursor")
+            if not next_cursor:
+                break
+
+        if not all_images:
+            logging.warning(f"⚠️ 文件夹 {folder_prefix} 下没有图片资源")
+            return None
+
+        # 2️⃣ 过滤符合时间范围的图片
+        images = []
+        for res in all_images:
+            created_at = datetime.fromisoformat(res["created_at"].replace("Z", "+00:00"))
+            if start_datetime <= created_at <= end_datetime:
+                images.append(res["public_id"])
+
+        if not images:
+            logging.warning("⚠️ 指定日期范围内无符合条件的图片")
+            return None
+
+        logging.info(f"✅ 匹配到 {len(images)} 张图片，正在生成压缩包下载链接...")
+
+        # 3️⃣ 生成 Cloudinary ZIP 下载链接
+        zip_name = f"图片打包_{start_str}_{end_str}"
+        zip_url = cloudinary.utils.download_zip_url(
+            options={
+                "public_ids": images,
+                "target_public_id": zip_name,
+                "resource_type": "image"
+            }
+        )
+
+        logging.info(f"✅ Cloudinary ZIP 链接生成成功: {zip_url}")
+        return zip_url
+
+    except Exception as e:
+        logging.error(f"❌ Cloudinary 图片打包失败: {e}")
         return None
-
-    photo_df = df[df["content"].str.contains(r"\.jpg|\.jpeg|\.png", case=False, na=False)]
-    if photo_df.empty:
-        logging.warning("⚠️ 指定日期内没有图片")
-        return None
-
-    start_str = start_datetime.strftime("%Y-%m-%d")
-    end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
-    export_dir = os.path.join(DATA_DIR, f"images_{start_str}_{end_str}")
-    os.makedirs(export_dir, exist_ok=True)
-
-    # 下载图片
-    def download_image(row):
-        url = row["content"]
-        if url and url.startswith("http"):
-            try:
-                ts = row["timestamp"].strftime("%Y-%m-%d_%H-%M-%S")
-                date_folder = row["timestamp"].strftime("%Y-%m-%d")
-                day_dir = os.path.join(export_dir, date_folder)
-                os.makedirs(day_dir, exist_ok=True)
-
-                name = safe_filename(row["name"] or "匿名")
-                keyword = safe_filename(row["keyword"] or "无关键词")
-                filename = f"{ts}_{name}_{keyword}.jpg"
-                save_path = os.path.join(day_dir, filename)
-
-                response = requests.get(url, stream=True, timeout=10)
-                if response.status_code == 200:
-                    with open(save_path, "wb") as f:
-                        for chunk in response.iter_content(1024):
-                            f.write(chunk)
-                logging.info(f"📥 下载成功: {filename}")
-            except Exception as e:
-                logging.warning(f"[图片下载失败] {url} - {e}")
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        executor.map(download_image, photo_df.to_dict("records"))
-
-    # 分卷打包 ZIP
-    zip_base = os.path.join(DATA_DIR, f"图片打包_{start_str}_{end_str}")
-    zip_files = []
-    part_idx = 1
-    current_size = 0
-    zipf = zipfile.ZipFile(f"{zip_base}_part{part_idx}.zip", "w", zipfile.ZIP_DEFLATED)
-
-    for root, _, files in os.walk(export_dir):
-        for file in files:
-            full_path = os.path.join(root, file)
-            arcname = os.path.relpath(full_path, export_dir)
-            file_size = os.path.getsize(full_path)
-
-            # 如果加上这个文件会超过 50MB → 关闭当前 ZIP，新建下一卷
-            if current_size + file_size > MAX_TELEGRAM_FILE_MB * 1024 * 1024:
-                zipf.close()
-                zip_files.append(f"{zip_base}_part{part_idx}.zip")
-                part_idx += 1
-                zipf = zipfile.ZipFile(f"{zip_base}_part{part_idx}.zip", "w", zipfile.ZIP_DEFLATED)
-                current_size = 0
-
-            zipf.write(full_path, arcname)
-            current_size += file_size
-
-    zipf.close()
-    zip_files.append(f"{zip_base}_part{part_idx}.zip")
-
-    shutil.rmtree(export_dir)
-    logging.info(f"✅ 图片分卷打包完成，共 {len(zip_files)} 卷")
-
-    # 上传到 Cloudinary（大于 50MB 的 ZIP）
-    cloud_urls = []
-    for zf in zip_files:
-        file_size_mb = os.path.getsize(zf) / (1024 * 1024)
-        if file_size_mb > MAX_TELEGRAM_FILE_MB:
-            logging.warning(f"⚠️ {zf} 超过 50MB，上传至 Cloudinary...")
-            url = upload_to_cloudinary(zf)
-            if url:
-                cloud_urls.append(url)
-                os.remove(zf)
-        else:
-            cloud_urls.append(zf)  # 直接本地文件返回
-
-    return cloud_urls
