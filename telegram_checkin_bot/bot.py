@@ -14,6 +14,7 @@ from db_pg import init_db, save_message, get_user_logs, save_shift, get_user_nam
 from export import export_excel, export_images
 from upload_image import upload_image
 from cleaner import delete_last_month_data
+import shutil
 
 # 北京时区
 BEIJING_TZ = timezone(timedelta(hours=8))
@@ -551,21 +552,32 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start, end = get_default_month_range()
 
     status_msg = await update.message.reply_text("⏳ 正在导出图片，请稍等...")
-    zip_paths = export_images(start, end)
+    result = export_images(start, end)  # 返回 (zip_paths, export_dir)
 
     try:
         await status_msg.delete()
     except:
         pass
 
-    if not zip_paths:
+    if not result:
         await update.message.reply_text("⚠️ 指定日期内没有图片。")
         return
 
-    # 逐包发送
-    for idx, zip_path in enumerate(zip_paths, 1):
-        await update.message.reply_document(document=open(zip_path, "rb"), caption=f"📦 第 {idx} 包")
+    zip_paths, export_dir = result  # ✅ export_images 返回 (list[str], export_dir)
+
+    if len(zip_paths) == 1:
+        # 只有一包，直接发送
+        await update.message.reply_document(document=open(zip_paths[0], "rb"))
+    else:
+        # 多包，带编号
+        for idx, zip_path in enumerate(zip_paths, 1):
+            await update.message.reply_document(document=open(zip_path, "rb"), caption=f"📦 第 {idx} 包")
+
+    # ✅ 清理 ZIP 文件和导出目录
+    for zip_path in zip_paths:
         os.remove(zip_path)
+    shutil.rmtree(export_dir, ignore_errors=True)
+    logging.info(f"🧹 已清理导出目录: {export_dir}")
 
 
 def check_existing_instance():
