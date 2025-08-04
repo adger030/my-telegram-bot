@@ -307,10 +307,11 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
             logging.error("❌ 没有有效的 public_id，可能 URL 不是 Cloudinary 链接")
             return None
 
-        # 创建导出目录
+        # 创建导出目录（先清理旧目录）
         start_str = start_datetime.strftime("%Y-%m-%d")
         end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
         export_dir = os.path.join(DATA_DIR, f"images_{start_str}_{end_str}")
+        shutil.rmtree(export_dir, ignore_errors=True)  # ✅ 清理旧目录
         os.makedirs(export_dir, exist_ok=True)
 
         zip_paths = []  # 存储分包路径
@@ -326,7 +327,7 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
             url = cloudinary.CloudinaryImage(pid).build_url()
             filename = safe_filename(f"{os.path.basename(pid)}.jpg")
 
-            # 下载图片到临时文件
+            # 下载图片
             try:
                 resp = requests.get(url, stream=True, timeout=15)
                 resp.raise_for_status()
@@ -363,4 +364,3 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
     except Exception as e:
         logging.error(f"❌ export_images 失败: {e}")
         return None
-
