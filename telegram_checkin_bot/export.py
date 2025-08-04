@@ -276,8 +276,8 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
     """
-    基于数据库 URL 生成 Cloudinary ZIP 下载链接，自动分卷（每卷 1000 张）
-    返回: 单卷 -> str， 多卷 -> list[str]
+    从数据库读取图片 URL，下载到本地后按周打包成多个 ZIP 文件（并发下载）
+    返回：list[str] -> 每周一个 ZIP 文件路径
     """
     try:
         df = _fetch_data(start_datetime, end_datetime)
@@ -291,47 +291,73 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
             logging.warning("⚠️ 指定日期内没有图片。")
             return None
 
-        def extract_public_id(url: str) -> str | None:
-            """ 从 Cloudinary URL 中提取 public_id """
-            match = re.search(r'/upload/(?:v\d+/)?(.+?)\.(?:jpg|jpeg|png|gif)$', url)
-            if match:
-                return match.group(1)
-            logging.warning(f"⚠️ 无法解析 public_id: {url}")
-            return None
+        # 添加日期列并按周分组
+        photo_df["date"] = photo_df["timestamp"].dt.date
+        photo_df["week_start"] = photo_df["timestamp"].dt.to_period("W").apply(lambda r: r.start_time.date())
 
-        # 提取 public_id
-        photo_df["public_id"] = photo_df["content"].apply(extract_public_id)
-        public_ids = [pid for pid in photo_df["public_id"].dropna().unique() if pid.strip()]
-
-        logging.info(f"🔍 初步提取到 {len(public_ids)} 个 public_id")
-        if not public_ids:
-            logging.error("❌ 没有有效的 public_id，可能 URL 不是 Cloudinary 链接")
-            return None
-
-        # ---------------- 分卷处理 ----------------
-        MAX_PER_ZIP = 1000
-        zip_links = []
         start_str = start_datetime.strftime("%Y-%m-%d")
         end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
 
-        chunks = [public_ids[i:i + MAX_PER_ZIP] for i in range(0, len(public_ids), MAX_PER_ZIP)]
-        logging.info(f"📦 需要分成 {len(chunks)} 卷进行打包")
+        export_dir = os.path.join(DATA_DIR, f"images_{start_str}_{end_str}")
+        if os.path.exists(export_dir):
+            shutil.rmtree(export_dir)
+        os.makedirs(export_dir, exist_ok=True)
 
-        for idx, chunk in enumerate(chunks, 1):
-            zip_name = f"图片打包_{start_str}_{end_str}_卷{idx}"
-            logging.info(f"📦 正在生成第 {idx} 卷 ZIP，共 {len(chunk)} 张图片")
-            zip_url = cloudinary.utils.download_zip_url(
-                options={
-                    "public_ids": chunk,
-                    "target_public_id": zip_name,
-                    "resource_type": "image"
-                }
-            )
-            zip_links.append(zip_url)
+        zip_paths = []
 
-        logging.info(f"✅ 图片分卷打包完成，共 {len(zip_links)} 卷")
-        return zip_links[0] if len(zip_links) == 1 else zip_links
+        def download_image(url, filename):
+            """下载单张图片"""
+            try:
+                r = requests.get(url, stream=True, timeout=15)
+                if r.status_code == 200:
+                    with open(filename, "wb") as f:
+                        shutil.copyfileobj(r.raw, f)
+                    return True
+                else:
+                    logging.warning(f"⚠️ 下载失败（状态码 {r.status_code}）: {url}")
+            except Exception as e:
+                logging.warning(f"⚠️ 下载失败: {url} ({e})")
+            return False
+
+        # 按周分组下载并打包
+        for week_start, group_df in photo_df.groupby("week_start"):
+            week_end = (week_start + pd.Timedelta(days=6))
+            week_dir = os.path.join(export_dir, f"{week_start}_to_{week_end}")
+            os.makedirs(week_dir, exist_ok=True)
+
+            logging.info(f"📥 正在下载 {week_start} ~ {week_end} 的图片，共 {len(group_df)} 张")
+
+            # 并发下载图片
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = []
+                for _, row in group_df.iterrows():
+                    url = row["content"]
+                    filename = safe_filename(f"{row['name']}_{row['timestamp'].strftime('%Y%m%d_%H%M%S')}{os.path.splitext(url)[-1]}")
+                    file_path = os.path.join(week_dir, filename)
+                    futures.append(executor.submit(download_image, url, file_path))
+
+                # 等待所有任务完成
+                for future in futures:
+                    future.result()
+
+            # 打包 ZIP
+            zip_name = f"图片_{week_start}_to_{week_end}.zip"
+            zip_path = os.path.join(export_dir, zip_name)
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for root, _, files in os.walk(week_dir):
+                    for file in files:
+                        zf.write(os.path.join(root, file), arcname=file)
+
+            logging.info(f"✅ 生成 ZIP: {zip_path}")
+            zip_paths.append(zip_path)
+
+            # 删除周临时文件夹
+            shutil.rmtree(week_dir)
+
+        logging.info(f"✅ 全部图片打包完成，共 {len(zip_paths)} 包")
+        return zip_paths
 
     except Exception as e:
         logging.error(f"❌ export_images 失败: {e}")
         return None
+
