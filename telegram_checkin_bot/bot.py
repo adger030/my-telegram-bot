@@ -537,6 +537,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ 无权限，仅管理员可导出记录。")
         return
+
     tz = BEIJING_TZ
     args = context.args
     if len(args) == 2:
@@ -548,20 +549,31 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     else:
         start, end = get_default_month_range()
+
     status_msg = await update.message.reply_text("⏳ 正在导出图片，请稍等...")
-    file_path = export_images(start, end)
+    result = export_images(start, end)  # 可能返回 str 或 list[str]
+
     try:
         await status_msg.delete()
     except:
         pass
-    if not file_path:
+
+    if not result:
         await update.message.reply_text("⚠️ 指定日期内没有图片。")
         return
-    if file_path.startswith("http"):
-        await update.message.reply_text(f"✅ 图片打包完成，文件过大已上传到云端：\n{file_path}")
-    else:
-        await update.message.reply_document(document=open(file_path, "rb"))
-        os.remove(file_path)
+
+    # ✅ 处理单卷和多卷
+    if isinstance(result, list):  
+        reply = f"✅ 图片打包完成，共 {len(result)} 卷：\n\n"
+        for i, link in enumerate(result, 1):
+            reply += f"📦 第{i}卷：{link}\n"
+        await update.message.reply_text(reply, disable_web_page_preview=True)
+    elif isinstance(result, str):
+        if result.startswith("http"):
+            await update.message.reply_text(f"✅ 图片打包完成，文件过大已上传到云端：\n{result}")
+        else:
+            await update.message.reply_document(document=open(result, "rb"))
+            os.remove(result)
 
 def check_existing_instance():
     lock_file = "/tmp/bot.lock"
