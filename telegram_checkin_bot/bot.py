@@ -552,6 +552,13 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start, end = get_default_month_range()
 
     status_msg = await update.message.reply_text("⏳ 正在导出图片，请稍等...")
+
+    # 先清理旧目录（防止重复导出导致混乱）
+    start_str = start.strftime("%Y-%m-%d")
+    end_str = (end - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
+    export_dir = os.path.join(DATA_DIR, f"images_{start_str}_{end_str}")
+    shutil.rmtree(export_dir, ignore_errors=True)  # ✅ 清理旧目录
+
     result = export_images(start, end)  # 返回 (zip_paths, export_dir)
 
     try:
@@ -567,11 +574,14 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if len(zip_paths) == 1:
         # 只有一包，直接发送
-        await update.message.reply_document(document=open(zip_paths[0], "rb"))
+        with open(zip_paths[0], "rb") as f:
+            await update.message.reply_document(document=f)
     else:
-        # 多包，带编号
+        # 多包，先提示总数
+        await update.message.reply_text(f"📦 共生成 {len(zip_paths)} 个分包，开始发送…")
         for idx, zip_path in enumerate(zip_paths, 1):
-            await update.message.reply_document(document=open(zip_path, "rb"), caption=f"📦 第 {idx} 包")
+            with open(zip_path, "rb") as f:
+                await update.message.reply_document(document=f, caption=f"📦 第 {idx} 包")
 
     # ✅ 清理 ZIP 文件和导出目录
     for zip_path in zip_paths:
