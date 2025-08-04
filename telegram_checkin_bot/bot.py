@@ -375,7 +375,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-LOGS_PER_PAGE = 1  
+LOGS_PER_PAGE = 7  
 
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
