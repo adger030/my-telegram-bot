@@ -15,39 +15,61 @@ def get_db():
     return get_conn()
 
 def init_db():
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            # 创建 messages 表
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
-                    id SERIAL PRIMARY KEY,
-                    username TEXT,
-                    content TEXT,
-                    timestamp TIMESTAMPTZ NOT NULL,
-                    keyword TEXT
-                );
-            """)
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                # 创建 messages 表
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS messages (
+                        id SERIAL PRIMARY KEY,
+                        username TEXT,
+                        content TEXT,
+                        timestamp TIMESTAMPTZ NOT NULL,
+                        keyword TEXT
+                    );
+                """)
 
-            # 检查并补充 name 和 shift 列
-            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='messages'")
-            columns = [row[0] for row in cur.fetchall()]
+                # 检查 messages 表字段
+                cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='messages'")
+                columns = [row[0] for row in cur.fetchall()]
 
-            if "name" not in columns:
-                cur.execute("ALTER TABLE messages ADD COLUMN name TEXT;")
-                print("✅ 已为 messages 表添加 name 字段")
+                # 删除 user_id 列（如果存在）
+                if "user_id" in columns:
+                    cur.execute("ALTER TABLE messages DROP COLUMN user_id;")
+                    print("🗑️ 已从 messages 表中删除 user_id 字段")
 
-            if "shift" not in columns:
-                cur.execute("ALTER TABLE messages ADD COLUMN shift TEXT;")
-                print("✅ 已为 messages 表添加 shift 字段")
+                # 补充 name 和 shift 列
+                if "name" not in columns:
+                    cur.execute("ALTER TABLE messages ADD COLUMN name TEXT;")
+                    print("✅ 已为 messages 表添加 name 字段")
 
-            # 创建 users 表（name 唯一）
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    username TEXT PRIMARY KEY,
-                    name TEXT UNIQUE NOT NULL
-                );
-            """)
-            conn.commit()
+                if "shift" not in columns:
+                    cur.execute("ALTER TABLE messages ADD COLUMN shift TEXT;")
+                    print("✅ 已为 messages 表添加 shift 字段")
+
+                # 创建索引
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages (timestamp DESC);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_keyword ON messages (keyword);")
+
+                # 创建 users 表（name 唯一）
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        username TEXT PRIMARY KEY,
+                        name TEXT UNIQUE NOT NULL
+                    );
+                """)
+
+                # 检查 users 表字段并删除 user_id（如果存在）
+                cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='users'")
+                user_columns = [row[0] for row in cur.fetchall()]
+                if "user_id" in user_columns:
+                    cur.execute("ALTER TABLE users DROP COLUMN user_id;")
+                    print("🗑️ 已从 users 表中删除 user_id 字段")
+
+                conn.commit()
+                print("✅ 数据库初始化完成")
+    except Exception as e:
+        print(f"❌ 数据库初始化失败: {e}")
 
 def has_user_checked_keyword_today(username, keyword, day_offset=0):
     """检查用户在当天（或指定偏移日）是否打过指定关键词"""
