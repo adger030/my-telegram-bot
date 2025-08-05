@@ -91,12 +91,27 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
     user_id = tg_user.id
     username = tg_user.username or f"user{user_id}"
-    sync_username(user_id, username)  # ✅ 同步用户名
 
+    # 确保数据库迁移已完成
+    from db_pg import init_db
+    init_db()  # ✅ 每次启动时自动检查 user_id 主键
+
+    # 安全调用 sync_username，避免因数据库约束异常崩溃
+    try:
+        sync_username(user_id, username)
+    except Exception as e:
+        import logging
+        logging.error(f"⚠️ sync_username 失败: {e}")
+        # 尝试补救：重新迁移数据库并重试
+        init_db()
+        sync_username(user_id, username)
+
+    # 首次使用时要求输入姓名
     if not get_user_name(user_id):
         WAITING_NAME[user_id] = True
         await update.message.reply_text("👤 第一次打卡前请输入你的工作名：")
         return
+
     name = get_user_name(user_id)
     await send_welcome(update.message, name)
 
