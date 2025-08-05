@@ -16,20 +16,6 @@ def get_db():
 def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # ✅ 创建 messages 表（如果不存在）
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT,
-                    username TEXT,
-                    content TEXT,
-                    timestamp TIMESTAMPTZ NOT NULL,
-                    keyword TEXT,
-                    name TEXT,
-                    shift TEXT
-                );
-            """)
-
             # ✅ 创建 users 表（如果不存在）
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -45,30 +31,33 @@ def init_db():
             if "user_id" not in user_cols:
                 cur.execute("ALTER TABLE users ADD COLUMN user_id BIGINT;")
 
-            # ✅ 给缺失 user_id 的记录生成唯一 ID
-            cur.execute("SELECT COUNT(*) FROM users WHERE user_id IS NULL OR user_id=0;")
-            missing_count = cur.fetchone()[0]
-            if missing_count > 0:
-                print(f"⚠️ 检测到 {missing_count} 个用户缺失 user_id，自动补充...")
-                cur.execute("""
-                    UPDATE users
-                    SET user_id = FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) 
-                                  + CAST(FLOOR(RANDOM() * 1000) AS BIGINT)
-                    WHERE user_id IS NULL OR user_id=0;
-                """)
+            # ✅ 为缺失 user_id 的旧用户生成唯一 ID
+            cur.execute("UPDATE users SET user_id = FLOOR(EXTRACT(EPOCH FROM clock_timestamp())*1000) + CAST(FLOOR(RANDOM()*1000) AS BIGINT) WHERE user_id IS NULL OR user_id=0;")
 
-            # ✅ 确保 user_id 为主键
+            # ✅ 设置 user_id 为主键（如果未设置）
             cur.execute("""
                 DO $$
                 BEGIN
                     IF NOT EXISTS (
-                        SELECT 1 
-                        FROM pg_constraint 
-                        WHERE conname = 'users_pkey'
+                        SELECT 1 FROM pg_constraint WHERE conname='users_pkey'
                     ) THEN
                         ALTER TABLE users ADD CONSTRAINT users_pkey PRIMARY KEY (user_id);
                     END IF;
                 END $$;
+            """)
+
+            # ✅ 创建 messages 表（如果不存在）
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    username TEXT,
+                    content TEXT,
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    keyword TEXT,
+                    name TEXT,
+                    shift TEXT
+                );
             """)
 
             # ✅ 确保 messages.user_id 存在
@@ -81,7 +70,7 @@ def init_db():
             print("✅ 数据库迁移完成：user_id 字段和主键已自动修复。")
 
 def sync_username(user_id, username):
-    """同步用户的最新 Telegram username"""
+    """同步用户最新的 Telegram username"""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -107,7 +96,6 @@ def save_message(user_id, username, name, content, timestamp, keyword, shift=Non
         timestamp = timestamp.replace(tzinfo=BEIJING_TZ)
     else:
         timestamp = timestamp.astimezone(BEIJING_TZ)
-    print(f"[DB] Saving: {user_id}, {username}, {name}, {content}, {timestamp}, {keyword}, shift={shift}")
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
