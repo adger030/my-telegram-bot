@@ -10,7 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from dateutil.parser import parse
 
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
-from db_pg import init_db, save_message, get_user_logs, save_shift, get_user_name, set_user_name, get_db, sync_username
+from db_pg import init_db, save_message, get_user_logs, save_shift, get_user_name, set_user_name, get_db
 from export import export_excel, export_images
 from upload_image import upload_image
 from cleaner import delete_last_month_data
@@ -88,19 +88,12 @@ async def send_welcome(update_or_msg, name):
 	
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
-    username = tg_user.username or f"user{tg_user.id}"  # 没有用户名时临时生成
-
-    # 同步用户名并自动处理改名迁移
-    sync_username(username)
-
-    # 检查是否登记姓名
-    name = get_user_name(username)
-    if not name:
+    username = tg_user.username or f"user{tg_user.id}"
+    if not get_user_name(username):
         WAITING_NAME[username] = True
-        await update.message.reply_text("👤 第一次使用，请输入你的工作名：")
+        await update.message.reply_text("👤 第一次打卡前请输入你的工作名：")
         return
-
-    # 发送欢迎提示
+    name = get_user_name(username)
     await send_welcome(update.message, name)
 	
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
