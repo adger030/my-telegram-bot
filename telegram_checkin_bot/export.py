@@ -15,7 +15,6 @@ import cloudinary.uploader
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 
-
 # 日志配置
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
 
@@ -47,10 +46,13 @@ def upload_to_cloudinary(file_path: str) -> str | None:
         return None
 
 def _fetch_data(start_datetime: datetime, end_datetime: datetime) -> pd.DataFrame:
+    """
+    从数据库读取打卡数据，兼容 user_id 改造
+    """
     try:
         engine = create_engine(DATABASE_URL)
         query = """
-        SELECT username, name, content, timestamp, keyword, shift 
+        SELECT user_id, username, name, content, timestamp, keyword, shift 
         FROM messages 
         WHERE timestamp BETWEEN %(start)s AND %(end)s
         """
@@ -91,16 +93,15 @@ def _mark_late_early(excel_path: str):
             shift_text = str(shift_cell.value).strip()
             shift_name = re.split(r'[（(]', shift_text)[0]  # 提取班次名（如 I班）
 
-            # 时间解析：兼容 Excel datetime 对象或字符串
             if isinstance(time_cell.value, datetime):
                 dt = time_cell.value
             else:
                 try:
                     dt = datetime.strptime(str(time_cell.value), "%Y-%m-%d %H:%M:%S")
                 except Exception:
-                    continue  # 时间格式异常跳过
+                    continue
 
-            # 1️⃣ 补卡标记（黄色）
+            # 补卡标记
             if "补卡" in shift_text:
                 time_cell.fill = fill_yellow
                 shift_cell.fill = fill_yellow
@@ -108,11 +109,10 @@ def _mark_late_early(excel_path: str):
                     shift_cell.value = f"{shift_text}（补卡）"
                 continue
 
-            # 2️⃣ 迟到/早退判定
+            # 迟到/早退判定
             if shift_name in SHIFT_TIMES:
                 start_time, end_time = SHIFT_TIMES[shift_name]
 
-                # ---- 迟到判定 ----
                 if keyword_cell.value == "#上班打卡":
                     if dt.time() > start_time:
                         time_cell.fill = fill_red
@@ -120,21 +120,16 @@ def _mark_late_early(excel_path: str):
                         if "（迟到）" not in shift_text:
                             shift_cell.value = f"{shift_text}（迟到）"
 
-                # ---- 早退判定 ----
                 elif keyword_cell.value == "#下班打卡":
                     if shift_name == "I班":
-                        # I班：次日 00:00 下班正常
                         if dt.hour == 0:
                             continue
-                        # 当天 15:00-23:59 下班 → 早退
                         elif 15 <= dt.hour <= 23:
                             time_cell.fill = fill_red
                             shift_cell.fill = fill_red
                             if "（早退）" not in shift_text:
                                 shift_cell.value = f"{shift_text}（早退）"
                     else:
-                        # 其他班次：正常下班时间内判定早退
-                        # 允许凌晨 0:00~1:00 正常下班（跨天）
                         if 0 <= dt.hour <= 1:
                             continue
                         if dt.time() < end_time:
@@ -144,7 +139,7 @@ def _mark_late_early(excel_path: str):
                                 shift_cell.value = f"{shift_text}（早退）"
 
     wb.save(excel_path)
-
+    
 def export_excel(start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
     if df.empty:
@@ -161,7 +156,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     os.makedirs(export_dir, exist_ok=True)
     excel_path = os.path.join(export_dir, f"打卡记录_{start_str}_{end_str}.xlsx")
 
-    # 格式化班次函数
     def format_shift(shift):
         if pd.isna(shift):
             return shift
@@ -175,7 +169,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             return f"{shift_text}（{start.strftime('%H:%M')}-{end_str}）"
         return shift_text
 
-    # 写入 Excel：每个日期一个 Sheet
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         for day, group_df in df.groupby("date"):
             slim_df = group_df[["name", "timestamp", "keyword", "shift"]].sort_values("timestamp").copy()
@@ -184,13 +177,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
 
-    # 标注迟到/早退和补卡
     _mark_late_early(excel_path)
-
-    # 加载 Excel 以便后续修改
     wb = load_workbook(excel_path)
 
-    # -------------------- 生成统计 Sheet --------------------
     stats = []
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -212,51 +201,39 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     if not stats_df.empty:
         summary_df = stats_df.groupby(["姓名", "状态"]).size().unstack(fill_value=0).reset_index()
 
-        # 确保列存在
         for col in ["正常", "迟到/早退", "补卡"]:
             if col not in summary_df.columns:
                 summary_df[col] = 0
 
-        # 计算“异常总数”
         summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"]
-
-        # ✅ 按“正常打卡次数”降序排序
         summary_df = summary_df.sort_values(by="正常", ascending=False)
-
-        # 调整列顺序
         summary_df = summary_df[["姓名", "正常", "迟到/早退", "补卡", "异常总数"]]
 
-        # 创建统计 Sheet
         stats_sheet = wb.create_sheet("统计", 0)
         headers = ["姓名", "正常打卡", "迟到/早退", "补卡", "异常总数"]
         for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
             for c_idx, value in enumerate(row, 1):
                 stats_sheet.cell(row=r_idx, column=c_idx, value=value)
 
-        # ✅ 表头样式：加粗、居中、冻结首行
         from openpyxl.styles import Font, Alignment, PatternFill
         stats_sheet.freeze_panes = "A2"
         for cell in stats_sheet[1]:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center")
 
-        # ✅ 异常总数 ≥ 3 高亮红色整行
         fill_red = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
         for r_idx in range(2, stats_sheet.max_row + 1):
-            abnormal = stats_sheet.cell(row=r_idx, column=5).value  # 异常总数列
+            abnormal = stats_sheet.cell(row=r_idx, column=5).value
             if abnormal is not None and abnormal >= 3:
                 for c_idx in range(1, 6):
                     stats_sheet.cell(row=r_idx, column=c_idx).fill = fill_red
 
-    # -------------------- 所有 Sheet 样式设置 --------------------
     from openpyxl.styles import Font, Alignment
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         for cell in sheet[1]:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center")
-
-        # 自动列宽 + 全部文字居中
         for col in sheet.columns:
             max_length = 0
             col_letter = col[0].column_letter
@@ -265,7 +242,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     length = len(str(cell.value)) if cell.value is not None else 0
                     if length > max_length:
                         max_length = length
-                    cell.alignment = Alignment(horizontal="center", vertical="center")  # ✅ 所有单元格文字居中
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
                 except:
                     pass
             sheet.column_dimensions[col_letter].width = max_length + 2
@@ -275,59 +252,47 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     return excel_path
 
 def export_images(start_datetime: datetime, end_datetime: datetime):
-    """
-    导出指定日期范围内的图片，按 40MB 分包保存到本地，返回 (zip_paths, export_dir)
-    """
     try:
         df = _fetch_data(start_datetime, end_datetime)
         if df.empty:
             logging.warning("⚠️ 指定日期内没有数据")
             return None
 
-        # 仅筛选图片 URL
         photo_df = df[df["content"].str.contains(r"\.(?:jpg|jpeg|png|gif)$", case=False, na=False)].copy()
         if photo_df.empty:
             logging.warning("⚠️ 指定日期内没有图片。")
             return None
 
         def extract_public_id(url: str) -> str | None:
-            """ 从 Cloudinary URL 中提取 public_id """
             match = re.search(r'/upload/(?:v\d+/)?(.+?)\.(?:jpg|jpeg|png|gif)$', url)
             if match:
                 return match.group(1)
             logging.warning(f"⚠️ 无法解析 public_id: {url}")
             return None
 
-        # 提取 public_id
         photo_df["public_id"] = photo_df["content"].apply(extract_public_id)
         public_ids = [pid for pid in photo_df["public_id"].dropna().unique() if pid.strip()]
-
         logging.info(f"🔍 共提取到 {len(public_ids)} 个图片 public_id")
         if not public_ids:
             logging.error("❌ 没有有效的 public_id，可能 URL 不是 Cloudinary 链接")
             return None
 
-        # 创建导出目录（先清理旧目录）
         start_str = start_datetime.strftime("%Y-%m-%d")
         end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
         export_dir = os.path.join(DATA_DIR, f"images_{start_str}_{end_str}")
-        shutil.rmtree(export_dir, ignore_errors=True)  # ✅ 清理旧目录
+        shutil.rmtree(export_dir, ignore_errors=True)
         os.makedirs(export_dir, exist_ok=True)
 
-        zip_paths = []  # 存储分包路径
+        zip_paths = []
         current_zip_idx = 1
         current_zip_size = 0
         current_zip_path = os.path.join(export_dir, f"图片打包_{start_str}_{end_str}_包{current_zip_idx}.zip")
         current_zip = zipfile.ZipFile(current_zip_path, "w", zipfile.ZIP_DEFLATED)
 
-        logging.info(f"📦 开始生成 ZIP 包: {current_zip_path}")
-
         for idx, pid in enumerate(public_ids, 1):
-            # 生成下载 URL
             url = cloudinary.CloudinaryImage(pid).build_url()
             filename = safe_filename(f"{os.path.basename(pid)}.jpg")
 
-            # 下载图片
             try:
                 resp = requests.get(url, stream=True, timeout=15)
                 resp.raise_for_status()
@@ -336,28 +301,20 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
                 logging.warning(f"⚠️ 下载失败 {url}: {e}")
                 continue
 
-            # 检查分包大小（40MB）
             if current_zip_size + len(content) > 40 * 1024 * 1024:
                 current_zip.close()
                 zip_paths.append(current_zip_path)
-                logging.info(f"📦 完成 ZIP 包 {current_zip_idx}: {current_zip_path} (约 {current_zip_size/1024/1024:.2f} MB)")
-
-                # 新建下一个分包
+                logging.info(f"📦 完成 ZIP 包 {current_zip_idx}: {current_zip_path}")
                 current_zip_idx += 1
                 current_zip_size = 0
                 current_zip_path = os.path.join(export_dir, f"图片打包_{start_str}_{end_str}_包{current_zip_idx}.zip")
                 current_zip = zipfile.ZipFile(current_zip_path, "w", zipfile.ZIP_DEFLATED)
-                logging.info(f"📦 新建 ZIP 包: {current_zip_path}")
 
-            # 写入当前 ZIP
             current_zip.writestr(filename, content)
             current_zip_size += len(content)
 
-        # 关闭最后一个 ZIP
         current_zip.close()
         zip_paths.append(current_zip_path)
-        logging.info(f"📦 完成最后 ZIP 包 {current_zip_idx}: {current_zip_path} (约 {current_zip_size/1024/1024:.2f} MB)")
-
         logging.info(f"✅ 图片分包导出完成，共 {len(zip_paths)} 包，目录: {export_dir}")
         return zip_paths, export_dir
 
