@@ -97,14 +97,34 @@ def _mark_late_early(excel_path: str):
     """
     标注迟到（红色+班次标识）、早退（红色+班次标识）、补卡（黄色+班次标识）。
     支持跨天班次（如 I班次日下班）以及凌晨下班的正常打卡判定。
+    自动兼容有 "用户ID" 和无 "用户ID" 的 Excel 结构。
     """
     wb = load_workbook(excel_path)
     fill_red = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")      # 浅红
     fill_yellow = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")  # 浅黄
 
     for sheet in wb.worksheets:
-        for row in sheet.iter_rows(min_row=2):  # 跳过表头
-            shift_cell, time_cell, keyword_cell = row[3], row[1], row[2]
+        if sheet.title == "统计":  # 跳过统计表
+            continue
+
+        # 读取表头，判断列位置
+        header = [cell.value for cell in sheet[1]]
+        if "用户ID" in header:
+            # 含用户ID: [用户ID, 姓名, 打卡时间, 关键词, 班次]
+            time_idx = header.index("打卡时间")
+            keyword_idx = header.index("关键词")
+            shift_idx = header.index("班次")
+        else:
+            # 无用户ID: [姓名, 打卡时间, 关键词, 班次]
+            time_idx = header.index("打卡时间")
+            keyword_idx = header.index("关键词")
+            shift_idx = header.index("班次")
+
+        # 遍历数据行
+        for row in sheet.iter_rows(min_row=2):
+            shift_cell = row[shift_idx]
+            time_cell = row[time_idx]
+            keyword_cell = row[keyword_idx]
 
             if not shift_cell.value or not time_cell.value:
                 continue
