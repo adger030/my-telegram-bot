@@ -11,6 +11,7 @@ def get_conn():
     return psycopg2.connect(DATABASE_URL)
 
 def get_db():
+    """兼容旧代码，等同于 get_conn"""
     return get_conn()
 
 def init_db():
@@ -20,76 +21,76 @@ def init_db():
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id SERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
                     username TEXT,
-                    name TEXT,
                     content TEXT,
                     timestamp TIMESTAMPTZ NOT NULL,
-                    keyword TEXT,
-                    shift TEXT
+                    keyword TEXT
                 );
             """)
 
-            # 创建 users 表（user_id 唯一，username 自动更新）
+            # 检查并补充 name 和 shift 列
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='messages'")
+            columns = [row[0] for row in cur.fetchall()]
+
+            if "name" not in columns:
+                cur.execute("ALTER TABLE messages ADD COLUMN name TEXT;")
+                print("✅ 已为 messages 表添加 name 字段")
+
+            if "shift" not in columns:
+                cur.execute("ALTER TABLE messages ADD COLUMN shift TEXT;")
+                print("✅ 已为 messages 表添加 shift 字段")
+
+            # 创建 users 表（name 唯一）
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    user_id BIGINT PRIMARY KEY,
-                    username TEXT,
+                    username TEXT PRIMARY KEY,
                     name TEXT UNIQUE NOT NULL
                 );
             """)
             conn.commit()
 
-def has_user_checked_keyword_today(user_id, keyword, day_offset=0):
+def has_user_checked_keyword_today(username, keyword, day_offset=0):
+    """检查用户在当天（或指定偏移日）是否打过指定关键词"""
     target_date = (datetime.now(BEIJING_TZ) + timedelta(days=day_offset)).date()
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT COUNT(*) FROM messages
-                WHERE user_id = %s AND keyword = %s 
+                WHERE username = %s AND keyword = %s 
                   AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai') = %s
-            """, (user_id, keyword, target_date))
+            """, (username, keyword, target_date))
             return cur.fetchone()[0] > 0
 
-def save_message(user_id, username, name, content, timestamp, keyword, shift=None):
+def save_message(username, name, content, timestamp, keyword, shift=None):
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=BEIJING_TZ)
     else:
         timestamp = timestamp.astimezone(BEIJING_TZ)
 
-    print(f"[DB] Saving: {user_id}, {username}, {name}, {content}, {timestamp}, {keyword}, shift={shift}")
+    print(f"[DB] Saving: {username}, {name}, {content}, {timestamp}, {keyword}, shift={shift}")
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # 同步用户表（自动更新 username）
             cur.execute("""
-                INSERT INTO users (user_id, username, name)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (user_id) DO UPDATE 
-                SET username = EXCLUDED.username, name = EXCLUDED.name
-            """, (user_id, username, name))
-
-            # 保存消息
-            cur.execute("""
-                INSERT INTO messages (user_id, username, name, content, timestamp, keyword, shift)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (user_id, username, name, content, timestamp, keyword, shift))
+                INSERT INTO messages (username, name, content, timestamp, keyword, shift)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (username, name, content, timestamp, keyword, shift))
             conn.commit()
 
-def get_user_logs(user_id, start, end):
+def get_user_logs(username, start, end):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT timestamp, keyword, shift FROM messages
-                WHERE user_id = %s AND timestamp >= %s AND timestamp < %s
+                WHERE username = %s AND timestamp >= %s AND timestamp < %s
                 ORDER BY timestamp ASC
-            """, (user_id, start, end))
+            """, (username, start, end))
             return cur.fetchall()
 
-def get_user_month_logs(user_id):
+def get_user_month_logs(username):
     now = datetime.now(BEIJING_TZ)
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    return get_user_logs(user_id, start, end)
+    return get_user_logs(username, start, end)
 
 def delete_old_data(days=30):
     cutoff = datetime.now() - timedelta(days=days)
@@ -104,87 +105,51 @@ def delete_old_data(days=30):
             conn.commit()
     return photos
 
-def save_shift(user_id, shift):
+def save_shift(username, shift):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE messages 
                 SET shift = %s 
-                WHERE user_id = %s 
+                WHERE username = %s 
                 AND timestamp = (
-                    SELECT MAX(timestamp) FROM messages WHERE user_id = %s
+                    SELECT MAX(timestamp) FROM messages WHERE username = %s
                 )
-            """, (shift, user_id, user_id))
+            """, (shift, username, username))
             conn.commit()
 
-def get_today_shift(user_id):
+def get_today_shift(username):
     today = datetime.now(BEIJING_TZ).date()
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT shift FROM messages
-                WHERE user_id = %s 
+                WHERE username = %s 
                 AND keyword = '#上班打卡'
                 AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai') = %s
                 ORDER BY timestamp DESC
                 LIMIT 1
-            """, (user_id, today))
+            """, (username, today))
             row = cur.fetchone()
             return row[0] if row else None
 
-def has_column(cursor, table, column):
-    """检查表中是否存在指定列"""
-    cursor.execute("""
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name=%s AND column_name=%s
-    """, (table, column))
-    return cursor.fetchone() is not None
-
-def get_user_name(user_id, username=None):
+def get_user_name(username):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            if has_column(cur, "users", "user_id"):
-                # 新表结构：优先用 user_id
-                cur.execute("SELECT name FROM users WHERE user_id = %s", (user_id,))
-            else:
-                # 旧表结构：用 username 作为主键
-                if not username:
-                    raise ValueError("旧结构查询必须提供 username")
-                cur.execute("SELECT name FROM users WHERE username = %s", (username,))
+            cur.execute("SELECT name FROM users WHERE username = %s", (username,))
             row = cur.fetchone()
             return row[0] if row else None
 
-def set_user_name(user_id, username, name):
+def set_user_name(username, name):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            use_user_id = has_column(cur, "users", "user_id")
+            cur.execute("SELECT username FROM users WHERE name = %s AND username != %s", (name, username))
+            if cur.fetchone():
+                raise ValueError(f"姓名 {name} 已被使用，请换一个。")
 
-            if use_user_id:
-                # 检查姓名是否被其他用户占用（基于 user_id）
-                cur.execute("SELECT user_id FROM users WHERE name = %s AND user_id != %s", (name, user_id))
-                if cur.fetchone():
-                    raise ValueError(f"姓名 {name} 已被使用，请换一个。")
-
-                # 插入或更新用户
-                cur.execute("""
-                    INSERT INTO users (user_id, username, name)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (user_id) DO UPDATE 
-                    SET username = EXCLUDED.username, name = EXCLUDED.name
-                """, (user_id, username, name))
-            else:
-                # 检查姓名是否被其他用户占用（基于 username）
-                cur.execute("SELECT username FROM users WHERE name = %s AND username != %s", (name, username))
-                if cur.fetchone():
-                    raise ValueError(f"姓名 {name} 已被使用，请换一个。")
-
-                # 插入或更新用户（用 username 作为主键）
-                cur.execute("""
-                    INSERT INTO users (username, name)
-                    VALUES (%s, %s)
-                    ON CONFLICT (username) DO UPDATE 
-                    SET name = EXCLUDED.name
-                """, (username, name))
-
+            cur.execute("""
+                INSERT INTO users (username, name)
+                VALUES (%s, %s)
+                ON CONFLICT (username) DO UPDATE SET name = EXCLUDED.name
+            """, (username, name))
             conn.commit()
-
