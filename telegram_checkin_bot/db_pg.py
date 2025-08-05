@@ -16,7 +16,7 @@ def get_db():
 def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # ✅ 创建 messages 表，增加 user_id
+            # ✅ 创建 messages 表（如果不存在）
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id SERIAL PRIMARY KEY,
@@ -30,27 +30,55 @@ def init_db():
                 );
             """)
 
-            # ✅ 创建 users 表，使用 user_id 为主键
+            # ✅ 创建 users 表（如果不存在）
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    user_id BIGINT PRIMARY KEY,
+                    user_id BIGINT,
                     username TEXT,
                     name TEXT UNIQUE NOT NULL
                 );
             """)
 
-            # 检查 messages 表是否有 user_id 列（兼容旧版本）
+            # ✅ 确保 users.user_id 字段存在
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='users'")
+            user_cols = [row[0] for row in cur.fetchall()]
+            if "user_id" not in user_cols:
+                cur.execute("ALTER TABLE users ADD COLUMN user_id BIGINT;")
+
+            # ✅ 给缺失 user_id 的记录生成唯一 ID
+            cur.execute("SELECT COUNT(*) FROM users WHERE user_id IS NULL OR user_id=0;")
+            missing_count = cur.fetchone()[0]
+            if missing_count > 0:
+                print(f"⚠️ 检测到 {missing_count} 个用户缺失 user_id，自动补充...")
+                cur.execute("""
+                    UPDATE users
+                    SET user_id = FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000) 
+                                  + CAST(FLOOR(RANDOM() * 1000) AS BIGINT)
+                    WHERE user_id IS NULL OR user_id=0;
+                """)
+
+            # ✅ 确保 user_id 为主键
+            cur.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 
+                        FROM pg_constraint 
+                        WHERE conname = 'users_pkey'
+                    ) THEN
+                        ALTER TABLE users ADD CONSTRAINT users_pkey PRIMARY KEY (user_id);
+                    END IF;
+                END $$;
+            """)
+
+            # ✅ 确保 messages.user_id 存在
             cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='messages'")
-            columns = [row[0] for row in cur.fetchall()]
-            if "user_id" not in columns:
+            msg_cols = [row[0] for row in cur.fetchall()]
+            if "user_id" not in msg_cols:
                 cur.execute("ALTER TABLE messages ADD COLUMN user_id BIGINT;")
 
-            # 检查 users 表是否有 user_id 列（兼容旧版本）
-            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='users'")
-            u_columns = [row[0] for row in cur.fetchall()]
-            if "user_id" not in u_columns:
-                cur.execute("ALTER TABLE users ADD COLUMN user_id BIGINT;")
             conn.commit()
+            print("✅ 数据库迁移完成：user_id 字段和主键已自动修复。")
 
 def sync_username(user_id, username):
     """同步用户的最新 Telegram username"""
