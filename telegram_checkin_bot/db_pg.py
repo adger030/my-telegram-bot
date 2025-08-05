@@ -132,26 +132,59 @@ def get_today_shift(user_id):
             row = cur.fetchone()
             return row[0] if row else None
 
-def get_user_name(user_id):
+def has_column(cursor, table, column):
+    """检查表中是否存在指定列"""
+    cursor.execute("""
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name=%s AND column_name=%s
+    """, (table, column))
+    return cursor.fetchone() is not None
+
+def get_user_name(user_id, username=None):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT name FROM users WHERE user_id = %s", (user_id,))
+            if has_column(cur, "users", "user_id"):
+                # 新表结构：优先用 user_id
+                cur.execute("SELECT name FROM users WHERE user_id = %s", (user_id,))
+            else:
+                # 旧表结构：用 username 作为主键
+                if not username:
+                    raise ValueError("旧结构查询必须提供 username")
+                cur.execute("SELECT name FROM users WHERE username = %s", (username,))
             row = cur.fetchone()
             return row[0] if row else None
 
 def set_user_name(user_id, username, name):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # 检查姓名是否被其他用户占用
-            cur.execute("SELECT user_id FROM users WHERE name = %s AND user_id != %s", (name, user_id))
-            if cur.fetchone():
-                raise ValueError(f"姓名 {name} 已被使用，请换一个。")
+            use_user_id = has_column(cur, "users", "user_id")
 
-            # 插入或更新用户（同步 username）
-            cur.execute("""
-                INSERT INTO users (user_id, username, name)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (user_id) DO UPDATE 
-                SET username = EXCLUDED.username, name = EXCLUDED.name
-            """, (user_id, username, name))
+            if use_user_id:
+                # 检查姓名是否被其他用户占用（基于 user_id）
+                cur.execute("SELECT user_id FROM users WHERE name = %s AND user_id != %s", (name, user_id))
+                if cur.fetchone():
+                    raise ValueError(f"姓名 {name} 已被使用，请换一个。")
+
+                # 插入或更新用户
+                cur.execute("""
+                    INSERT INTO users (user_id, username, name)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id) DO UPDATE 
+                    SET username = EXCLUDED.username, name = EXCLUDED.name
+                """, (user_id, username, name))
+            else:
+                # 检查姓名是否被其他用户占用（基于 username）
+                cur.execute("SELECT username FROM users WHERE name = %s AND username != %s", (name, username))
+                if cur.fetchone():
+                    raise ValueError(f"姓名 {name} 已被使用，请换一个。")
+
+                # 插入或更新用户（用 username 作为主键）
+                cur.execute("""
+                    INSERT INTO users (username, name)
+                    VALUES (%s, %s)
+                    ON CONFLICT (username) DO UPDATE 
+                    SET name = EXCLUDED.name
+                """, (username, name))
+
             conn.commit()
+
