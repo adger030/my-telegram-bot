@@ -85,17 +85,24 @@ async def send_welcome(update_or_msg, name):
         photo="https://i.postimg.cc/3xRMBbT4/photo-2025-07-28-15-55-19.jpg",
         caption="#上班打卡"
     )
-
+	
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
-    username = tg_user.username or f"user{tg_user.id}"
-    if not get_user_name(username):
-        WAITING_NAME[username] = True
-        await update.message.reply_text("👤 第一次打卡前请输入你的工作名：")
-        return
-    name = get_user_name(username)
-    await send_welcome(update.message, name)
+    username = tg_user.username or f"user{tg_user.id}"  # 没有用户名时临时生成
 
+    # 同步用户名并自动处理改名迁移
+    sync_username(username)
+
+    # 检查是否登记姓名
+    name = get_user_name(username)
+    if not name:
+        WAITING_NAME[username] = True
+        await update.message.reply_text("👤 第一次使用，请输入你的工作名：")
+        return
+
+    # 发送欢迎提示
+    await send_welcome(update.message, name)
+	
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     username = msg.from_user.username or f"user{msg.from_user.id}"
