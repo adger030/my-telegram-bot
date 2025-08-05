@@ -49,47 +49,6 @@ def init_db():
             """)
             conn.commit()
 
-def migrate_username(old_username: str, new_username: str):
-    """
-    用户改用户名后迁移数据：
-    - 更新 users 表
-    - 更新 messages 表
-    """
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT name FROM users WHERE username = %s", (old_username,))
-            row = cur.fetchone()
-
-            if row:
-                cur.execute("UPDATE users SET username = %s WHERE username = %s", (new_username, old_username))
-                cur.execute("UPDATE messages SET username = %s WHERE username = %s", (new_username, old_username))
-                conn.commit()
-                print(f"🔄 用户名迁移完成：{old_username} → {new_username}")
-            else:
-                print(f"⚠️ 未找到旧用户名 {old_username}，无需迁移。")
-
-def sync_username(username: str):
-    """
-    确保用户存在，如果检测到改名则迁移数据
-    """
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            # 检查是否已存在该用户名
-            cur.execute("SELECT username FROM users WHERE username = %s", (username,))
-            if cur.fetchone():
-                return  # 用户已存在，无需处理
-
-            # 尝试从最近一条 messages 记录推断旧用户名
-            cur.execute("SELECT username FROM messages ORDER BY timestamp DESC LIMIT 1;")
-            last = cur.fetchone()
-
-            if last and last[0] != username:
-                migrate_username(last[0], username)
-            else:
-                cur.execute("INSERT INTO users (username, name) VALUES (%s, %s)", (username, ""))
-                print(f"✅ 新用户 {username} 已注册。")
-            conn.commit()
-
 def has_user_checked_keyword_today(username, keyword, day_offset=0):
     """检查用户在当天（或指定偏移日）是否打过指定关键词"""
     target_date = (datetime.now(BEIJING_TZ) + timedelta(days=day_offset)).date()
