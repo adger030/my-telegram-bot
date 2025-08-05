@@ -49,25 +49,11 @@ def upload_to_cloudinary(file_path: str) -> str | None:
 def _fetch_data(start_datetime: datetime, end_datetime: datetime) -> pd.DataFrame:
     try:
         engine = create_engine(DATABASE_URL)
-
-        # 检查 messages 表是否有 user_id 字段
-        with engine.connect() as conn:
-            result = conn.execute("SELECT column_name FROM information_schema.columns WHERE table_name='messages'")
-            columns = {row[0] for row in result}
-
-        if "user_id" in columns:
-            query = """
-            SELECT user_id, username, name, content, timestamp, keyword, shift 
-            FROM messages 
-            WHERE timestamp BETWEEN %(start)s AND %(end)s
-            """
-        else:
-            query = """
-            SELECT username, name, content, timestamp, keyword, shift 
-            FROM messages 
-            WHERE timestamp BETWEEN %(start)s AND %(end)s
-            """
-
+        query = """
+        SELECT username, name, content, timestamp, keyword, shift 
+        FROM messages 
+        WHERE timestamp BETWEEN %(start)s AND %(end)s
+        """
         params = {
             "start": start_datetime.astimezone(pytz.UTC),
             "end": end_datetime.astimezone(pytz.UTC)
@@ -75,7 +61,6 @@ def _fetch_data(start_datetime: datetime, end_datetime: datetime) -> pd.DataFram
         df_iter = pd.read_sql_query(query, engine, params=params, chunksize=50000)
         df = pd.concat(df_iter, ignore_index=True)
         logging.info(f"✅ 数据读取完成，共 {len(df)} 条记录")
-
     except Exception as e:
         logging.error(f"❌ 无法连接数据库或读取数据: {e}")
         return pd.DataFrame()
@@ -83,48 +68,22 @@ def _fetch_data(start_datetime: datetime, end_datetime: datetime) -> pd.DataFram
     if df.empty:
         return df
 
-    # 转换时间
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True).dt.tz_convert(BEIJING_TZ)
     df = df.dropna(subset=["timestamp"]).copy()
-
-    # 如果存在 user_id 字段，转换为字符串，避免 Excel 科学计数法
-    if "user_id" in df.columns:
-        df["user_id"] = df["user_id"].astype(str)
-
     return df
 
 def _mark_late_early(excel_path: str):
     """
     标注迟到（红色+班次标识）、早退（红色+班次标识）、补卡（黄色+班次标识）。
     支持跨天班次（如 I班次日下班）以及凌晨下班的正常打卡判定。
-    自动兼容有 "用户ID" 和无 "用户ID" 的 Excel 结构。
     """
     wb = load_workbook(excel_path)
     fill_red = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")      # 浅红
     fill_yellow = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")  # 浅黄
 
     for sheet in wb.worksheets:
-        if sheet.title == "统计":  # 跳过统计表
-            continue
-
-        # 读取表头，判断列位置
-        header = [cell.value for cell in sheet[1]]
-        if "用户ID" in header:
-            # 含用户ID: [用户ID, 姓名, 打卡时间, 关键词, 班次]
-            time_idx = header.index("打卡时间")
-            keyword_idx = header.index("关键词")
-            shift_idx = header.index("班次")
-        else:
-            # 无用户ID: [姓名, 打卡时间, 关键词, 班次]
-            time_idx = header.index("打卡时间")
-            keyword_idx = header.index("关键词")
-            shift_idx = header.index("班次")
-
-        # 遍历数据行
-        for row in sheet.iter_rows(min_row=2):
-            shift_cell = row[shift_idx]
-            time_cell = row[time_idx]
-            keyword_cell = row[keyword_idx]
+        for row in sheet.iter_rows(min_row=2):  # 跳过表头
+            shift_cell, time_cell, keyword_cell = row[3], row[1], row[2]
 
             if not shift_cell.value or not time_cell.value:
                 continue
@@ -219,13 +178,8 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     # 写入 Excel：每个日期一个 Sheet
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         for day, group_df in df.groupby("date"):
-            if "user_id" in group_df.columns:
-                slim_df = group_df[["user_id", "name", "timestamp", "keyword", "shift"]].sort_values("timestamp").copy()
-                slim_df.columns = ["用户ID", "姓名", "打卡时间", "关键词", "班次"]
-            else:
-                slim_df = group_df[["name", "timestamp", "keyword", "shift"]].sort_values("timestamp").copy()
-                slim_df.columns = ["姓名", "打卡时间", "关键词", "班次"]
-
+            slim_df = group_df[["name", "timestamp", "keyword", "shift"]].sort_values("timestamp").copy()
+            slim_df.columns = ["姓名", "打卡时间", "关键词", "班次"]
             slim_df["打卡时间"] = slim_df["打卡时间"].dt.strftime("%Y-%m-%d %H:%M:%S")
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
@@ -241,23 +195,10 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     for sheet in wb.worksheets:
         if sheet.title == "统计":
             continue
-
-        # 判断列结构（有无用户ID）
-        header = [cell.value for cell in sheet[1]]
-        has_user_id = "用户ID" in header
-
         for row in sheet.iter_rows(min_row=2, values_only=True):
-            if has_user_id:
-                user_id, name, _, keyword, shift_text = row
-                if not user_id or not name or not keyword or not shift_text:
-                    continue
-                user_display = f"{user_id} - {name}"
-            else:
-                name, _, keyword, shift_text = row
-                if not name or not keyword or not shift_text:
-                    continue
-                user_display = str(name)
-
+            name, _, keyword, shift_text = row
+            if not name or not keyword or not shift_text:
+                continue
             shift_str = str(shift_text)
             if "补卡" in shift_str:
                 status = "补卡"
@@ -265,11 +206,11 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 status = "迟到/早退"
             else:
                 status = "正常"
-            stats.append({"用户": user_display, "状态": status})
+            stats.append({"姓名": name, "状态": status})
 
     stats_df = pd.DataFrame(stats)
     if not stats_df.empty:
-        summary_df = stats_df.groupby(["用户", "状态"]).size().unstack(fill_value=0).reset_index()
+        summary_df = stats_df.groupby(["姓名", "状态"]).size().unstack(fill_value=0).reset_index()
 
         # 确保列存在
         for col in ["正常", "迟到/早退", "补卡"]:
@@ -283,11 +224,11 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         summary_df = summary_df.sort_values(by="正常", ascending=False)
 
         # 调整列顺序
-        summary_df = summary_df[["用户", "正常", "迟到/早退", "补卡", "异常总数"]]
+        summary_df = summary_df[["姓名", "正常", "迟到/早退", "补卡", "异常总数"]]
 
         # 创建统计 Sheet
         stats_sheet = wb.create_sheet("统计", 0)
-        headers = ["用户 (ID - 姓名)" if "user_id" in df.columns else "姓名", "正常打卡", "迟到/早退", "补卡", "异常总数"]
+        headers = ["姓名", "正常打卡", "迟到/早退", "补卡", "异常总数"]
         for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
             for c_idx, value in enumerate(row, 1):
                 stats_sheet.cell(row=r_idx, column=c_idx, value=value)
@@ -302,7 +243,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         # ✅ 异常总数 ≥ 3 高亮红色整行
         fill_red = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
         for r_idx in range(2, stats_sheet.max_row + 1):
-            abnormal = stats_sheet.cell(row=r_idx, column=5).value
+            abnormal = stats_sheet.cell(row=r_idx, column=5).value  # 异常总数列
             if abnormal is not None and abnormal >= 3:
                 for c_idx in range(1, 6):
                     stats_sheet.cell(row=r_idx, column=c_idx).fill = fill_red
@@ -324,7 +265,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     length = len(str(cell.value)) if cell.value is not None else 0
                     if length > max_length:
                         max_length = length
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    cell.alignment = Alignment(horizontal="center", vertical="center")  # ✅ 所有单元格文字居中
                 except:
                     pass
             sheet.column_dimensions[col_letter].width = max_length + 2
