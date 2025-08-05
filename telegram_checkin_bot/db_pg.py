@@ -32,7 +32,12 @@ def init_db():
                 cur.execute("ALTER TABLE users ADD COLUMN user_id BIGINT;")
 
             # ✅ 为缺失 user_id 的旧用户生成唯一 ID
-            cur.execute("UPDATE users SET user_id = FLOOR(EXTRACT(EPOCH FROM clock_timestamp())*1000) + CAST(FLOOR(RANDOM()*1000) AS BIGINT) WHERE user_id IS NULL OR user_id=0;")
+            cur.execute("""
+                UPDATE users 
+                SET user_id = FLOOR(EXTRACT(EPOCH FROM clock_timestamp())*1000) 
+                            + CAST(FLOOR(RANDOM()*1000) AS BIGINT)
+                WHERE user_id IS NULL OR user_id=0;
+            """)
 
             # ✅ 设置 user_id 为主键（如果未设置）
             cur.execute("""
@@ -66,8 +71,22 @@ def init_db():
             if "user_id" not in msg_cols:
                 cur.execute("ALTER TABLE messages ADD COLUMN user_id BIGINT;")
 
+            # ✅ 自动补齐 messages.user_id
+            print("🔄 正在补齐 messages.user_id ...")
+            cur.execute("""
+                UPDATE messages m
+                SET user_id = u.user_id
+                FROM users u
+                WHERE m.username = u.username AND m.user_id IS NULL;
+            """)
+            cur.execute("""
+                UPDATE messages m
+                SET user_id = u.user_id
+                FROM users u
+                WHERE m.user_id IS NULL AND m.name = u.name;
+            """)
             conn.commit()
-            print("✅ 数据库迁移完成：user_id 字段和主键已自动修复。")
+            print("✅ 数据库迁移完成：user_id 字段、主键及 messages 补齐已完成。")
 
 def sync_username(user_id, username):
     """同步用户最新的 Telegram username"""
