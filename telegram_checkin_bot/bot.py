@@ -15,7 +15,27 @@ from export import export_excel, export_images
 from upload_image import upload_image
 from cleaner import delete_last_month_data
 import shutil
+from sqlalchemy import text
 
+async def optimize_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.username not in ADMIN_USERNAMES:
+        await update.message.reply_text("❌ 你无权限执行此命令")
+        return
+
+    try:
+        from db_pg import engine  # 你已有的数据库连接引擎
+        sql = """
+        CREATE INDEX IF NOT EXISTS messages_id_idx ON messages(id);
+        CLUSTER messages USING messages_id_idx;
+        """
+        with engine.begin() as conn:
+            conn.execute(text(sql))
+
+        await update.message.reply_text("✅ 数据表已按 id 进行优化")
+    except Exception as e:
+        await update.message.reply_text("⚠️ 执行失败，请稍后再试")
+        print("CLUSTER 执行失败：", e)
+	    
 # 北京时区
 BEIJING_TZ = timezone(timedelta(hours=8))
 WAITING_NAME = {}  # 记录等待输入姓名的用户
@@ -650,6 +670,7 @@ def main():
     scheduler.add_job(delete_last_month_data, CronTrigger(day=15, hour=3))
     scheduler.start()
     app = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("optimize", optimize_db))
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("mylogs", mylogs_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
