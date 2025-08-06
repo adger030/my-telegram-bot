@@ -1,5 +1,7 @@
 import os
 import cloudinary
+from datetime import time, timedelta, timezone
+import pytz
 
 # ===========================
 # 打卡关键词配置
@@ -37,3 +39,16 @@ cloudinary.config(
     api_secret=os.environ["cloudinary_api_secret"]     # Cloudinary API Secret
 )
 # ✅ 初始化 Cloudinary 客户端，用于图片上传、删除、导出等操作。
+
+
+BEIJING_TZ = pytz.timezone("Asia/Shanghai")
+
+SHIFT_TIMES = {
+    "F班": (time(12, 0), time(21, 0)),
+    "G班": (time(13, 0), time(22, 0)),
+    "H班": (time(14, 0), time(23, 0)),
+    "I班": (time(15, 0), time(0, 0)),  # 跨天
+}
+
+LOGS_PER_PAGE = 5
+
