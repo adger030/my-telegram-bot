@@ -670,7 +670,7 @@ def main():
     scheduler.add_job(delete_last_month_data, CronTrigger(day=15, hour=3))
     scheduler.start()
     app = Application.builder().token(TOKEN).build()
-    application.add_handler(CommandHandler("optimize", optimize_db))
+    app.add_handler(CommandHandler("optimize", optimize_db))
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("mylogs", mylogs_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
