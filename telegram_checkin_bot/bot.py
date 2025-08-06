@@ -18,7 +18,7 @@ import shutil
 from sqlalchemy import text
 
 async def optimize_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.username not in ADMIN_USERNAMES:
+    if update.effective_user.username not in ADMIN_IDS:
         await update.message.reply_text("❌ 你无权限执行此命令")
         return
 
