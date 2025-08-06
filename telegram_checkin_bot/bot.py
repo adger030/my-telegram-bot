@@ -116,39 +116,6 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = get_user_name(username)
     await send_welcome(update.message, name)
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    username = msg.from_user.username or f"user{msg.from_user.id}"
-    text = msg.text.strip()
-
-    if username in WAITING_NAME:
-        if len(text) < 2:
-            await msg.reply_text("❗ 姓名太短，请重新输入：")
-            return
-        try:
-            set_user_name(username, text)
-        except ValueError as e:
-            await msg.reply_text(f"⚠️ {e}")
-            return
-        WAITING_NAME.pop(username)
-        await send_welcome(update.message, text)
-        return
-
-    if not get_user_name(username):
-        WAITING_NAME[username] = True
-        await msg.reply_text("👤 请先输入姓名后再打卡：")
-        return
-
-    keyword = extract_keyword(text)
-    if keyword:
-        if keyword == "#下班打卡" and not has_user_checked_keyword_today_fixed(username, "#上班打卡"):
-            await msg.reply_text("❗ 你今天还没打上班卡。上班时间过了？请发送“#补卡”+IP截图补卡后再打下班卡。")
-            return
-        if keyword == "#补卡":
-            await msg.reply_text("📌 请发送“#补卡”并附IP截图完成补卡。")
-            return
-        await msg.reply_text("❗️请附带IP截图。")
-
 async def handle_makeup_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """补上班卡功能：先选择日期，再选班次"""
     msg = update.message
@@ -215,6 +182,54 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text(f"✅ 补卡成功！班次：{shift_name}")
     context.user_data.pop("makeup_data", None)
 
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    username = msg.from_user.username or f"user{msg.from_user.id}"
+    text = msg.text.strip()
+
+    # 🚩 若用户还在等待输入姓名
+    if username in WAITING_NAME:
+        if len(text) < 2:
+            await msg.reply_text("❗ 姓名太短，请重新输入：")
+            return
+        try:
+            set_user_name(username, text)
+        except ValueError as e:
+            await msg.reply_text(f"⚠️ {e}")
+            return
+        WAITING_NAME.pop(username)
+        await send_welcome(update.message, text)
+        return
+
+    # 🚩 未注册姓名则提示
+    if not get_user_name(username):
+        WAITING_NAME[username] = True
+        await msg.reply_text("👤 请先输入姓名后再打卡：")
+        return
+
+    keyword = extract_keyword(text)
+
+    if keyword:
+        if keyword == "#上班打卡":
+            # ✅ 禁止重复上班卡
+            if has_user_checked_keyword_today_fixed(username, "#上班打卡"):
+                await msg.reply_text("⚠️ 你今天已经打过上班卡了，不能重复打卡。")
+                return
+            await msg.reply_text("❗️请附带IP截图完成上班打卡。")
+
+        elif keyword == "#补卡":
+            # ✅ 禁止已有上班卡后再补卡
+            if has_user_checked_keyword_today_fixed(username, "#上班打卡"):
+                await msg.reply_text("⚠️ 你今天已有上班打卡记录，不能再补卡。")
+                return
+            await msg.reply_text("📌 请发送“#补卡”并附IP截图完成补卡。")
+
+        elif keyword == "#下班打卡":
+            # ✅ 检查是否打过上班卡
+            if not has_user_checked_keyword_today_fixed(username, "#上班打卡"):
+                await msg.reply_text("❗ 你今天还没打上班卡。上班时间过了？请发送“#补卡”+IP截图补卡后再打下班卡。")
+                return
+            await msg.reply_text("❗️请附带IP截图完成下班打卡。")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -251,17 +266,22 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ================== 处理不同关键词 ==================
     if keyword == "#上班打卡":
-        # ✅ 新增：防止重复上班打卡
+        # ✅ 检查当天是否已有上班卡
         if has_user_checked_keyword_today_fixed(username, "#上班打卡"):
             await msg.reply_text("⚠️ 你今天已经打过上班卡了，不能重复打卡。")
             return
 
-        # 正常上班打卡流程
+        # 保存上班打卡记录
         save_message(username=username, name=name, content=image_url, timestamp=now, keyword=keyword)
         keyboard = [[InlineKeyboardButton(v, callback_data=f"shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
         await msg.reply_text("请选择今天的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif keyword == "#补卡":
+        # ✅ 禁止当天已有上班卡后再补卡
+        if has_user_checked_keyword_today_fixed(username, "#上班打卡"):
+            await msg.reply_text("⚠️ 你今天已有上班打卡记录，不能再补卡。")
+            return
+
         # 进入补卡流程
         context.user_data["makeup_data"] = {
             "username": username,
