@@ -474,7 +474,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
-    # ✅ 一次性计算整月汇总
+    # ✅ 计算整月汇总（迟到+早退分开计数）
     total_complete = total_abnormal = total_makeup = 0
     for day, kw_map in daily_map.items():
         shift_full = kw_map.get("shift", "未选择班次")
@@ -487,10 +487,13 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             total_makeup += 1
 
+        # 迟到判定
         if has_up and shift_name in SHIFT_TIMES:
             start_time, _ = SHIFT_TIMES[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
+
+        # 早退判定
         if has_down and shift_name in SHIFT_TIMES:
             _, end_time = SHIFT_TIMES[shift_name]
             down_ts = kw_map["#下班打卡"]
@@ -499,11 +502,14 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
+        # 计数逻辑
         if is_makeup:
-            pass
-        elif has_late or has_early:
+            continue
+        if has_late:
             total_abnormal += 1
-        else:
+        if has_early:
+            total_abnormal += 1
+        if not has_late and not has_early and (has_up or has_down):
             total_complete += 2 if has_up and has_down else 1
 
     # 分页
@@ -513,7 +519,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "pages": pages,
         "daily_map": daily_map,
         "page_index": 0,
-        "summary": (total_complete, total_abnormal, total_makeup)  # ✅ 固定汇总信息
+        "summary": (total_complete, total_abnormal, total_makeup)
     }
 
     await send_mylogs_page(update, context)
@@ -536,10 +542,13 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_down = "#下班打卡" in kw_map
         has_late = has_early = False
 
+        # 迟到判定
         if has_up and shift_name in SHIFT_TIMES:
             start_time, _ = SHIFT_TIMES[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
+
+        # 早退判定
         if has_down and shift_name in SHIFT_TIMES:
             _, end_time = SHIFT_TIMES[shift_name]
             down_ts = kw_map["#下班打卡"]
@@ -548,6 +557,7 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
+        # 生成详情
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{'（迟到）' if has_late else ''}\n"
@@ -556,13 +566,14 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
 
-    # ✅ 汇总信息固定不变
+    # ✅ 汇总信息
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
         f"🔴 异常（迟到/早退）：{total_abnormal} 次\n"
         f"🟡 补卡：{total_makeup} 次"
     )
 
+    # 分页按钮
     buttons = []
     if page_index > 0:
         buttons.append(InlineKeyboardButton("⬅ 上一页", callback_data="mylogs_prev"))
