@@ -34,6 +34,25 @@ SHIFT_TIMES = {
     "I班": (datetime.strptime("15:00", "%H:%M").time(), datetime.strptime("00:00", "%H:%M").time()),  # I班跨天
 }
 
+async def transfer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """管理员命令：转移用户数据"""
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ 无权限！")
+        return
+
+    if len(context.args) != 2:
+        await update.message.reply_text("用法：/transfer <userA> <userB>")
+        return
+
+    user_a, user_b = context.args
+    try:
+        transfer_user_data(user_a, user_b)
+        await update.message.reply_text(f"✅ 已将 {user_a} 的数据迁移到 {user_b}")
+    except ValueError as e:
+        await update.message.reply_text(f"⚠️ {e}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ 迁移失败：{e}")
+	    
 def extract_keyword(text: str):
     text = text.strip().replace(" ", "")
     for kw in KEYWORDS:
@@ -647,6 +666,7 @@ def main():
     scheduler.add_job(delete_last_month_data, CronTrigger(day=15, hour=3))
     scheduler.start()
     app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("transfer", transfer_cmd))
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("mylogs", mylogs_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
