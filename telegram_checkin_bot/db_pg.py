@@ -77,22 +77,36 @@ def save_message(username, name, content, timestamp, keyword, shift=None):
             conn.commit()
 
 def get_user_logs(username, start, end):
+    """获取指定用户在时间段内的打卡记录（按 ID 排序）"""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT timestamp, keyword, shift FROM messages
+                SELECT id, timestamp, keyword, shift FROM messages
                 WHERE username = %s AND timestamp >= %s AND timestamp < %s
-                ORDER BY timestamp ASC
+                ORDER BY id ASC
             """, (username, start, end))
             return cur.fetchall()
 
 def get_user_month_logs(username):
+    """获取用户当月打卡记录（按 ID 排序）"""
     now = datetime.now(BEIJING_TZ)
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
     return get_user_logs(username, start, end)
 
+def get_all_messages():
+    """获取所有 messages 记录，按 ID 排序"""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, username, name, content, timestamp, keyword, shift
+                FROM messages
+                ORDER BY id ASC
+            """)
+            return cur.fetchall()
+
 def delete_old_data(days=30):
+    """删除指定天数之前的旧数据"""
     cutoff = datetime.now() - timedelta(days=days)
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -106,6 +120,7 @@ def delete_old_data(days=30):
     return photos
 
 def save_shift(username, shift):
+    """保存用户最近一次上班卡的班次"""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -119,6 +134,7 @@ def save_shift(username, shift):
             conn.commit()
 
 def get_today_shift(username):
+    """获取用户今日的上班班次"""
     today = datetime.now(BEIJING_TZ).date()
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -127,13 +143,14 @@ def get_today_shift(username):
                 WHERE username = %s 
                 AND keyword = '#上班打卡'
                 AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai') = %s
-                ORDER BY timestamp DESC
+                ORDER BY id DESC
                 LIMIT 1
             """, (username, today))
             row = cur.fetchone()
             return row[0] if row else None
 
 def get_user_name(username):
+    """获取用户姓名"""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT name FROM users WHERE username = %s", (username,))
@@ -141,6 +158,7 @@ def get_user_name(username):
             return row[0] if row else None
 
 def set_user_name(username, name):
+    """设置用户姓名"""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT username FROM users WHERE name = %s AND username != %s", (name, username))
@@ -153,7 +171,7 @@ def set_user_name(username, name):
                 ON CONFLICT (username) DO UPDATE SET name = EXCLUDED.name
             """, (username, name))
             conn.commit()
-            
+
 def transfer_user_data(user_a, user_b):
     """
     将用户 A 的所有数据迁移到用户 B：
