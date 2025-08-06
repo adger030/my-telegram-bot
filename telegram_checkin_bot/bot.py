@@ -15,6 +15,12 @@ from upload_image import upload_image
 from cleaner import delete_last_month_data
 import shutil
 from sqlalchemy import text
+import logging
+
+# 仅保留 WARNING 及以上的日志
+logging.getLogger("httpx").setLevel(logging.WARNING)  
+logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 
 # ===========================
 # 设置北京时区
