@@ -8,15 +8,30 @@ from config import ADMIN_IDS
 import os
 
 # 提取 Cloudinary public_id
-def extract_cloudinary_public_id(url: str):
+def extract_cloudinary_public_id(url: str) -> str | None:
+    """
+    提取 Cloudinary public_id，支持多级目录。
+    e.g. https://res.cloudinary.com/demo/image/upload/v123456/folder/image.jpg
+         -> folder/image
+    """
     if "cloudinary.com" not in url:
         return None
-    parts = url.split("/")
     try:
-        idx = parts.index("upload")
-        public_id_with_ext = "/".join(parts[idx + 1:])
-        return os.path.splitext(public_id_with_ext)[0]
-    except Exception:
+        # 去掉 query 参数
+        url = url.split("?")[0]
+        parts = url.split("/upload/")
+        if len(parts) < 2:
+            return None
+        path = parts[1]
+        # 去掉版本号 vXXXX
+        path_parts = path.split("/")
+        if path_parts[0].startswith("v") and path_parts[0][1:].isdigit():
+            path_parts = path_parts[1:]
+        public_id_with_ext = "/".join(path_parts)
+        public_id = os.path.splitext(public_id_with_ext)[0]
+        return public_id
+    except Exception as e:
+        print(f"⚠️ public_id 提取失败: {url} -> {e}")
         return None
 
 # 批量删除 Cloudinary
