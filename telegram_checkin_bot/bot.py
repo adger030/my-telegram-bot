@@ -226,34 +226,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = get_user_name(username)
     now = datetime.now(BEIJING_TZ)
 
-    # 🚩 检查当天是否已有上班记录（上班卡或补卡）
-    def has_checkin_today(user, keywords):
-        start = datetime.combine(now.date(), datetime.min.time(), tzinfo=BEIJING_TZ)
-        end = start + timedelta(days=1)
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT COUNT(*) FROM messages
-                WHERE username=%s AND keyword = ANY(%s) AND timestamp >= %s AND timestamp < %s
-            """, (user, keywords, start, end))
-            return cur.fetchone()[0] > 0
-
     if keyword == "#上班打卡":
-        # 限制：每天只能有一条上班卡记录（包含补卡）
-        if has_checkin_today(username, ["#上班打卡", "#补卡"]):
-            await msg.reply_text(f"⚠️ 你今天已经打过“#上班打卡”或补卡，不能重复打卡。")
-            return
-
         save_message(username=username, name=name, content=image_url, timestamp=now, keyword=keyword)
         keyboard = [[InlineKeyboardButton(v, callback_data=f"shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
         await msg.reply_text("请选择今天的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif keyword == "#补卡":
-        # 限制：当天如果已有正常上班卡，则不能补卡
-        if has_checkin_today(username, ["#上班打卡"]):
-            await msg.reply_text("⚠️ 你今天已有上班卡，不能补卡。")
-            return
-
         context.user_data["makeup_data"] = {
             "username": username,
             "name": name,
@@ -267,8 +245,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if has_user_checked_keyword_today_fixed(username, keyword):
             await msg.reply_text(f"⚠️ 你今天已经提交过“{keyword}”了哦！")
             return
-
-        # 查找最近的上班卡
         logs = get_user_logs(username, now - timedelta(days=1), now)
         last_check_in, last_shift = None, None
         for ts, kw, shift in reversed(logs):
@@ -276,11 +252,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 last_check_in = parse(ts) if isinstance(ts, str) else ts
                 last_shift = shift.split("（")[0] if shift else None
                 break
-
         if not last_check_in:
             await msg.reply_text("❗ 你今天还没有打上班卡，请先打卡或补卡。")
             return
-
         save_message(username=username, name=name, content=image_url, timestamp=now, keyword=keyword, shift=last_shift)
         await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}")
 	    
