@@ -153,3 +153,37 @@ def set_user_name(username, name):
                 ON CONFLICT (username) DO UPDATE SET name = EXCLUDED.name
             """, (username, name))
             conn.commit()
+            
+def transfer_user_data(user_a, user_b):
+    """
+    将用户 A 的所有数据迁移到用户 B：
+    - 合并 messages（改 username & name）
+    - 如果 B 没有姓名且 A 有姓名，则迁移姓名
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # 检查 A 是否存在
+            cur.execute("SELECT username, name FROM users WHERE username=%s", (user_a,))
+            user_a_data = cur.fetchone()
+            if not user_a_data:
+                raise ValueError(f"用户 {user_a} 不存在。")
+
+            # 检查 B 是否存在
+            cur.execute("SELECT username, name FROM users WHERE username=%s", (user_b,))
+            user_b_data = cur.fetchone()
+            if not user_b_data:
+                raise ValueError(f"用户 {user_b} 不存在。")
+
+            # 如果 B 没有 name 且 A 有 name，则迁移
+            if user_a_data[1] and not user_b_data[1]:
+                cur.execute("UPDATE users SET name=%s WHERE username=%s", (user_a_data[1], user_b))
+
+            # 更新 messages 的归属
+            cur.execute("""
+                UPDATE messages
+                SET username=%s, name=(SELECT name FROM users WHERE username=%s)
+                WHERE username=%s
+            """, (user_b, user_b, user_a))
+
+            conn.commit()
+            print(f"✅ 数据已从 {user_a} 转移至 {user_b}")
