@@ -590,16 +590,33 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_mylogs_page(update, context)  # 展示第一页
 
 # ===========================
-# 发送分页内容
+# 发送分页内容（安全版）
 # ===========================
 async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = context.user_data["mylogs_pages"]
+    data = context.user_data.get("mylogs_pages")
+    if not data:
+        # 会话过期
+        if update.callback_query:
+            await update.callback_query.edit_message_text("⚠️ 会话已过期，请重新使用 /mylogs")
+        else:
+            await update.message.reply_text("⚠️ 会话已过期，请重新使用 /mylogs")
+        return
+
     pages, daily_map, page_index = data["pages"], data["daily_map"], data["page_index"]
     total_complete, total_abnormal, total_makeup = data["summary"]
+
+    # ✅ 安全检查：防止索引越界
+    if page_index < 0:
+        page_index = 0
+        data["page_index"] = 0
+    elif page_index >= len(pages):
+        page_index = len(pages) - 1
+        data["page_index"] = page_index
 
     current_page_days = pages[page_index]
     reply = f"🗓️ 本月打卡情况（第 {page_index+1}/{len(pages)} 页）：\n\n"
 
+    # 遍历当前页的每日记录
     for idx, day in enumerate(current_page_days, start=1 + page_index * LOGS_PER_PAGE):
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
@@ -654,7 +671,7 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply, reply_markup=markup)
 
 # ===========================
-# 分页按钮回调
+# 分页按钮回调（边界保护）
 # ===========================
 async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -664,11 +681,14 @@ async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("⚠️ 会话已过期，请重新使用 /mylogs")
         return
 
-    # 翻页操作
-    if query.data == "mylogs_prev":
-        context.user_data["mylogs_pages"]["page_index"] -= 1
-    elif query.data == "mylogs_next":
-        context.user_data["mylogs_pages"]["page_index"] += 1
+    pages_info = context.user_data["mylogs_pages"]
+    total_pages = len(pages_info["pages"])
+
+    # ✅ 页码安全调整
+    if query.data == "mylogs_prev" and pages_info["page_index"] > 0:
+        pages_info["page_index"] -= 1
+    elif query.data == "mylogs_next" and pages_info["page_index"] < total_pages - 1:
+        pages_info["page_index"] += 1
 
     await send_mylogs_page(update, context)
 
