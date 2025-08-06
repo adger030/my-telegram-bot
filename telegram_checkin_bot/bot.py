@@ -16,7 +16,7 @@ from cleaner import delete_last_month_data
 import shutil
 from sqlalchemy import text
 import logging
-from admin_tools import delete_range_cmd
+from admin_tools import delete_range_cmd, userlogs_cmd
 
 # 仅保留 WARNING 及以上的日志
 logging.getLogger("httpx").setLevel(logging.WARNING)  
@@ -891,6 +891,8 @@ def main():
     app.add_handler(CommandHandler("transfer", transfer_cmd))         # /transfer: 用户数据迁移
     app.add_handler(CommandHandler("optimize", optimize_db))          # /optimize: 数据库优化
     app.add_handler(CommandHandler("delete_range", delete_range_cmd))   # /delete_range: 删除指令
+    app.add_handler(CommandHandler("userlogs", userlogs_cmd))  # /userlogs @username 查看指定用户的考勤
+    app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^userlogs_(prev|next)$"))
 
     # ✅ 注册消息处理器
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))  # 文本消息（打卡命令）
