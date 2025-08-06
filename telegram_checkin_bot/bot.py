@@ -10,7 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from dateutil.parser import parse
 
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, ADMIN_USERNAMES
-from db_pg import init_db, save_message, get_user_logs, save_shift, get_user_name, set_user_name, get_db
+from db_pg import init_db, save_message, get_user_logs, save_shift, get_user_name, set_user_name, get_db, transfer_user_data
 from export import export_excel, export_images
 from upload_image import upload_image
 from cleaner import delete_last_month_data
@@ -661,6 +661,26 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     status_msg = await update.message.reply_text("⏳ 正在导出图片，请稍等...")
 
+async def transfer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """管理员命令：转移用户数据"""
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ 无权限！")
+        return
+
+    if len(context.args) != 2:
+        await update.message.reply_text("用法：/transfer <userA> <userB>")
+        return
+
+    user_a, user_b = context.args
+    try:
+        transfer_user_data(user_a, user_b)
+        await update.message.reply_text(f"✅ 已将 {user_a} 的数据迁移到 {user_b}")
+    except ValueError as e:
+        await update.message.reply_text(f"⚠️ {e}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ 迁移失败：{e}")
+
+
     # 先清理旧目录（防止重复导出导致混乱）
     start_str = start.strftime("%Y-%m-%d")
     end_str = (end - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
@@ -718,6 +738,7 @@ def main():
     scheduler.add_job(delete_last_month_data, CronTrigger(day=15, hour=3))
     scheduler.start()
     app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("transfer", transfer_cmd))
     app.add_handler(CommandHandler("optimize", optimize_db))
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("mylogs", mylogs_cmd))
