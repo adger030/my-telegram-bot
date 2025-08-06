@@ -10,7 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from dateutil.parser import parse
 
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR
-from db_pg import init_db, save_message, get_user_logs, save_shift, get_user_name, set_user_name, get_db, transfer_user_data
+from db_pg import init_db, save_message, get_user_logs, save_shift, get_user_name, set_user_name, get_db
 from export import export_excel, export_images
 from upload_image import upload_image
 from cleaner import delete_last_month_data
@@ -34,25 +34,6 @@ SHIFT_TIMES = {
     "I班": (datetime.strptime("15:00", "%H:%M").time(), datetime.strptime("00:00", "%H:%M").time()),  # I班跨天
 }
 
-async def transfer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """管理员命令：转移用户数据"""
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("⛔ 无权限！")
-        return
-
-    if len(context.args) != 2:
-        await update.message.reply_text("用法：/transfer <userA> <userB>")
-        return
-
-    user_a, user_b = context.args
-    try:
-        transfer_user_data(user_a, user_b)
-        await update.message.reply_text(f"✅ 已将 {user_a} 的数据迁移到 {user_b}")
-    except ValueError as e:
-        await update.message.reply_text(f"⚠️ {e}")
-    except Exception as e:
-        await update.message.reply_text(f"❌ 迁移失败：{e}")
-	    
 def extract_keyword(text: str):
     text = text.strip().replace(" ", "")
     for kw in KEYWORDS:
@@ -104,7 +85,7 @@ async def send_welcome(update_or_msg, name):
         photo="https://i.postimg.cc/3xRMBbT4/photo-2025-07-28-15-55-19.jpg",
         caption="#上班打卡"
     )
-	
+
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
     username = tg_user.username or f"user{tg_user.id}"
@@ -114,7 +95,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     name = get_user_name(username)
     await send_welcome(update.message, name)
-	
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     username = msg.from_user.username or f"user{msg.from_user.id}"
@@ -436,7 +417,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
-    # ✅ 统计逻辑：正常上下班各计 1 次，迟到早退各计 1 次
+    # ✅ 一次性计算整月汇总
     total_complete = total_abnormal = total_makeup = 0
     for day, kw_map in daily_map.items():
         shift_full = kw_map.get("shift", "未选择班次")
@@ -444,27 +425,29 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         shift_name = shift_full.split("（")[0]
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
+        has_late = has_early = False
 
         if is_makeup:
             total_makeup += 1
-            continue
 
         if has_up and shift_name in SHIFT_TIMES:
             start_time, _ = SHIFT_TIMES[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
-                total_abnormal += 1  # 迟到
-            else:
-                total_complete += 1  # 上班正常
-
+                has_late = True
         if has_down and shift_name in SHIFT_TIMES:
             _, end_time = SHIFT_TIMES[shift_name]
             down_ts = kw_map["#下班打卡"]
             if shift_name == "I班" and down_ts.date() == day:
-                total_abnormal += 1  # 夜班早退
+                has_early = True
             elif shift_name != "I班" and down_ts.time() < end_time:
-                total_abnormal += 1  # 早退
-            else:
-                total_complete += 1  # 下班正常
+                has_early = True
+
+        if is_makeup:
+            pass
+        elif has_late or has_early:
+            total_abnormal += 1
+        else:
+            total_complete += 2 if has_up and has_down else 1
 
     # 分页
     all_days = sorted(daily_map)
@@ -473,7 +456,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "pages": pages,
         "daily_map": daily_map,
         "page_index": 0,
-        "summary": (total_complete, total_abnormal, total_makeup)
+        "summary": (total_complete, total_abnormal, total_makeup)  # ✅ 固定汇总信息
     }
 
     await send_mylogs_page(update, context)
@@ -516,6 +499,7 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
 
+    # ✅ 汇总信息固定不变
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
         f"🔴 异常（迟到/早退）：{total_abnormal} 次\n"
@@ -666,7 +650,6 @@ def main():
     scheduler.add_job(delete_last_month_data, CronTrigger(day=15, hour=3))
     scheduler.start()
     app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("transfer", transfer_cmd))
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("mylogs", mylogs_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
