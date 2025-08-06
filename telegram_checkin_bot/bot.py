@@ -497,15 +497,19 @@ LOGS_PER_PAGE = 5  # 每页显示 5 天的打卡记录
 # /mylogs 命令：查看本月打卡记录
 # ===========================
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    username = update.effective_user.username or f"user{update.effective_user.id}"
+    tg_user = update.effective_user
+    username = tg_user.username
+    fallback_username = f"user{tg_user.id}"
+
     now = datetime.now(BEIJING_TZ)
-    
-    # 本月时间范围：当月1号 00:00 ~ 下月1号 00:00
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     end = (start + timedelta(days=32)).replace(day=1)
 
-    # 读取用户当月打卡记录
-    logs = get_user_logs(username, start, end)
+    # 先尝试用真实 username 查，如果没有则用 user<id>
+    logs = get_user_logs(username, start, end) if username else None
+    if not logs:
+        logs = get_user_logs(fallback_username, start, end)
+
     if not logs:
         await update.message.reply_text("📭 本月暂无打卡记录。")
         return
