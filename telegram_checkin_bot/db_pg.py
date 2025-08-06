@@ -77,15 +77,16 @@ def save_message(username, name, content, timestamp, keyword, shift=None):
             conn.commit()
 
 def get_user_logs(username, start, end):
-    """获取指定用户在时间段内的打卡记录（按 ID 排序）"""
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, timestamp, keyword, shift FROM messages
-                WHERE username = %s AND timestamp >= %s AND timestamp < %s
-                ORDER BY id ASC
-            """, (username, start, end))
-            return cur.fetchall()
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT timestamp, keyword, shift
+            FROM messages
+            WHERE username=%s AND timestamp >= %s AND timestamp < %s
+            ORDER BY timestamp ASC
+        """, (username, start, end))
+        return cur.fetchall()
+
 
 def get_user_month_logs(username):
     """获取用户当月打卡记录（按 ID 排序）"""
