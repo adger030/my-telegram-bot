@@ -461,7 +461,19 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔹 类型：{punch_type}\n"
         f"⏰ 时间：{punch_dt.strftime('%Y-%m-%d %H:%M')}"
     )
-
+    
+# ===========================
+# 获取默认的月份范围
+# ===========================
+def get_default_month_range():
+    now = datetime.now(BEIJING_TZ)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if now.month == 12:
+        end = start.replace(year=now.year + 1, month=1)  # 跨年处理
+    else:
+        end = start.replace(month=now.month + 1)
+    return start, end
+    
 # ===========================
 # 导出 Excel 命令：/export [YYYY-MM-DD YYYY-MM-DD]
 # ===========================
