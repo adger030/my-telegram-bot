@@ -125,6 +125,35 @@ def get_user_month_logs(username):
     return get_user_logs(username, start, end)
 
 
+def get_user_logs_flexible(user_identifier, start=None, end=None):
+    """
+    通用查询函数：支持 username 或 telegram.User 对象，自动时间范围（默认本月）。
+    - user_identifier: str (username/user123456) or telegram.User
+    - start/end: datetime (optional)
+    """
+    # 1️⃣ 用户名提取
+    if hasattr(user_identifier, "username") and hasattr(user_identifier, "id"):
+        username = user_identifier.username or f"user{user_identifier.id}"
+    else:
+        username = str(user_identifier).lstrip("@")
+
+    # 2️⃣ 默认时间范围（本月）
+    now = datetime.now(BEIJING_TZ)
+    if start is None:
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if end is None:
+        end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+
+    # 3️⃣ 查询
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT timestamp, keyword, shift FROM messages
+                WHERE username = %s AND timestamp >= %s AND timestamp < %s
+                ORDER BY timestamp ASC
+            """, (username, start, end))
+            return cur.fetchall()
+            
 # ===========================
 # 删除旧数据（含过期图片）
 # ===========================
