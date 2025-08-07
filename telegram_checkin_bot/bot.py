@@ -16,7 +16,7 @@ from cleaner import delete_last_month_data
 import shutil
 from sqlalchemy import text
 import logging
-from admin_tools import delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd, optimize_db, admin_makeup_cmd
+from admin_tools import delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd, optimize_db, admin_makeup_cmd, export_cmd, export_images_cmd
 
 # 仅保留 WARNING 及以上的日志
 logging.getLogger("httpx").setLevel(logging.WARNING)  
@@ -581,110 +581,6 @@ async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         pages_info["page_index"] += 1
 
     await send_mylogs_page(update, context)
-
-# ===========================
-# 导出 Excel 命令：/export [YYYY-MM-DD YYYY-MM-DD]
-# ===========================
-async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:  # 权限检查：仅管理员可用
-        await update.message.reply_text("❌ 无权限，仅管理员可导出记录。")
-        return
-
-    tz = BEIJING_TZ
-    args = context.args
-    if len(args) == 2:
-        # ✅ 解析日期参数：导出指定日期区间
-        try:
-            start = parse(args[0]).replace(tzinfo=tz, hour=0, minute=0, second=0, microsecond=0)
-            end = parse(args[1]).replace(tzinfo=tz, hour=23, minute=59, second=59, microsecond=999999)
-        except Exception:
-            await update.message.reply_text("⚠️ 日期格式错误，请使用 /export YYYY-MM-DD YYYY-MM-DD")
-            return
-    else:
-        # ✅ 无参数则默认导出本月
-        start, end = get_default_month_range()
-
-    status_msg = await update.message.reply_text("⏳ 正在导出 Excel，请稍等...")
-    file_path = export_excel(start, end)  # 调用导出函数，返回文件路径或云端 URL
-
-    # 删除状态提示消息
-    try:
-        await status_msg.delete()
-    except:
-        pass
-
-    # ✅ 导出结果处理
-    if not file_path:
-        await update.message.reply_text("⚠️ 指定日期内没有数据。")
-        return
-
-    if file_path.startswith("http"):  
-        # 文件过大，已上传云端
-        await update.message.reply_text(f"✅ 导出完成，文件过大已上传到云端：\n{file_path}")
-    else:
-        # 直接发送 Excel 文件并删除临时文件
-        await update.message.reply_document(document=open(file_path, "rb"))
-        os.remove(file_path)
-
-# ===========================
-# 导出图片命令：/export_images [YYYY-MM-DD YYYY-MM-DD]
-# ===========================
-async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ 无权限，仅管理员可导出记录。")
-        return
-
-    tz = BEIJING_TZ
-    args = context.args
-    if len(args) == 2:
-        try:
-            start = parse(args[0]).replace(tzinfo=tz, hour=0, minute=0, second=0, microsecond=0)
-            end = parse(args[1]).replace(tzinfo=tz, hour=23, minute=59, second=59, microsecond=999999)
-        except Exception:
-            await update.message.reply_text("⚠️ 日期格式错误，请使用 /export_images YYYY-MM-DD YYYY-MM-DD")
-            return
-    else:
-        start, end = get_default_month_range()
-
-    status_msg = await update.message.reply_text("⏳ 正在导出图片，请稍等...")
-
-    # ✅ 清理旧目录，避免重复导出造成文件冲突
-    start_str = start.strftime("%Y-%m-%d")
-    end_str = (end - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
-    export_dir = os.path.join(DATA_DIR, f"images_{start_str}_{end_str}")
-    shutil.rmtree(export_dir, ignore_errors=True)  
-
-    # 导出并打包图片，返回 (zip文件列表, 导出目录)
-    result = export_images(start, end)
-
-    try:
-        await status_msg.delete()
-    except:
-        pass
-
-    if not result:
-        await update.message.reply_text("⚠️ 指定日期内没有图片。")
-        return
-
-    zip_paths, export_dir = result
-
-    # ✅ 文件发送逻辑
-    if len(zip_paths) == 1:
-        # 单包直接发送
-        with open(zip_paths[0], "rb") as f:
-            await update.message.reply_document(document=f)
-    else:
-        # 多包逐个发送
-        await update.message.reply_text(f"📦 共生成 {len(zip_paths)} 个分包，开始发送…")
-        for idx, zip_path in enumerate(zip_paths, 1):
-            with open(zip_path, "rb") as f:
-                await update.message.reply_document(document=f, caption=f"📦 第 {idx} 包")
-
-    # ✅ 清理导出文件和目录
-    for zip_path in zip_paths:
-        os.remove(zip_path)
-    shutil.rmtree(export_dir, ignore_errors=True)
-    logging.info(f"🧹 已清理导出目录: {export_dir}")
 
 
 # ===========================
