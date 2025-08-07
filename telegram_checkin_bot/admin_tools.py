@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from dateutil.parser import parse
 from db_pg import engine, get_user_logs, get_user_logs_by_name
-from config import ADMIN_IDS, BEIJING_TZ, SHIFT_TIMES, LOGS_PER_PAGE
+from config import ADMIN_IDS, BEIJING_TZ, SHIFT_TIMES, LOGS_PER_PAGE, DATA_DIR
 from export import export_excel, export_images
 import pandas as pd
 
