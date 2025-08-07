@@ -116,18 +116,19 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 1️⃣ 检查管理员权限
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ 无权限，仅管理员可查看他人记录。")
         return
 
-    # 2️⃣ 参数校验
     if not context.args:
         await update.message.reply_text("⚠️ 用法：/userlogs @用户名 或 /userlogs 用户名")
         return
 
-    # 去除 @ 符号
     target_username = context.args[0].lstrip("@")
+    logs = get_user_logs_flexible(target_username)
+    if not logs:
+        await update.message.reply_text(f"📭 用户 {target_username} 本月暂无打卡记录。")
+        return
 
     # 3️⃣ 计算时间范围（本月1号到下月1号）
     now = datetime.now(BEIJING_TZ)
