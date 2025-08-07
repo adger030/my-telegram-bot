@@ -60,18 +60,6 @@ def extract_keyword(text: str):
     return None
 
 # ===========================
-# 获取默认的月份范围
-# ===========================
-def get_default_month_range():
-    now = datetime.now(BEIJING_TZ)
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    if now.month == 12:
-        end = start.replace(year=now.year + 1, month=1)  # 跨年处理
-    else:
-        end = start.replace(month=now.month + 1)
-    return start, end
-
-# ===========================
 # 发送欢迎信息和操作指南
 # ===========================
 async def send_welcome(update_or_msg, name):
