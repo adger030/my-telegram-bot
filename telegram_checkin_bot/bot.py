@@ -16,7 +16,7 @@ from cleaner import delete_last_month_data
 import shutil
 from sqlalchemy import text
 import logging
-from admin_tools import delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd, optimize_db
+from admin_tools import delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd, optimize_db, admin_makeup_cmd
 
 # 仅保留 WARNING 及以上的日志
 logging.getLogger("httpx").setLevel(logging.WARNING)  
@@ -375,121 +375,6 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text(f"✅ 补卡成功！班次：{shift_name}")
     context.user_data.pop("makeup_data", None)
 
-# ===========================
-# 管理员补卡命令
-# ===========================
-async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    用法：
-    /admin_makeup @username YYYY-MM-DD 班次(F/G/H/I) [上班/下班]
-    - 默认补“上班”，若指定“下班”则补下班卡
-    """
-    # 🚩 权限校验
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ 无权限，仅管理员可操作。")
-        return
-
-    # 🚩 参数检查
-    if len(context.args) not in (3, 4):
-        await update.message.reply_text(
-            "⚠️ 用法：/admin_makeup @username YYYY-MM-DD 班次(F/G/H/I) [上班/下班]\n"
-            "默认补上班，若要补下班需额外指定“下班”。"
-        )
-        return
-
-    # 参数解析
-    username_arg, date_str, shift_code = context.args[:3]
-    username = username_arg.lstrip("@")
-    shift_code = shift_code.upper()
-    punch_type = context.args[3] if len(context.args) == 4 else "上班"
-
-    # 🚩 校验班次与打卡类型
-    if shift_code not in SHIFT_OPTIONS:
-        await update.message.reply_text("⚠️ 班次无效，请使用 F/G/H/I。")
-        return
-    if punch_type not in ("上班", "下班"):
-        await update.message.reply_text("⚠️ 类型必须是“上班”或“下班”。")
-        return
-
-    # 🚩 日期格式验证
-    try:
-        makeup_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    except ValueError:
-        await update.message.reply_text("⚠️ 日期格式错误，应为 YYYY-MM-DD")
-        return
-
-    # 获取用户姓名
-    name = get_user_name(username)
-    if not name:
-        await update.message.reply_text(f"⚠️ 用户 {username} 未登记姓名，无法补卡。")
-        return
-
-    # 班次与时间处理
-    shift_name = SHIFT_OPTIONS[shift_code] + "（补卡）"
-    shift_short = shift_name.split("（")[0]
-    start_time, end_time = SHIFT_TIMES[shift_short]
-
-    if punch_type == "上班":
-        # 上班补卡逻辑
-        punch_dt = datetime.combine(makeup_date, start_time, tzinfo=BEIJING_TZ)
-        keyword = "#上班打卡"
-
-        # 检查是否已有上班卡
-        start = datetime.combine(makeup_date, datetime.min.time(), tzinfo=BEIJING_TZ)
-        end = start + timedelta(days=1)
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT timestamp FROM messages
-                WHERE username=%s AND keyword=%s AND timestamp >= %s AND timestamp < %s
-            """, (username, keyword, start, end))
-            if cur.fetchone():
-                await update.message.reply_text(f"⚠️ {makeup_date.strftime('%m月%d日')} 已有上班打卡记录，禁止重复补卡。")
-                return
-
-    else:  
-        # 下班补卡逻辑（跨天处理 I 班）
-        if shift_short == "I班" and end_time == datetime.strptime("00:00", "%H:%M").time():
-            punch_dt = datetime.combine(makeup_date + timedelta(days=1), end_time, tzinfo=BEIJING_TZ)
-        else:
-            punch_dt = datetime.combine(makeup_date, end_time, tzinfo=BEIJING_TZ)
-        keyword = "#下班打卡"
-
-        # 检查是否已有下班卡（I班需跨天检查）
-        if shift_short == "I班":
-            start = datetime.combine(makeup_date, datetime.min.time(), tzinfo=BEIJING_TZ)
-            end = start + timedelta(days=2)
-        else:
-            start = datetime.combine(makeup_date, datetime.min.time(), tzinfo=BEIJING_TZ)
-            end = start + timedelta(days=1)
-
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT timestamp FROM messages
-                WHERE username=%s AND keyword=%s AND timestamp >= %s AND timestamp < %s
-            """, (username, keyword, start, end))
-            if cur.fetchone():
-                await update.message.reply_text(f"⚠️ {makeup_date.strftime('%m月%d日')} 已有下班打卡记录，禁止重复补卡。")
-                return
-
-    # ✅ 写入数据库
-    save_message(
-        username=username,
-        name=name,
-        content=f"补卡（管理员-{punch_type}）",
-        timestamp=punch_dt,
-        keyword=keyword,
-        shift=shift_name
-    )
-
-    await update.message.reply_text(
-        f"✅ 管理员已为 {name}（{username}）补卡：\n"
-        f"📅 日期：{makeup_date}\n"
-        f"🏷 班次：{shift_name}\n"
-        f"🔹 类型：{punch_type}\n"
-        f"⏰ 时间：{punch_dt.strftime('%Y-%m-%d %H:%M')}"
-    )
 
 LOGS_PER_PAGE = 5  # 每页显示 5 天的打卡记录
 
