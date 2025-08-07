@@ -16,7 +16,7 @@ from cleaner import delete_last_month_data
 import shutil
 from sqlalchemy import text
 import logging
-from admin_tools import delete_range_cmd, userlogs_cmd, userlogs_page_callback
+from admin_tools import delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd, optimize_db
 
 # 仅保留 WARNING 及以上的日志
 logging.getLogger("httpx").setLevel(logging.WARNING)  
