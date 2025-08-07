@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 from collections import defaultdict
 from dateutil.parser import parse
-from db_pg import engine, get_user_logs, get_user_logs_flexible
+from db_pg import engine, get_user_logs, get_user_logs_by_name
 from config import ADMIN_IDS, BEIJING_TZ, SHIFT_TIMES, LOGS_PER_PAGE
 
 # 提取 Cloudinary public_id
@@ -121,32 +121,35 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not context.args:
-        await update.message.reply_text("⚠️ 用法：/userlogs @用户名 或 /userlogs 用户名")
+        await update.message.reply_text("⚠️ 用法：/userlogs @用户名 或 /userlogs 中文姓名")
         return
 
-    target_username = context.args[0].lstrip("@")
-    logs = get_user_logs_flexible(target_username)
-    if not logs:
-        await update.message.reply_text(f"📭 用户 {target_username} 本月暂无打卡记录。")
-        return
+    # 1️⃣ 解析查询对象
+    raw_input = context.args[0]
+    is_username = raw_input.startswith("@")
+    target_key = raw_input.lstrip("@") if is_username else raw_input
 
-    # 3️⃣ 计算时间范围（本月1号到下月1号）
+    # 2️⃣ 计算本月时间范围
     now = datetime.now(BEIJING_TZ)
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     end = (start + timedelta(days=32)).replace(day=1)
 
-    # 4️⃣ 查询目标用户的考勤记录
-    logs = get_user_logs(target_username, start, end)
+    # 3️⃣ 获取记录
+    if is_username:
+        logs = get_user_logs(target_key, start, end)
+    else:
+        logs = get_user_logs_by_name(target_key, start, end)
+
     if not logs:
-        await update.message.reply_text(f"📭 用户 {target_username} 本月暂无打卡记录。")
+        await update.message.reply_text(f"📭 用户 {target_key} 本月暂无打卡记录。")
         return
 
-    # 5️⃣ 转换时区 & 排序
+    # 4️⃣ 转换时区 & 排序
     logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
     logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
     logs = sorted(logs, key=lambda x: x[0])
 
-    # 6️⃣ 按天组合上下班打卡
+    # 5️⃣ 按天组合上下班打卡
     daily_map = defaultdict(dict)
     i = 0
     while i < len(logs):
@@ -170,7 +173,7 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
-    # 7️⃣ 统计正常/异常/补卡
+    # 6️⃣ 统计
     total_complete = total_abnormal = total_makeup = 0
     for day, kw_map in daily_map.items():
         shift_full = kw_map.get("shift", "未选择班次")
@@ -205,7 +208,7 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not has_late and not has_early and (has_up or has_down):
             total_complete += 2 if has_up and has_down else 1
 
-    # 8️⃣ 分页
+    # 7️⃣ 分页
     all_days = sorted(daily_map)
     pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
     context.user_data["userlogs_pages"] = {
@@ -213,10 +216,12 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "daily_map": daily_map,
         "page_index": 0,
         "summary": (total_complete, total_abnormal, total_makeup),
-        "target_username": target_username
+        "target_username": target_key,  # 无论是 username 还是 name，都记录
+        "is_username": is_username      # 记录查询方式
     }
 
     await send_userlogs_page(update, context)  # 展示第一页
+
 
 # ===========================
 # 发送分页内容
