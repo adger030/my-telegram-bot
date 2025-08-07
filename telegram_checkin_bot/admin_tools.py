@@ -10,6 +10,7 @@ from db_pg import engine, get_user_logs, get_user_logs_by_name
 from config import ADMIN_IDS, BEIJING_TZ, SHIFT_TIMES, LOGS_PER_PAGE, DATA_DIR
 from export import export_excel, export_images
 import pandas as pd
+import shutil
 
 # 提取 Cloudinary public_id
 def extract_cloudinary_public_id(url: str) -> str | None:
