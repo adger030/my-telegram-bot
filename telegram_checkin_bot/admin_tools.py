@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 from collections import defaultdict
 from dateutil.parser import parse
-from db_pg import engine, get_user_logs
+from db_pg import engine, get_user_logs, get_user_logs_flexible
 from config import ADMIN_IDS, BEIJING_TZ, SHIFT_TIMES, LOGS_PER_PAGE
 
 # 提取 Cloudinary public_id
