@@ -801,49 +801,6 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     shutil.rmtree(export_dir, ignore_errors=True)
     logging.info(f"🧹 已清理导出目录: {export_dir}")
 
-# ===========================
-# 用户数据迁移命令：/transfer <userA> <userB>
-# ===========================
-async def transfer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """管理员命令：迁移 userA 的所有打卡记录到 userB"""
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("⛔ 无权限！")
-        return
-
-    if len(context.args) != 2:
-        await update.message.reply_text("用法：/transfer <userA> <userB>")
-        return
-
-    user_a, user_b = context.args
-    try:
-        transfer_user_data(user_a, user_b)  # 执行迁移
-        await update.message.reply_text(f"✅ 已将 {user_a} 的数据迁移到 {user_b}")
-    except ValueError as e:
-        await update.message.reply_text(f"⚠️ {e}")
-    except Exception as e:
-        await update.message.reply_text(f"❌ 迁移失败：{e}")
-
-# ===========================
-# 优化数据库索引命令，限制仅管理员可用
-# ===========================
-async def optimize_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.username not in ADMIN_USERNAMES:
-        await update.message.reply_text("❌ 你无权限执行此命令")
-        return
-
-    try:
-        from db_pg import engine  # 导入已有的数据库引擎
-        sql = """
-        CREATE INDEX IF NOT EXISTS messages_id_idx ON messages(id);  -- 创建索引以优化查询
-        CLUSTER messages USING messages_id_idx;  -- 根据索引对数据表进行物理重排（聚簇）
-        """
-        with engine.begin() as conn:
-            conn.execute(text(sql))  # 执行 SQL
-
-        await update.message.reply_text("✅ 数据表已按 id 进行优化")
-    except Exception as e:
-        await update.message.reply_text("⚠️ 执行失败，请稍后再试")
-        print("CLUSTER 执行失败：", e)
 
 # ===========================
 # 单实例检查：防止重复启动 Bot
