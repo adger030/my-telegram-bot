@@ -3,6 +3,9 @@ import os
 from datetime import datetime, time
 from threading import Lock
 from config import ADMIN_IDS
+from telegram import Update
+from telegram.ext import ContextTypes
+
 
 SHIFT_FILE = os.path.join("data", "shift_config.json")
 _lock = Lock()
