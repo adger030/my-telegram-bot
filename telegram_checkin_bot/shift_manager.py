@@ -1,3 +1,4 @@
+import os
 import psycopg2
 from datetime import datetime
 from config import ADMIN_IDS
