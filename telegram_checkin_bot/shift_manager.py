@@ -94,13 +94,17 @@ def get_shift_times():
             for v in cfg.values()}
 
 # ========== Telegram 命令 ==========
+
 async def list_shifts_cmd(update, context):
     cfg = load_shift_config()
-    text = "📅 当前班次配置：\n"
-    for code, info in cfg.items():
-        text += f"{code}: {info['label']}（{info['start']} - {info['end']}）\n"
+    # 按班次代码排序
+    sorted_cfg = dict(sorted(cfg.items(), key=lambda x: x[0]))
+    lines = ["📅 当前班次配置："]
+    for code, info in sorted_cfg.items():
+        lines.append(f"{code}: {info['label']}")
+    text = "\n".join(lines)
     await update.message.reply_text(text)
-
+    
 async def edit_shift_cmd(update, context):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
