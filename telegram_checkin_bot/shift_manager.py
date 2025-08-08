@@ -1,12 +1,12 @@
 import psycopg2
 from datetime import datetime
-from config import ADMIN_IDS, DB_CONFIG  # DB_CONFIG = {"dbname":..., "user":..., "password":..., "host":..., "port":...}
+from config import ADMIN_IDS, DATABASE_URL
 
 # ===========================
 # 数据库连接
 # ===========================
 def get_conn():
-    return psycopg2.connect(**DB_CONFIG)
+    return psycopg2.connect(DATABASE_URL)
 
 # ===========================
 # 初始化数据库表
