@@ -7,4 +7,3 @@ cloudinary
 requests
 pytz
 sqlalchemy
-tqdm
