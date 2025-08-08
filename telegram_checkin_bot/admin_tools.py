@@ -648,7 +648,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     end_str = end.strftime("%Y-%m-%d")
     export_dir = os.path.join(DATA_DIR, "links")
     os.makedirs(export_dir, exist_ok=True)
-    html_path = os.path.join(export_dir, f"images_links_{start_str}_{end_str}.html")
+    html_path = os.path.join(export_dir, f"图片记录_{start_str}_{end_str}.html")
     with open(html_path, "w", encoding="utf-8") as f:
         f.write("\n".join(html_lines))
 
@@ -659,6 +659,6 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 发送 HTML
     with open(html_path, "rb") as f:
-        await update.message.reply_document(document=f, filename=os.path.basename(html_path), caption="✅ 图片链接列表已生成")
+        await update.message.reply_document(document=f, filename=os.path.basename(html_path))
 
     os.remove(html_path)
