@@ -114,8 +114,8 @@ def _mark_late_early(excel_path: str):
                 continue
 
             # 2️⃣ 迟到/早退判定
-            if shift_name in get_shift_times_short:
-                start_time, end_time = get_shift_times_short[shift_name]
+            if shift_name in get_shift_times_short():
+                start_time, end_time = get_shift_times_short()[shift_name]
 
                 # ---- 迟到 ----
                 if keyword_cell.value == "#上班打卡" and dt.time() > start_time:
@@ -172,8 +172,8 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         if re.search(r'（\d{2}:\d{2}-\d{2}:\d{2}）', shift_text):
             return shift_text
         shift_name = shift_text.split("（")[0]
-        if shift_name in get_shift_times_short:
-            start, end = get_shift_times_short[shift_name]
+        if shift_name in get_shift_times_short():
+            start, end = get_shift_times_short()[shift_name]
             return f"{shift_text}（{start.strftime('%H:%M')}-{end.strftime('%H:%M')}）"
         return shift_text
 
