@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from config import ADMIN_IDS, DATA_DIR  # 这里假设 config.py 里有 DATA_DIR
 
 
-SHIFT_FILE = "./data/shift_config.json"
+SHIFT_FILE = os.path.join(DATA_DIR, "shift_config.json")
 LOCK_FILE = SHIFT_FILE + ".lock"
 
 # 保证目录存在
