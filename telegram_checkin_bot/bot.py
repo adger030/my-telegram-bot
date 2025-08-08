@@ -32,7 +32,7 @@ WAITING_NAME = {}  # 记录需要输入姓名的用户
 # SHIFT_OPTIONS = get_shift_options()
 
 # 取上下班时间
-SHIFT_TIMES = get_shift_times()
+# SHIFT_TIMES = get_shift_times()
 
 # ===========================
 # 提取关键词（例如 #上班打卡、#下班打卡 等）
@@ -331,7 +331,7 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     shift_code = query.data.split(":")[1]  # 从回调数据中取班次代码（F/G/H/I）
     shift_name = SHIFT_OPTIONS[shift_code]  # 转换为完整班次名
     shift_short = shift_name.split("（")[0]  # 提取班次简称（F班/G班/H班/I班）
-    start_time, _ = SHIFT_TIMES[shift_short]  # 取班次对应的上班时间
+    start_time, _ = get_shift_times()[shift_short]  # 取班次对应的上班时间
     punch_dt = datetime.combine(data["date"], start_time, tzinfo=BEIJING_TZ)  # 拼接补卡时间
 
     # 将补卡信息保存到数据库
@@ -413,14 +413,14 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total_makeup += 1  # 补卡计数
 
         # 迟到判定：上班时间 > 班次规定时间
-        if has_up and shift_name in SHIFT_TIMES:
-            start_time, _ = SHIFT_TIMES[shift_name]
+        if has_up and shift_name in get_shift_times():
+            start_time, _ = get_shift_times()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
         # 早退判定：下班时间 < 班次规定时间（I班跨天特殊判断）
-        if has_down and shift_name in SHIFT_TIMES:
-            _, end_time = SHIFT_TIMES[shift_name]
+        if has_down and shift_name in get_shift_times():
+            _, end_time = get_shift_times()[shift_name]
             down_ts = kw_map["#下班打卡"]
             if shift_name == "I班" and down_ts.date() == day:  # I班若未跨天则早退
                 has_early = True
@@ -487,14 +487,14 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_late = has_early = False
 
         # 迟到判定
-        if has_up and shift_name in SHIFT_TIMES:
-            start_time, _ = SHIFT_TIMES[shift_name]
+        if has_up and shift_name in get_shift_times():
+            start_time, _ = get_shift_times()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
         # 早退判定
-        if has_down and shift_name in SHIFT_TIMES:
-            _, end_time = SHIFT_TIMES[shift_name]
+        if has_down and shift_name in get_shift_times():
+            _, end_time = get_shift_times()[shift_name]
             down_ts = kw_map["#下班打卡"]
             if shift_name == "I班" and down_ts.date() == day:
                 has_early = True
