@@ -250,8 +250,8 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===========================
 def has_user_checked_keyword_today_fixed(username, keyword):
     now = datetime.now(BEIJING_TZ)
-    # 特殊规则：下班卡凌晨 0-6 点算前一天
-    if keyword == "#下班打卡" and now.hour < 6:
+    # 特殊规则：凌晨 0-6 点算前一天
+    if keyword in ("#上班打卡", "#下班打卡") and now.hour < 6:
         ref_day = now - timedelta(days=1)
     else:
         ref_day = now
