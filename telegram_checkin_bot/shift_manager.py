@@ -48,13 +48,28 @@ def save_shift_config(data):
         os.replace(tmp_file, SHIFT_FILE)
     reload_shift_globals()
 
+
+
 def reload_shift_globals():
     """重新加载班次到全局变量（热更新）"""
-    global SHIFT_OPTIONS, SHIFT_TIMES
+    global SHIFT_OPTIONS, SHIFT_TIMES, SHIFT_SHORT_TIMES
     cfg = load_shift_config()
+
+    # code => label  (用于按钮等)
     SHIFT_OPTIONS = {k: v["label"] for k, v in cfg.items()}
+
+    # label => (start, end)  原本的结构
     SHIFT_TIMES = {
         v["label"]: (
+            datetime.strptime(v["start"], "%H:%M").time(),
+            datetime.strptime(v["end"], "%H:%M").time()
+        )
+        for v in cfg.values()
+    }
+
+    # 短名（去掉括号的） => (start, end)  用于迟到早退判断
+    SHIFT_SHORT_TIMES = {
+        v["label"].split("（")[0]: (
             datetime.strptime(v["start"], "%H:%M").time(),
             datetime.strptime(v["end"], "%H:%M").time()
         )
@@ -80,7 +95,11 @@ def get_shift_options():
 def get_shift_times():
     """上下班时间范围"""
     return SHIFT_TIMES
-
+    
+def get_shift_times_short():
+    """返回短名=>时间映射"""
+    return SHIFT_SHORT_TIMES
+    
 # ========== Telegram 命令 ==========
 
 async def list_shifts_cmd(update, context):
