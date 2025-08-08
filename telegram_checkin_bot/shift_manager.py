@@ -5,9 +5,13 @@ from datetime import datetime
 from contextlib import contextmanager
 from config import ADMIN_IDS, DATA_DIR  # 这里假设 config.py 里有 DATA_DIR
 
-# 持久化到 DATA_DIR，防止重启丢数据
-SHIFT_FILE = os.path.join(DATA_DIR, "shift_config.json")
+
+SHIFT_FILE = "./data/shift_config.json"
 LOCK_FILE = SHIFT_FILE + ".lock"
+
+# 保证目录存在
+os.makedirs(os.path.dirname(SHIFT_FILE), exist_ok=True)
+
 
 # ===========================
 # 工具函数
