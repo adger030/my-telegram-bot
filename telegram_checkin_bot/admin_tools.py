@@ -14,9 +14,6 @@ import pandas as pd
 import shutil
 from shift_manager import get_shift_times
 
-# 取上下班时间
-SHIFT_TIMES = get_shift_times()
-
 # 提取 Cloudinary public_id
 def extract_cloudinary_public_id(url: str) -> str | None:
     """
@@ -194,13 +191,13 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             total_makeup += 1
 
-        if has_up and shift_name in SHIFT_TIMES:
-            start_time, _ = SHIFT_TIMES[shift_name]
+        if has_up and shift_name in get_shift_times():
+            start_time, _ = get_shift_times()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
-        if has_down and shift_name in SHIFT_TIMES:
-            _, end_time = SHIFT_TIMES[shift_name]
+        if has_down and shift_name in get_shift_times():
+            _, end_time = get_shift_times()[shift_name]
             down_ts = kw_map["#下班打卡"]
             if shift_name == "I班" and down_ts.date() == day:
                 has_early = True
@@ -252,13 +249,13 @@ async def send_userlogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         has_down = "#下班打卡" in kw_map
         has_late = has_early = False
 
-        if has_up and shift_name in SHIFT_TIMES:
-            start_time, _ = SHIFT_TIMES[shift_name]
+        if has_up and shift_name in get_shift_times():
+            start_time, _ = get_shift_times()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
-        if has_down and shift_name in SHIFT_TIMES:
-            _, end_time = SHIFT_TIMES[shift_name]
+        if has_down and shift_name in get_shift_times():
+            _, end_time = get_shift_times()S[shift_name]
             down_ts = kw_map["#下班打卡"]
             if shift_name == "I班" and down_ts.date() == day:
                 has_early = True
@@ -406,7 +403,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 班次与时间处理
     shift_name = SHIFT_OPTIONS[shift_code] + "（补卡）"
     shift_short = shift_name.split("（")[0]
-    start_time, end_time = SHIFT_TIMES[shift_short]
+    start_time, end_time = get_shift_times()[shift_short]
 
     if punch_type == "上班":
         # 上班补卡逻辑
