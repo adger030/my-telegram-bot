@@ -29,7 +29,7 @@ BEIJING_TZ = timezone(timedelta(hours=8))
 WAITING_NAME = {}  # 记录需要输入姓名的用户
 
 # 取按钮显示数据
-SHIFT_OPTIONS = get_shift_options()
+# SHIFT_OPTIONS = get_shift_options()
 
 # 取上下班时间
 SHIFT_TIMES = get_shift_times()
@@ -178,7 +178,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 保存上班卡并弹出班次选择按钮
         save_message(username=username, name=name, content=image_url, timestamp=now, keyword=keyword)
-        keyboard = [[InlineKeyboardButton(v, callback_data=f"shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
+        keyboard = [[InlineKeyboardButton(v, callback_data=f"shift:{k}")] for k, v in get_shift_options().items()]
         await msg.reply_text("请选择今天的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif keyword == "#补卡":
@@ -194,7 +194,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "image_url": image_url,
             "date": (now - timedelta(days=1)).date() if now.hour < 6 else now.date()  # 凌晨补卡算前一天
         }
-        keyboard = [[InlineKeyboardButton(v, callback_data=f"makeup_shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
+        keyboard = [[InlineKeyboardButton(v, callback_data=f"makeup_shift:{k}")] for k, v in get_shift_options().items()]
         await msg.reply_text("请选择要补卡的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif keyword == "#下班打卡":
@@ -228,7 +228,7 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     username = query.from_user.username or f"user{query.from_user.id}"
     shift_code = query.data.split(":")[1]
-    shift_name = SHIFT_OPTIONS[shift_code]
+    shift_name = get_shift_options()[shift_code]
     save_shift(username, shift_name)  # 保存班次
     await query.edit_message_text(f"✅ 上班打卡成功！班次：{shift_name}")
 
@@ -305,7 +305,7 @@ async def handle_makeup_checkin(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     # ✅ 进入补卡流程：提示选择班次
-    keyboard = [[InlineKeyboardButton(v, callback_data=f"makeup_shift:{k}")] for k, v in SHIFT_OPTIONS.items()]
+    keyboard = [[InlineKeyboardButton(v, callback_data=f"makeup_shift:{k}")] for k, v in get_shift_options().items()]
     await msg.reply_text("请选择要补卡的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     # 记录补卡信息（日期将在后续回调中结合班次时间）
