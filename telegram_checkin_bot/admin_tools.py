@@ -255,7 +255,7 @@ async def send_userlogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 has_late = True
 
         if has_down and shift_name in get_shift_times():
-            _, end_time = get_shift_times()S[shift_name]
+            _, end_time = get_shift_times()[shift_name]
             down_ts = kw_map["#下班打卡"]
             if shift_name == "I班" and down_ts.date() == day:
                 has_early = True
