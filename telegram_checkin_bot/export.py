@@ -15,6 +15,7 @@ import cloudinary.uploader
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 import logging
+from shift_manager import get_shift_times_short
 
 # ===========================
 # 基础配置
@@ -23,14 +24,6 @@ logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(m
 
 MAX_TELEGRAM_FILE_MB = 50  # Telegram 单文件上传限制
 BEIJING_TZ = pytz.timezone("Asia/Shanghai")  # 北京时区
-
-# 定义班次时间
-SHIFT_TIMES = {
-    "F班": (time(12, 0), time(21, 0)),
-    "G班": (time(13, 0), time(22, 0)),
-    "H班": (time(14, 0), time(23, 0)),
-    "I班": (time(15, 0), time(0, 0)),  # I 班跨天处理
-}
 
 # ===========================
 # 文件名安全化（去除非法字符）
@@ -121,8 +114,8 @@ def _mark_late_early(excel_path: str):
                 continue
 
             # 2️⃣ 迟到/早退判定
-            if shift_name in SHIFT_TIMES:
-                start_time, end_time = SHIFT_TIMES[shift_name]
+            if shift_name in get_shift_times_short:
+                start_time, end_time = get_shift_times_short[shift_name]
 
                 # ---- 迟到 ----
                 if keyword_cell.value == "#上班打卡" and dt.time() > start_time:
@@ -179,8 +172,8 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         if re.search(r'（\d{2}:\d{2}-\d{2}:\d{2}）', shift_text):
             return shift_text
         shift_name = shift_text.split("（")[0]
-        if shift_name in SHIFT_TIMES:
-            start, end = SHIFT_TIMES[shift_name]
+        if shift_name in get_shift_times_short:
+            start, end = get_shift_times_short[shift_name]
             return f"{shift_text}（{start.strftime('%H:%M')}-{end.strftime('%H:%M')}）"
         return shift_text
 
