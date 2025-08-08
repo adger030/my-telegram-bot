@@ -9,7 +9,6 @@ from sqlalchemy import create_engine
 # ===========================
 DATABASE_URL = os.getenv("DATABASE_URL")  # 从环境变量读取数据库连接 URL
 engine = create_engine(DATABASE_URL)  # SQLAlchemy 引擎（用于 SQL 操作）
-BEIJING_TZ = timezone(timedelta(hours=8))  # 北京时区
 
 # ===========================
 # 数据库连接
