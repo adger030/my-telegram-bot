@@ -28,12 +28,6 @@ logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 BEIJING_TZ = timezone(timedelta(hours=8))
 WAITING_NAME = {}  # 记录需要输入姓名的用户
 
-# 取按钮显示数据
-# SHIFT_OPTIONS = get_shift_options()
-
-# 取上下班时间
-# SHIFT_TIMES = get_shift_times()
-
 # ===========================
 # 提取关键词（例如 #上班打卡、#下班打卡 等）
 # ===========================
