@@ -2,6 +2,7 @@ import os
 import psycopg2
 from datetime import datetime
 from config import ADMIN_IDS
+from sqlalchemy import create_engine
 
 # ===========================
 # 数据库初始化配置
