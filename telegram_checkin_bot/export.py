@@ -15,9 +15,6 @@ import cloudinary.uploader
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 import logging
-from tqdm import tqdm  # 控制台用，如果要发给用户，用 Telegram 消息更新
-from telegram import Update
-from telegram.ext import ContextTypes
 
 # ===========================
 # 基础配置
@@ -342,45 +339,3 @@ def export_images(start_datetime: datetime, end_datetime: datetime):
     logging.info(f"✅ 按天图片导出完成，共 {len(zip_paths)} 个 ZIP，目录: {export_dir}")
     return zip_paths, export_dir
     
-# ===========================
-# 导出图片并带进度条
-# ===========================
-async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("⛔ 无权限，仅管理员可导出图片。")
-        return
-
-    export_dir = "/app/export_images"
-    if os.path.exists(export_dir):
-        shutil.rmtree(export_dir)
-    os.makedirs(export_dir)
-
-    # 模拟获取图片列表
-    images = get_images_list()  # 这里返回所有要导出的图片路径
-    total = len(images)
-
-    if total == 0:
-        await update.message.reply_text("⚠️ 没有可导出的图片。")
-        return
-
-    logging.info(f"🧹 已清理导出目录: {export_dir}")
-
-    # 先发一个“进度消息”
-    progress_msg = await update.message.reply_text(f"📦 开始导出图片 (0/{total})...")
-
-    for idx, img_path in enumerate(images, start=1):
-        shutil.copy(img_path, export_dir)  # 复制图片
-        progress_text = f"📦 正在导出图片 ({idx}/{total})"
-        await progress_msg.edit_text(progress_text)
-
-    await progress_msg.edit_text(f"✅ 导出完成，共 {total} 张图片")
-    logging.info(f"✅ 图片导出完成: {export_dir}")
-
-
-# 模拟获取图片列表的函数
-def get_images_list():
-    return [
-        "/app/images/img1.jpg",
-        "/app/images/img2.jpg",
-        "/app/images/img3.jpg"
-    ]
