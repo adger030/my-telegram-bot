@@ -522,7 +522,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(file_path)
 
 # ===========================
-# 导出图片命令：/export_images [YYYY-MM-DD YYYY-MM-DD]
+# 在线模式导出图片链接
 # ===========================
 async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -541,42 +541,71 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         start, end = get_default_month_range()
 
-    status_msg = await update.message.reply_text("⏳ 正在导出图片，请稍等...")
+    status_msg = await update.message.reply_text("⏳ 正在生成图片链接列表，请稍等...")
 
-    # ✅ 清理旧目录，避免重复导出造成文件冲突
+    # 获取数据
+    df = _fetch_data(start, end)
+    if df.empty:
+        await status_msg.delete()
+        await update.message.reply_text("⚠️ 指定日期内没有数据。")
+        return
+
+    # 只筛选图片
+    photo_df = df[df["content"].str.contains(r"\.(?:jpg|jpeg|png|gif|webp)$", case=False, na=False)].copy()
+    if photo_df.empty:
+        await status_msg.delete()
+        await update.message.reply_text("⚠️ 指定日期内没有图片。")
+        return
+
+    # 提取 public_id 并生成 Cloudinary 直链
+    def extract_public_id(url: str) -> str | None:
+        match = re.search(r'/upload/(?:v\d+/)?(.+?)\.(?:jpg|jpeg|png|gif|webp)$', url, re.IGNORECASE)
+        return match.group(1) if match else None
+
+    photo_df["public_id"] = photo_df["content"].apply(extract_public_id)
+    photo_df.dropna(subset=["public_id"], inplace=True)
+    if photo_df.empty:
+        await status_msg.delete()
+        await update.message.reply_text("⚠️ 没有有效的 Cloudinary 图片链接。")
+        return
+
+    photo_df["url"] = photo_df["public_id"].apply(lambda pid: cloudinary.CloudinaryImage(pid).build_url())
+
+    # 按日期分组生成 HTML
+    html_lines = [
+        "<html><head><meta charset='utf-8'><title>图片导出</title></head><body>",
+        f"<h2>图片导出：{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}</h2>"
+    ]
+    for date_str, group in photo_df.groupby(photo_df["timestamp"].dt.strftime("%Y-%m-%d")):
+        html_lines.append(f"<h3>{date_str}</h3><ul>")
+        for _, row in group.iterrows():
+            ts_local = row["timestamp"].astimezone(BEIJING_TZ).strftime('%H:%M:%S')
+            keyword = row.get("keyword", "无关键词") or "无关键词"
+            name = row.get("name", "未知") or "未知"
+            url = row["url"]
+            html_lines.append(
+                f"<li>{ts_local} - {keyword} - {name} - <a href='{url}' target='_blank'>查看图片</a></li>"
+            )
+        html_lines.append("</ul>")
+    html_lines.append("</body></html>")
+
+    # 保存 HTML
     start_str = start.strftime("%Y-%m-%d")
-    end_str = (end - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
-    export_dir = os.path.join(DATA_DIR, f"images_{start_str}_{end_str}")
-    shutil.rmtree(export_dir, ignore_errors=True)  
-
-    # 导出并打包图片，返回 (zip文件列表, 导出目录)
-    result = export_images(start, end)
+    end_str = end.strftime("%Y-%m-%d")
+    export_dir = os.path.join(DATA_DIR, "links")
+    os.makedirs(export_dir, exist_ok=True)
+    html_path = os.path.join(export_dir, f"images_links_{start_str}_{end_str}.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(html_lines))
 
     try:
         await status_msg.delete()
     except:
         pass
 
-    if not result:
-        await update.message.reply_text("⚠️ 指定日期内没有图片。")
-        return
+    # 发送 HTML 文件
+    with open(html_path, "rb") as f:
+        await update.message.reply_document(document=f, filename=os.path.basename(html_path), caption="✅ 图片链接列表已生成")
 
-    zip_paths, export_dir = result
-
-    # ✅ 文件发送逻辑
-    if len(zip_paths) == 1:
-        # 单包直接发送
-        with open(zip_paths[0], "rb") as f:
-            await update.message.reply_document(document=f)
-    else:
-        # 多包逐个发送
-        await update.message.reply_text(f"📦 共生成 {len(zip_paths)} 个分包，开始发送…")
-        for idx, zip_path in enumerate(zip_paths, 1):
-            with open(zip_path, "rb") as f:
-                await update.message.reply_document(document=f, caption=f"📦 第 {idx} 包")
-
-    # ✅ 清理导出文件和目录
-    for zip_path in zip_paths:
-        os.remove(zip_path)
-    shutil.rmtree(export_dir, ignore_errors=True)
-    logging.info(f"🧹 已清理导出目录: {export_dir}")
+    # 清理
+    os.remove(html_path)
