@@ -14,6 +14,10 @@ import cloudinary
 import cloudinary.uploader
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
+import logging
+from tqdm import tqdm  # 控制台用，如果要发给用户，用 Telegram 消息更新
+from telegram import Update
+from telegram.ext import ContextTypes
 
 # ===========================
 # 基础配置
@@ -261,71 +265,44 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     return excel_path
 
 # ===========================
-# 导出图片并打包 ZIP
+# 导出图片并带进度条
 # ===========================
-def export_images(start_datetime: datetime, end_datetime: datetime):
-    df = _fetch_data(start_datetime, end_datetime)
-    if df.empty:
-        logging.warning("⚠️ 指定日期内没有数据")
-        return None
+async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ 无权限，仅管理员可导出图片。")
+        return
 
-    # 筛选图片记录
-    photo_df = df[df["content"].str.contains(r"\.(?:jpg|jpeg|png|gif)$", case=False, na=False)].copy()
-    if photo_df.empty:
-        logging.warning("⚠️ 指定日期内没有图片。")
-        return None
+    export_dir = "/app/export_images"
+    if os.path.exists(export_dir):
+        shutil.rmtree(export_dir)
+    os.makedirs(export_dir)
 
-    # 从 Cloudinary URL 提取 public_id
-    def extract_public_id(url: str) -> str | None:
-        match = re.search(r'/upload/(?:v\d+/)?(.+?)\.(?:jpg|jpeg|png|gif)$', url)
-        return match.group(1) if match else None
+    # 模拟获取图片列表
+    images = get_images_list()  # 这里返回所有要导出的图片路径
+    total = len(images)
 
-    photo_df["public_id"] = photo_df["content"].apply(extract_public_id)
-    public_ids = [pid for pid in photo_df["public_id"].dropna().unique() if pid.strip()]
+    if total == 0:
+        await update.message.reply_text("⚠️ 没有可导出的图片。")
+        return
 
-    if not public_ids:
-        logging.error("❌ 没有有效的 public_id，可能 URL 不是 Cloudinary 链接")
-        return None
+    logging.info(f"🧹 已清理导出目录: {export_dir}")
 
-    # 创建导出目录并清理旧数据
-    start_str = start_datetime.strftime("%Y-%m-%d")
-    end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
-    export_dir = os.path.join(DATA_DIR, f"images_{start_str}_{end_str}")
-    shutil.rmtree(export_dir, ignore_errors=True)
-    os.makedirs(export_dir, exist_ok=True)
+    # 先发一个“进度消息”
+    progress_msg = await update.message.reply_text(f"📦 开始导出图片 (0/{total})...")
 
-    zip_paths, current_zip_idx = [], 1
-    current_zip_path = os.path.join(export_dir, f"图片打包_{start_str}_{end_str}_包{current_zip_idx}.zip")
-    current_zip = zipfile.ZipFile(current_zip_path, "w", zipfile.ZIP_DEFLATED)
-    current_zip_size = 0
+    for idx, img_path in enumerate(images, start=1):
+        shutil.copy(img_path, export_dir)  # 复制图片
+        progress_text = f"📦 正在导出图片 ({idx}/{total})"
+        await progress_msg.edit_text(progress_text)
 
-    # 下载并分包压缩
-    for idx, pid in enumerate(public_ids, 1):
-        url = cloudinary.CloudinaryImage(pid).build_url()
-        filename = safe_filename(f"{os.path.basename(pid)}.jpg")
-        try:
-            resp = requests.get(url, stream=True, timeout=15)
-            resp.raise_for_status()
-            content = resp.content
-        except Exception as e:
-            logging.warning(f"⚠️ 下载失败 {url}: {e}")
-            continue
+    await progress_msg.edit_text(f"✅ 导出完成，共 {total} 张图片")
+    logging.info(f"✅ 图片导出完成: {export_dir}")
 
-        # 检查分包大小（40MB）
-        if current_zip_size + len(content) > 40 * 1024 * 1024:
-            current_zip.close()
-            zip_paths.append(current_zip_path)
-            current_zip_idx += 1
-            current_zip_size = 0
-            current_zip_path = os.path.join(export_dir, f"图片打包_{start_str}_{end_str}_包{current_zip_idx}.zip")
-            current_zip = zipfile.ZipFile(current_zip_path, "w", zipfile.ZIP_DEFLATED)
 
-        current_zip.writestr(filename, content)
-        current_zip_size += len(content)
-
-    # 关闭最后一个 ZIP
-    current_zip.close()
-    zip_paths.append(current_zip_path)
-
-    logging.info(f"✅ 图片分包导出完成，共 {len(zip_paths)} 包，目录: {export_dir}")
-    return zip_paths, export_dir
+# 模拟获取图片列表的函数
+def get_images_list():
+    return [
+        "/app/images/img1.jpg",
+        "/app/images/img2.jpg",
+        "/app/images/img3.jpg"
+    ]
