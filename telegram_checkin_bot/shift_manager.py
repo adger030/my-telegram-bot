@@ -1,113 +1,101 @@
-import json
-import os
-import time
+import psycopg2
 from datetime import datetime
-from contextlib import contextmanager
-from config import ADMIN_IDS, DATA_DIR  # 这里假设 config.py 里有 DATA_DIR
-
-
-SHIFT_FILE = os.path.join(DATA_DIR, "shift_config.json")
-LOCK_FILE = SHIFT_FILE + ".lock"
-
-# 保证目录存在
-os.makedirs(os.path.dirname(SHIFT_FILE), exist_ok=True)
-
+from config import ADMIN_IDS, DB_CONFIG  # DB_CONFIG = {"dbname":..., "user":..., "password":..., "host":..., "port":...}
 
 # ===========================
-# 工具函数
+# 数据库连接
 # ===========================
-@contextmanager
-def file_lock(lock_file, timeout=5):
-    start_time = time.time()
-    while True:
-        try:
-            fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_RDWR)
-            break
-        except FileExistsError:
-            if time.time() - start_time > timeout:
-                raise TimeoutError(f"无法获取文件锁: {lock_file}")
-            time.sleep(0.05)
-    try:
-        yield
-    finally:
-        os.close(fd)
-        os.remove(lock_file)
+def get_conn():
+    return psycopg2.connect(**DB_CONFIG)
 
-def load_shift_config():
-    if not os.path.exists(SHIFT_FILE):
-        return {}
-    with open(SHIFT_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+# ===========================
+# 初始化数据库表
+# ===========================
+def init_shift_table():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS shifts (
+                    code TEXT PRIMARY KEY,
+                    label TEXT NOT NULL,
+                    start TEXT NOT NULL,
+                    "end" TEXT NOT NULL
+                );
+            """)
+            conn.commit()
 
-def save_shift_config(data):
-    """保存并热更新"""
-    with file_lock(LOCK_FILE):
-        tmp_file = SHIFT_FILE + ".tmp"
-        with open(tmp_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_file, SHIFT_FILE)
-    reload_shift_globals()
-
-
-
+# ===========================
+# 从数据库加载班次到内存
+# ===========================
 def reload_shift_globals():
-    """重新加载班次到全局变量（热更新）"""
     global SHIFT_OPTIONS, SHIFT_TIMES, SHIFT_SHORT_TIMES
-    cfg = load_shift_config()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT code, label, start, \"end\" FROM shifts ORDER BY code;")
+            rows = cur.fetchall()
 
-    # code => label  (用于按钮等)
-    SHIFT_OPTIONS = {k: v["label"] for k, v in cfg.items()}
+    SHIFT_OPTIONS = {code: label for code, label, start, end in rows}
 
-    # label => (start, end)  原本的结构
     SHIFT_TIMES = {
-        v["label"]: (
-            datetime.strptime(v["start"], "%H:%M").time(),
-            datetime.strptime(v["end"], "%H:%M").time()
+        label: (
+            datetime.strptime(start, "%H:%M").time(),
+            datetime.strptime(end, "%H:%M").time()
         )
-        for v in cfg.values()
+        for code, label, start, end in rows
     }
 
-    # 短名（去掉括号的） => (start, end)  用于迟到早退判断
     SHIFT_SHORT_TIMES = {
-        v["label"].split("（")[0]: (
-            datetime.strptime(v["start"], "%H:%M").time(),
-            datetime.strptime(v["end"], "%H:%M").time()
+        label.split("（")[0]: (
+            datetime.strptime(start, "%H:%M").time(),
+            datetime.strptime(end, "%H:%M").time()
         )
-        for v in cfg.values()
+        for code, label, start, end in rows
     }
 
-# 初始化默认班次
-if not os.path.exists(SHIFT_FILE):
-    default = {
-        "F": {"label": "F班（12:00-21:00）", "start": "12:00", "end": "21:00"},
-        "G": {"label": "G班（13:00-22:00）", "start": "13:00", "end": "22:00"},
-        "H": {"label": "H班（14:00-23:00）", "start": "14:00", "end": "23:00"},
-        "I": {"label": "I班（15:00-00:00）", "start": "15:00", "end": "00:00"}
-    }
-    save_shift_config(default)
-
-reload_shift_globals()
-
+# ===========================
+# CRUD 操作
+# ===========================
 def get_shift_options():
-    """按钮显示用"""
     return SHIFT_OPTIONS
 
 def get_shift_times():
-    """上下班时间范围"""
     return SHIFT_TIMES
-    
-def get_shift_times_short():
-    """返回短名=>时间映射"""
-    return SHIFT_SHORT_TIMES
-    
-# ========== Telegram 命令 ==========
 
+def get_shift_times_short():
+    return SHIFT_SHORT_TIMES
+
+def save_shift(code, name, start, end):
+    """新增或更新班次"""
+    label = f"{name}（{start}-{end}）"
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO shifts (code, label, start, "end")
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (code) DO UPDATE
+                SET label = EXCLUDED.label,
+                    start = EXCLUDED.start,
+                    "end" = EXCLUDED.end
+            """, (code, label, start, end))
+            conn.commit()
+    reload_shift_globals()
+
+def delete_shift(code):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM shifts WHERE code = %s", (code,))
+            conn.commit()
+    reload_shift_globals()
+
+# ===========================
+# Telegram 命令
+# ===========================
 async def list_shifts_cmd(update, context):
-    cfg = load_shift_config()
-    sorted_cfg = dict(sorted(cfg.items(), key=lambda x: x[0]))
-    lines = ["📅 当前班次配置："]
-    for code, info in sorted_cfg.items():
-        lines.append(f"{info['label']}")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT code, label FROM shifts ORDER BY code;")
+            rows = cur.fetchall()
+    lines = ["📅 当前班次配置："] + [label for code, label in rows]
     await update.message.reply_text("\n".join(lines))
 
 async def edit_shift_cmd(update, context):
@@ -126,14 +114,8 @@ async def edit_shift_cmd(update, context):
     start = context.args[2]
     end = context.args[3]
 
-    cfg = load_shift_config()
-    cfg[code] = {
-        "label": f"{name}（{start}-{end}）",
-        "start": start,
-        "end": end
-    }
-    save_shift_config(cfg)
-    await update.message.reply_text(f"✅ 班次 {code} 已修改为：{cfg[code]['label']}")
+    save_shift(code, name, start, end)
+    await update.message.reply_text(f"✅ 班次 {code} 已修改为：{name}（{start}-{end}）")
 
 async def delete_shift_cmd(update, context):
     user_id = update.effective_user.id
@@ -146,12 +128,29 @@ async def delete_shift_cmd(update, context):
         return
 
     code = context.args[0].upper()
-    cfg = load_shift_config()
-    if code not in cfg:
-        await update.message.reply_text(f"⚠️ 班次 {code} 不存在。")
-        return
+    delete_shift(code)
+    await update.message.reply_text(f"✅ 已删除班次 {code}")
 
-    deleted_label = cfg[code]["label"]
-    del cfg[code]
-    save_shift_config(cfg)
-    await update.message.reply_text(f"✅ 已删除班次 {code}：{deleted_label}")
+# ===========================
+# 初始化时创建表 & 加载数据
+# ===========================
+init_shift_table()
+
+# 如果是第一次运行且表为空，就插入默认班次
+with get_conn() as conn:
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM shifts;")
+        if cur.fetchone()[0] == 0:
+            defaults = [
+                ("F", "F班（12:00-21:00）", "12:00", "21:00"),
+                ("G", "G班（13:00-22:00）", "13:00", "22:00"),
+                ("H", "H班（14:00-23:00）", "14:00", "23:00"),
+                ("I", "I班（15:00-00:00）", "15:00", "00:00")
+            ]
+            cur.executemany("""
+                INSERT INTO shifts (code, label, start, "end")
+                VALUES (%s, %s, %s, %s)
+            """, defaults)
+            conn.commit()
+
+reload_shift_globals()
