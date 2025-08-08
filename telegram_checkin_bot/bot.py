@@ -361,9 +361,6 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text(f"✅ 补卡成功！班次：{shift_name}")
     context.user_data.pop("makeup_data", None)
 
-
-LOGS_PER_PAGE = 5  # 每页显示 5 天的打卡记录
-
 # ===========================
 # /mylogs 命令：查看本月打卡记录
 # ===========================
