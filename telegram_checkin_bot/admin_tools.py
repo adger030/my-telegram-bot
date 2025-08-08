@@ -522,7 +522,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(file_path)
 
 # ===========================
-# 在线模式导出图片链接
+# 在线模式导出图片链接（不依赖 _fetch_data）
 # ===========================
 async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -543,21 +543,28 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     status_msg = await update.message.reply_text("⏳ 正在生成图片链接列表，请稍等...")
 
-    # 获取数据
-    df = _fetch_data(start, end)
+    # 直接从数据库查询
+    with get_conn() as conn:
+        df = pd.read_sql("""
+            SELECT timestamp, keyword, name, content
+            FROM messages
+            WHERE timestamp >= %s AND timestamp <= %s
+            ORDER BY timestamp ASC
+        """, conn, params=(start, end))
+
     if df.empty:
         await status_msg.delete()
         await update.message.reply_text("⚠️ 指定日期内没有数据。")
         return
 
-    # 只筛选图片
+    # 筛选图片记录
     photo_df = df[df["content"].str.contains(r"\.(?:jpg|jpeg|png|gif|webp)$", case=False, na=False)].copy()
     if photo_df.empty:
         await status_msg.delete()
         await update.message.reply_text("⚠️ 指定日期内没有图片。")
         return
 
-    # 提取 public_id 并生成 Cloudinary 直链
+    # 提取 public_id 并生成 Cloudinary URL
     def extract_public_id(url: str) -> str | None:
         match = re.search(r'/upload/(?:v\d+/)?(.+?)\.(?:jpg|jpeg|png|gif|webp)$', url, re.IGNORECASE)
         return match.group(1) if match else None
@@ -571,7 +578,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     photo_df["url"] = photo_df["public_id"].apply(lambda pid: cloudinary.CloudinaryImage(pid).build_url())
 
-    # 按日期分组生成 HTML
+    # 生成 HTML
     html_lines = [
         "<html><head><meta charset='utf-8'><title>图片导出</title></head><body>",
         f"<h2>图片导出：{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}</h2>"
@@ -589,7 +596,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         html_lines.append("</ul>")
     html_lines.append("</body></html>")
 
-    # 保存 HTML
+    # 保存 HTML 文件
     start_str = start.strftime("%Y-%m-%d")
     end_str = end.strftime("%Y-%m-%d")
     export_dir = os.path.join(DATA_DIR, "links")
@@ -607,5 +614,5 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open(html_path, "rb") as f:
         await update.message.reply_document(document=f, filename=os.path.basename(html_path), caption="✅ 图片链接列表已生成")
 
-    # 清理
+    # 清理临时文件
     os.remove(html_path)
