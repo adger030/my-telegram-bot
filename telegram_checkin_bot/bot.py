@@ -329,7 +329,7 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     shift_code = query.data.split(":")[1]  # 从回调数据中取班次代码（F/G/H/I）
-    shift_name = SHIFT_OPTIONS[shift_code]  # 转换为完整班次名
+    shift_name = get_shift_options()[shift_code]  # 转换为完整班次名
     shift_short = shift_name.split("（")[0]  # 提取班次简称（F班/G班/H班/I班）
     start_time, _ = get_shift_times()[shift_short]  # 取班次对应的上班时间
     punch_dt = datetime.combine(data["date"], start_time, tzinfo=BEIJING_TZ)  # 拼接补卡时间
