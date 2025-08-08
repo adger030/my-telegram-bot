@@ -1,30 +1,21 @@
 import json
 import os
-import time
-from datetime import datetime, time as dt_time
-from contextlib import contextmanager
+from datetime import datetime, time
+from threading import Lock
 from config import ADMIN_IDS
 
-SHIFT_FILE = "shift_config.json"
-LOCK_FILE = SHIFT_FILE + ".lock"
+SHIFT_FILE = os.path.join("data", "shift_config.json")
+_lock = Lock()
 
-@contextmanager
-def file_lock(lock_file, timeout=5):
-    start_time = time.time()
-    while True:
-        try:
-            fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_RDWR)
-            break
-        except FileExistsError:
-            if time.time() - start_time > timeout:
-                raise TimeoutError(f"无法获取文件锁: {lock_file}")
-            time.sleep(0.05)
-    try:
-        yield
-    finally:
-        os.close(fd)
-        os.remove(lock_file)
+# ===========================
+# 全局变量（热更新用）
+# ===========================
+SHIFT_OPTIONS = {}
+SHIFT_TIMES = {}
 
+# ===========================
+# 工具函数
+# ===========================
 def load_shift_config():
     if not os.path.exists(SHIFT_FILE):
         return {}
@@ -32,63 +23,100 @@ def load_shift_config():
         return json.load(f)
 
 def save_shift_config(data):
-    with file_lock(LOCK_FILE):
+    with _lock:  # 防并发
         tmp_file = SHIFT_FILE + ".tmp"
         with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         os.replace(tmp_file, SHIFT_FILE)
+    reload_shift_globals()
 
-if not os.path.exists(SHIFT_FILE):
-    default = {
-        "F": {"label": "F班（12:00-21:00）", "start": "12:00", "end": "21:00"},
-        "G": {"label": "G班（13:00-22:00）", "start": "13:00", "end": "22:00"},
-        "H": {"label": "H班（14:00-23:00）", "start": "14:00", "end": "23:00"},
-        "I": {"label": "I班（15:00-00:00）", "start": "15:00", "end": "00:00"}
+def reload_shift_globals():
+    """重新加载班次到全局变量（热更新）"""
+    global SHIFT_OPTIONS, SHIFT_TIMES
+    cfg = load_shift_config()
+    SHIFT_OPTIONS = {k: v["label"] for k, v in cfg.items()}
+    SHIFT_TIMES = {
+        v["label"]: (
+            datetime.strptime(v["start"], "%H:%M").time(),
+            datetime.strptime(v["end"], "%H:%M").time()
+        )
+        for v in cfg.values()
     }
-    save_shift_config(default)
 
-def get_shift_options():
-    """按钮显示用"""
-    cfg = load_shift_config()
-    return {k: v["label"] for k, v in cfg.items()}
+# 启动时先加载一次
+reload_shift_globals()
 
-def get_shift_times():
-    """上下班时间范围"""
-    cfg = load_shift_config()
-    return {v["label"]: (datetime.strptime(v["start"], "%H:%M").time(),
-                         datetime.strptime(v["end"], "%H:%M").time())
-            for v in cfg.values()}
-
-# ========== Telegram 命令 ==========
-async def list_shifts_cmd(update, context):
-    cfg = load_shift_config()
-    text = "📅 当前班次配置：\n"
-    for code, info in cfg.items():
-        text += f"{code}: {info['label']}（{info['start']} - {info['end']}）\n"
-    await update.message.reply_text(text)
-
+# ===========================
+# 命令：编辑/添加班次
+# ===========================
 async def edit_shift_cmd(update, context):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ 你不是管理员，没有权限修改班次。")
+        await update.message.reply_text("❌ 你不是管理员，没有权限编辑班次。")
         return
 
-    if len(context.args) < 4:
-        await update.message.reply_text("⚠️ 用法：/edit_shift 班次代码 班次名 开始时间 结束时间\n"
-                                        "例如：/edit_shift F F班 10:00 19:00")
+    if len(context.args) != 4:
+        await update.message.reply_text("⚠️ 用法：/edit_shift 班次代码 班次名称 上班时间 下班时间\n例如：/edit_shift F F班 12:00 21:00")
         return
 
     code = context.args[0].upper()
-    name = context.args[1]
-    start = context.args[2]
-    end = context.args[3]
+    label = context.args[1]
+    start_str = context.args[2]
+    end_str = context.args[3]
+
+    try:
+        start_time = datetime.strptime(start_str, "%H:%M").time()
+        end_time = datetime.strptime(end_str, "%H:%M").time()
+    except ValueError:
+        await update.message.reply_text("⚠️ 时间格式错误，请用 HH:MM（24小时制）")
+        return
 
     cfg = load_shift_config()
     cfg[code] = {
-        "label": f"{name}（{start}-{end}）",
-        "start": start,
-        "end": end
+        "label": f"{label}（{start_str}-{end_str}）",
+        "start": start_str,
+        "end": end_str
     }
     save_shift_config(cfg)
 
-    await update.message.reply_text(f"✅ 班次 {code} 已修改为：{cfg[code]['label']}")
+    await update.message.reply_text(f"✅ 已更新/添加班次 {code}：{label}（{start_str}-{end_str}）")
+
+# ===========================
+# 命令：删除班次
+# ===========================
+async def delete_shift_cmd(update, context):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ 你不是管理员，没有权限删除班次。")
+        return
+
+    if len(context.args) != 1:
+        await update.message.reply_text("⚠️ 用法：/delete_shift 班次代码\n例如：/delete_shift F")
+        return
+
+    code = context.args[0].upper()
+    cfg = load_shift_config()
+
+    if code not in cfg:
+        await update.message.reply_text(f"⚠️ 班次 {code} 不存在。")
+        return
+
+    deleted_label = cfg[code]["label"]
+    del cfg[code]
+    save_shift_config(cfg)
+
+    await update.message.reply_text(f"✅ 已删除班次 {code}：{deleted_label}")
+
+# ===========================
+# 命令：列出班次
+# ===========================
+async def list_shifts_cmd(update, context):
+    cfg = load_shift_config()
+    if not cfg:
+        await update.message.reply_text("⚠️ 目前没有班次设置。")
+        return
+
+    msg = "📋 当前班次：\n"
+    for code, data in cfg.items():
+        msg += f"{code} - {data['label']}\n"
+    await update.message.reply_text(msg)
