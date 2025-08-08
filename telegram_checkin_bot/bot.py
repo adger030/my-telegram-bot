@@ -609,7 +609,7 @@ def main():
 
     # ✅ 注册命令处理器
     app.add_handler(CommandHandler("start", start_cmd))               # /start: 欢迎信息 & 姓名登记
-   # app.add_handler(CommandHandler("mylogs", mylogs_cmd))             # /mylogs: 查看本月打卡记录
+    app.add_handler(CommandHandler("mylogs", mylogs_cmd))             # /mylogs: 查看本月打卡记录
     app.add_handler(CommandHandler("export", export_cmd))             # /export: 导出 Excel
     app.add_handler(CommandHandler("export_images", export_images_cmd))  # /export_images: 导出图片 ZIP
     app.add_handler(CommandHandler("admin_makeup", admin_makeup_cmd))  # /admin_makeup: 管理员补卡
@@ -626,7 +626,7 @@ def main():
     # ✅ 注册回调按钮处理器
     app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))              # 上班班次选择
     app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:")) # 补卡班次选择
-  #  app.add_handler(CallbackQueryHandler(mylogs_page_callback, pattern=r"^mylogs_(prev|next)$"))  # 打卡记录翻页
+    app.add_handler(CallbackQueryHandler(mylogs_page_callback, pattern=r"^mylogs_(prev|next)$"))  # 打卡记录翻页
 
     # ===========================
     # 启动 Bot
