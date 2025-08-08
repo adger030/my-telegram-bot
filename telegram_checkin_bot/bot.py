@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dateutil.parser import parse
-from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, ADMIN_USERNAMES
+from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, ADMIN_USERNAMES, LOGS_PER_PAGE
 from db_pg import init_db, save_message, get_user_logs, save_shift, get_user_name, set_user_name, get_db, transfer_user_data
 from upload_image import upload_image
 from cleaner import delete_last_month_data
