@@ -15,6 +15,7 @@ from cleaner import delete_last_month_data
 from sqlalchemy import text
 import logging
 from admin_tools import delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd, optimize_db, admin_makeup_cmd, export_cmd, export_images_cmd
+from shift_manager import get_shift_options, get_shift_times, list_shifts_cmd, edit_shift_cmd
 
 # 仅保留 WARNING 及以上的日志
 logging.getLogger("httpx").setLevel(logging.WARNING)  
@@ -27,25 +28,11 @@ logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 BEIJING_TZ = timezone(timedelta(hours=8))
 WAITING_NAME = {}  # 记录需要输入姓名的用户
 
-# ===========================
-# 班次选项（按钮显示用）
-# ===========================
-SHIFT_OPTIONS = {
-    "F": "F班（12:00-21:00）",
-    "G": "G班（13:00-22:00）",
-    "H": "H班（14:00-23:00）",
-    "I": "I班（15:00-00:00）"
-}
+# 取按钮显示数据
+SHIFT_OPTIONS = get_shift_options()
 
-# ===========================
-# 班次对应的上下班时间范围
-# ===========================
-SHIFT_TIMES = {
-    "F班": (datetime.strptime("12:00", "%H:%M").time(), datetime.strptime("21:00", "%H:%M").time()),
-    "G班": (datetime.strptime("13:00", "%H:%M").time(), datetime.strptime("22:00", "%H:%M").time()),
-    "H班": (datetime.strptime("14:00", "%H:%M").time(), datetime.strptime("23:00", "%H:%M").time()),
-    "I班": (datetime.strptime("15:00", "%H:%M").time(), datetime.strptime("00:00", "%H:%M").time()),  # I班跨天
-}
+# 取上下班时间
+SHIFT_TIMES = get_shift_times()
 
 # ===========================
 # 提取关键词（例如 #上班打卡、#下班打卡 等）
@@ -608,6 +595,8 @@ def main():
     app = Application.builder().token(TOKEN).build()
 
     # ✅ 注册命令处理器
+    app.add_handler(CommandHandler("list_shifts", list_shifts_cmd))
+    app.add_handler(CommandHandler("edit_shift", edit_shift_cmd))
     app.add_handler(CommandHandler("start", start_cmd))               # /start: 欢迎信息 & 姓名登记
     app.add_handler(CommandHandler("mylogs", mylogs_cmd))             # /mylogs: 查看本月打卡记录
     app.add_handler(CommandHandler("export", export_cmd))             # /export: 导出 Excel
