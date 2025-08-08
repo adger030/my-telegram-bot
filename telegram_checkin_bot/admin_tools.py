@@ -523,7 +523,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(file_path)
 
 # ===========================
-# 在线模式导出图片链接（不依赖 _fetch_data）
+# 在线模式导出图片链接（美化 + 搜索筛选 + 日期折叠）
 # ===========================
 async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -544,7 +544,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     status_msg = await update.message.reply_text("⏳ 正在生成图片链接列表，请稍等...")
 
-    # 直接从数据库查询
+    # 查询数据库
     with get_conn() as conn:
         df = pd.read_sql("""
             SELECT timestamp, keyword, name, content
@@ -558,14 +558,14 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 指定日期内没有数据。")
         return
 
-    # 筛选图片记录
+    # 过滤图片
     photo_df = df[df["content"].str.contains(r"\.(?:jpg|jpeg|png|gif|webp)$", case=False, na=False)].copy()
     if photo_df.empty:
         await status_msg.delete()
         await update.message.reply_text("⚠️ 指定日期内没有图片。")
         return
 
-    # 提取 public_id 并生成 Cloudinary URL
+    # 提取 public_id
     def extract_public_id(url: str) -> str | None:
         match = re.search(r'/upload/(?:v\d+/)?(.+?)\.(?:jpg|jpeg|png|gif|webp)$', url, re.IGNORECASE)
         return match.group(1) if match else None
@@ -577,15 +577,60 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 没有有效的 Cloudinary 图片链接。")
         return
 
+    # 构建图片URL
     photo_df["url"] = photo_df["public_id"].apply(lambda pid: cloudinary.CloudinaryImage(pid).build_url())
 
-    # 生成 HTML
+    # HTML 头部（样式 + 搜索 + 折叠功能）
     html_lines = [
-        "<html><head><meta charset='utf-8'><title>图片导出</title></head><body>",
-        f"<h2>图片导出：{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}</h2>"
+        "<!DOCTYPE html>",
+        "<html><head><meta charset='utf-8'><title>图片导出</title>",
+        "<style>",
+        "body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }",
+        "h2 { text-align: center; color: #333; }",
+        ".search-box { text-align: center; margin-bottom: 20px; }",
+        "input { padding: 8px; width: 300px; border-radius: 5px; border: 1px solid #ccc; }",
+        ".date-block { background: white; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }",
+        ".date-title { font-size: 18px; padding: 10px; background: #007bff; color: white; cursor: pointer; border-radius: 8px 8px 0 0; }",
+        ".date-title:hover { background: #0056b3; }",
+        "ul { list-style-type: none; padding: 10px; margin: 0; }",
+        "li { padding: 5px 0; border-bottom: 1px solid #eee; }",
+        "li:last-child { border-bottom: none; }",
+        "a { color: #007bff; text-decoration: none; }",
+        "a:hover { text-decoration: underline; }",
+        ".hidden { display: none; }",
+        "</style>",
+        "<script>",
+        "function filterList() {",
+        "  var input = document.getElementById('searchInput').value.toLowerCase();",
+        "  var items = document.querySelectorAll('li');",
+        "  items.forEach(function(item) {",
+        "    if (item.innerText.toLowerCase().includes(input)) {",
+        "      item.style.display = '';",
+        "    } else {",
+        "      item.style.display = 'none';",
+        "    }",
+        "  });",
+        "}",
+        "function toggleList(id) {",
+        "  var el = document.getElementById(id);",
+        "  if (el.classList.contains('hidden')) {",
+        "    el.classList.remove('hidden');",
+        "  } else {",
+        "    el.classList.add('hidden');",
+        "  }",
+        "}",
+        "</script>",
+        "</head><body>",
+        f"<h2>图片导出：{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}</h2>",
+        "<div class='search-box'><input type='text' id='searchInput' onkeyup='filterList()' placeholder='🔍 输入关键词、姓名或时间筛选...'></div>"
     ]
-    for date_str, group in photo_df.groupby(photo_df["timestamp"].dt.strftime("%Y-%m-%d")):
-        html_lines.append(f"<h3>{date_str}</h3><ul>")
+
+    # 生成日期分组 HTML（默认收起）
+    for idx, (date_str, group) in enumerate(photo_df.groupby(photo_df["timestamp"].dt.strftime("%Y-%m-%d"))):
+        list_id = f"list_{idx}"
+        html_lines.append(f"<div class='date-block'>")
+        html_lines.append(f"<div class='date-title' onclick=\"toggleList('{list_id}')\">{date_str} ▼</div>")
+        html_lines.append(f"<ul id='{list_id}' class='hidden'>")
         for _, row in group.iterrows():
             ts_local = row["timestamp"].astimezone(BEIJING_TZ).strftime('%H:%M:%S')
             keyword = row.get("keyword", "无关键词") or "无关键词"
@@ -594,10 +639,11 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             html_lines.append(
                 f"<li>{ts_local} - {keyword} - {name} - <a href='{url}' target='_blank'>查看图片</a></li>"
             )
-        html_lines.append("</ul>")
+        html_lines.append("</ul></div>")
+
     html_lines.append("</body></html>")
 
-    # 保存 HTML 文件
+    # 保存 HTML
     start_str = start.strftime("%Y-%m-%d")
     end_str = end.strftime("%Y-%m-%d")
     export_dir = os.path.join(DATA_DIR, "links")
@@ -611,9 +657,8 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-    # 发送 HTML 文件
+    # 发送 HTML
     with open(html_path, "rb") as f:
-        await update.message.reply_document(document=f, filename=os.path.basename(html_path), caption="✅ 图片链接列表已生成")
+        await update.message.reply_document(document=f, filename=os.path.basename(html_path), caption="✅ 图片链接列表已生成（支持搜索 + 日期折叠）")
 
-    # 清理临时文件
     os.remove(html_path)
