@@ -8,10 +8,14 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from dateutil.parser import parse
 from db_pg import engine, get_user_logs, get_user_logs_by_name, get_conn
-from config import ADMIN_IDS, BEIJING_TZ, SHIFT_TIMES, LOGS_PER_PAGE, DATA_DIR
+from config import ADMIN_IDS, BEIJING_TZ, LOGS_PER_PAGE, DATA_DIR
 from export import export_excel
 import pandas as pd
 import shutil
+from shift_manager import get_shift_times
+
+# 取上下班时间
+SHIFT_TIMES = get_shift_times()
 
 # 提取 Cloudinary public_id
 def extract_cloudinary_public_id(url: str) -> str | None:
