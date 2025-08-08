@@ -3,9 +3,6 @@ import os
 from datetime import datetime, time
 from threading import Lock
 from config import ADMIN_IDS
-from telegram import Update
-from telegram.ext import ContextTypes
-
 
 SHIFT_FILE = os.path.join("data", "shift_config.json")
 _lock = Lock()
@@ -113,22 +110,13 @@ async def delete_shift_cmd(update, context):
 # ===========================
 # 命令：列出班次
 # ===========================
-async def list_shifts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """列出当前班次配置（无重复时间）"""
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ 无权限，仅管理员可查看班次配置。")
+async def list_shifts_cmd(update, context):
+    cfg = load_shift_config()
+    if not cfg:
+        await update.message.reply_text("⚠️ 目前没有班次设置。")
         return
 
-    # 读取 JSON 班次配置
-    shift_options = load_shift_options()
-
-    if not shift_options:
-        await update.message.reply_text("⚠️ 当前没有配置任何班次。")
-        return
-
-    lines = ["📅 当前班次配置："]
-    for code, desc in shift_options.items():
-        lines.append(f"{code}: {desc}")  # 直接显示描述，不额外加时间段
-
-    await update.message.reply_text("\n".join(lines))
+    msg = "📋 当前班次：\n"
+    for code, data in cfg.items():
+        msg += f"{code} - {data['label']}\n"
+    await update.message.reply_text(msg)
