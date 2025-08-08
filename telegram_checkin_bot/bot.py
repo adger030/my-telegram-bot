@@ -594,29 +594,36 @@ def main():
     # ===========================
     app = Application.builder().token(TOKEN).build()
 
-    # ✅ 注册命令处理器
-    app.add_handler(CommandHandler("list_shifts", list_shifts_cmd))
-    app.add_handler(CommandHandler("edit_shift", edit_shift_cmd))
-    app.add_handler(CommandHandler("delete_shift", delete_shift_cmd))
-    app.add_handler(CommandHandler("start", start_cmd))               # /start: 欢迎信息 & 姓名登记
-    app.add_handler(CommandHandler("mylogs", mylogs_cmd))             # /mylogs: 查看本月打卡记录
-    app.add_handler(CommandHandler("export", export_cmd))             # /export: 导出 Excel
-    app.add_handler(CommandHandler("export_images", export_images_cmd))  # /export_images: 导出图片 ZIP
-    app.add_handler(CommandHandler("admin_makeup", admin_makeup_cmd))  # /admin_makeup: 管理员补卡
-    app.add_handler(CommandHandler("transfer", transfer_cmd))         # /transfer: 用户数据迁移
-    app.add_handler(CommandHandler("optimize", optimize_db))          # /optimize: 数据库优化
-    app.add_handler(CommandHandler("delete_range", delete_range_cmd))   # /delete_range: 删除指令
-    app.add_handler(CommandHandler("userlogs", userlogs_cmd))  # /userlogs @username 查看指定用户的考勤
+    # ===========================
+    # ✅ 注册命令处理器（/命令）
+    # ===========================
 
-    # ✅ 注册消息处理器
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))  # 文本消息（打卡命令）
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))                  # 图片消息（截图打卡）
+    app.add_handler(CommandHandler("list_shifts", list_shifts_cmd))      # /list_shifts：查看当前班次配置
+    app.add_handler(CommandHandler("edit_shift", edit_shift_cmd))        # /edit_shift：管理员添加/修改班次
+    app.add_handler(CommandHandler("delete_shift", delete_shift_cmd))    # /delete_shift：管理员删除班次
+    app.add_handler(CommandHandler("start", start_cmd))                  # /start：欢迎信息 & 姓名登记
+    app.add_handler(CommandHandler("mylogs", mylogs_cmd))                # /mylogs：查看本月打卡记录（分页）
+    app.add_handler(CommandHandler("export", export_cmd))                # /export：导出考勤 Excel（管理员）
+    app.add_handler(CommandHandler("export_images", export_images_cmd))  # /export_images：导出打卡截图 ZIP（管理员）
+    app.add_handler(CommandHandler("admin_makeup", admin_makeup_cmd))    # /admin_makeup：管理员为员工补卡
+    app.add_handler(CommandHandler("transfer", transfer_cmd))            # /transfer：用户数据迁移（改用户名时用）
+    app.add_handler(CommandHandler("optimize", optimize_db))             # /optimize：数据库优化（管理员）
+    app.add_handler(CommandHandler("delete_range", delete_range_cmd))    # /delete_range：删除指定时间范围的打卡记录（管理员）
+    app.add_handler(CommandHandler("userlogs", userlogs_cmd))            # /userlogs @username：查看指定用户的考勤记录（管理员）
 
-    # ✅ 注册回调按钮处理器
-    app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))              # 上班班次选择
-    app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:")) # 补卡班次选择
-    app.add_handler(CallbackQueryHandler(mylogs_page_callback, pattern=r"^mylogs_(prev|next)$"))  # 打卡记录翻页
-    app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^userlogs_(prev|next)$"))
+    # ===========================
+    # ✅ 注册消息处理器（监听非命令消息）
+    # ===========================
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))  # 普通文本消息（识别打卡关键词）
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))                   # 图片消息（识别打卡截图）
+
+    # ===========================
+    # ✅ 注册回调按钮处理器（InlineKeyboard）
+    # ===========================
+    app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))               # 用户点击“选择上班班次”按钮
+    app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:")) # 用户点击“选择补卡班次”按钮
+    app.add_handler(CallbackQueryHandler(mylogs_page_callback, pattern=r"^mylogs_(prev|next)$"))     # 用户点击“我的打卡记录”翻页按钮
+    app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^userlogs_(prev|next)$")) # 管理员查看“指定用户打卡记录”翻页按钮
 
     # ===========================
     # 启动 Bot
