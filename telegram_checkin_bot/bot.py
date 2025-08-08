@@ -15,7 +15,7 @@ from cleaner import delete_last_month_data
 from sqlalchemy import text
 import logging
 from admin_tools import delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd, optimize_db, admin_makeup_cmd, export_cmd, export_images_cmd
-from shift_manager import get_shift_options, get_shift_times, list_shifts_cmd, edit_shift_cmd
+from shift_manager import get_shift_options, get_shift_times, list_shifts_cmd, edit_shift_cmd, delete_shift_cmd
 
 # 仅保留 WARNING 及以上的日志
 logging.getLogger("httpx").setLevel(logging.WARNING)  
@@ -597,6 +597,7 @@ def main():
     # ✅ 注册命令处理器
     app.add_handler(CommandHandler("list_shifts", list_shifts_cmd))
     app.add_handler(CommandHandler("edit_shift", edit_shift_cmd))
+    app.add_handler(CommandHandler("delete_shift", delete_shift_cmd))
     app.add_handler(CommandHandler("start", start_cmd))               # /start: 欢迎信息 & 姓名登记
     app.add_handler(CommandHandler("mylogs", mylogs_cmd))             # /mylogs: 查看本月打卡记录
     app.add_handler(CommandHandler("export", export_cmd))             # /export: 导出 Excel
@@ -606,7 +607,6 @@ def main():
     app.add_handler(CommandHandler("optimize", optimize_db))          # /optimize: 数据库优化
     app.add_handler(CommandHandler("delete_range", delete_range_cmd))   # /delete_range: 删除指令
     app.add_handler(CommandHandler("userlogs", userlogs_cmd))  # /userlogs @username 查看指定用户的考勤
-    app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^userlogs_(prev|next)$"))
 
     # ✅ 注册消息处理器
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))  # 文本消息（打卡命令）
@@ -616,6 +616,7 @@ def main():
     app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))              # 上班班次选择
     app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:")) # 补卡班次选择
     app.add_handler(CallbackQueryHandler(mylogs_page_callback, pattern=r"^mylogs_(prev|next)$"))  # 打卡记录翻页
+    app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^userlogs_(prev|next)$"))
 
     # ===========================
     # 启动 Bot
