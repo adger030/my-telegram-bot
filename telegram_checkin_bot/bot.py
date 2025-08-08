@@ -15,7 +15,7 @@ from cleaner import delete_last_month_data
 from sqlalchemy import text
 import logging
 from admin_tools import delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd, optimize_db, admin_makeup_cmd, export_cmd, export_images_cmd
-from shift_manager import get_shift_options, get_shift_times, list_shifts_cmd, edit_shift_cmd, delete_shift_cmd
+from shift_manager import get_shift_options, get_shift_times, get_shift_times_short, list_shifts_cmd, edit_shift_cmd, delete_shift_cmd
 
 # 仅保留 WARNING 及以上的日志
 logging.getLogger("httpx").setLevel(logging.WARNING)  
@@ -413,14 +413,14 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total_makeup += 1  # 补卡计数
 
         # 迟到判定：上班时间 > 班次规定时间
-        if has_up and shift_name in get_shift_times():
-            start_time, _ = get_shift_times()[shift_name]
+        if has_up and shift_name in get_shift_times_short():
+            start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
         # 早退判定：下班时间 < 班次规定时间（I班跨天特殊判断）
-        if has_down and shift_name in get_shift_times():
-            _, end_time = get_shift_times()[shift_name]
+        if has_down and shift_name in get_shift_times_short():
+            _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
             if shift_name == "I班" and down_ts.date() == day:  # I班若未跨天则早退
                 has_early = True
@@ -487,14 +487,14 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_late = has_early = False
 
         # 迟到判定
-        if has_up and shift_name in get_shift_times():
-            start_time, _ = get_shift_times()[shift_name]
+        if has_up and shift_name in get_shift_times_short():
+            start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
         # 早退判定
-        if has_down and shift_name in get_shift_times():
-            _, end_time = get_shift_times()[shift_name]
+        if has_down and shift_name in get_shift_times_short():
+            _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
             if shift_name == "I班" and down_ts.date() == day:
                 has_early = True
