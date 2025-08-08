@@ -43,12 +43,5 @@ cloudinary.config(
 
 BEIJING_TZ = pytz.timezone("Asia/Shanghai")
 
-SHIFT_TIMES = {
-    "F班": (time(12, 0), time(21, 0)),
-    "G班": (time(13, 0), time(22, 0)),
-    "H班": (time(14, 0), time(23, 0)),
-    "I班": (time(15, 0), time(0, 0)),  # 跨天
-}
-
 LOGS_PER_PAGE = 5
 
