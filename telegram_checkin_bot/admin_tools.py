@@ -590,7 +590,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ".search-box { text-align: center; margin-bottom: 20px; }",
         "input { padding: 8px; width: 300px; border-radius: 5px; border: 1px solid #ccc; }",
         ".date-block { background: white; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }",
-        ".date-title { font-size: 18px; padding: 10px; background: #007bff; color: white; cursor: pointer; border-radius: 8px 8px 0 0; }",
+        ".date-title { font-size: 18px; padding: 10px; background: #3b81cd; color: white; cursor: pointer; border-radius: 8px 8px 0 0; }",
         ".date-title:hover { background: #0056b3; }",
         "ul { list-style-type: none; padding: 10px; margin: 0; }",
         "li { padding: 5px 0; border-bottom: 1px solid #eee; }",
@@ -659,6 +659,6 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 发送 HTML
     with open(html_path, "rb") as f:
-        await update.message.reply_document(document=f, filename=os.path.basename(html_path), caption="✅ 图片链接列表已生成（支持搜索 + 日期折叠）")
+        await update.message.reply_document(document=f, filename=os.path.basename(html_path), caption="✅ 图片链接列表已生成")
 
     os.remove(html_path)
