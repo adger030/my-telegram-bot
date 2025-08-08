@@ -107,7 +107,7 @@ async def list_shifts_cmd(update, context):
     sorted_cfg = dict(sorted(cfg.items(), key=lambda x: x[0]))
     lines = ["📅 当前班次配置："]
     for code, info in sorted_cfg.items():
-        lines.append(f"{code}: {info['label']}")
+        lines.append(f"{info['label']}")
     await update.message.reply_text("\n".join(lines))
 
 async def edit_shift_cmd(update, context):
