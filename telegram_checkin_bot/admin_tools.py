@@ -393,9 +393,9 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 日期格式错误，应为 YYYY-MM-DD")
         return
 
-    # 用户姓名（如果没有单独表，这里直接用 username）
-    name = username  # 或实现 get_user_name(username)
-    
+    # 用户姓名
+    name = username  # 或用 get_user_name(username)
+
     # 获取班次时间
     shift_name = shift_options[shift_code] + "（补卡）"
     shift_short = shift_name.split("（")[0]
@@ -405,13 +405,13 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     start_time, end_time = shift_times_map[shift_short]
 
-    # 生成打卡时间（补卡强制使用班次标准时间）
+    # 生成打卡时间
     if punch_type == "上班":
         punch_dt = datetime.combine(makeup_date, start_time, tzinfo=BEIJING_TZ)
         keyword = "#上班打卡"
         check_days = 1
     else:
-        # 补下班卡时直接用班次结束时间，支持跨天
+        # 永远使用班次结束时间（跨天班次加 1 天）
         if end_time < start_time:
             punch_dt = datetime.combine(makeup_date + timedelta(days=1), end_time, tzinfo=BEIJING_TZ)
             check_days = 2
@@ -430,7 +430,9 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 WHERE username=%s AND keyword=%s AND timestamp >= %s AND timestamp < %s
             """, (username, keyword, start, end))
             if cur.fetchone():
-                await update.message.reply_text(f"⚠️ {makeup_date.strftime('%m月%d日')} 已有{punch_type}打卡记录，禁止重复补卡。")
+                await update.message.reply_text(
+                    f"⚠️ {makeup_date.strftime('%m月%d日')} 已有{punch_type}打卡记录，禁止重复补卡。"
+                )
                 return
 
     # 写入数据库
@@ -450,6 +452,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔹 类型：{punch_type}\n"
         f"⏰ 时间：{punch_dt.strftime('%Y-%m-%d %H:%M')}"
     )
+
     
 # ===========================
 # 获取默认的月份范围
