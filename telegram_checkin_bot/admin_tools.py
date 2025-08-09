@@ -405,13 +405,13 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     start_time, end_time = shift_times_map[shift_short]
 
-    # 生成打卡时间
+    # 生成打卡时间（补卡强制使用班次标准时间）
     if punch_type == "上班":
         punch_dt = datetime.combine(makeup_date, start_time, tzinfo=BEIJING_TZ)
         keyword = "#上班打卡"
         check_days = 1
     else:
-        # 跨天处理
+        # 补下班卡时直接用班次结束时间，支持跨天
         if end_time < start_time:
             punch_dt = datetime.combine(makeup_date + timedelta(days=1), end_time, tzinfo=BEIJING_TZ)
             check_days = 2
