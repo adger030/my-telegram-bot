@@ -7,7 +7,7 @@ import cloudinary.api
 from datetime import datetime, timedelta
 from collections import defaultdict
 from dateutil.parser import parse
-from db_pg import engine, get_user_logs, get_user_logs_by_name, get_conn, get_user_name
+from db_pg import engine, get_user_logs, get_user_logs_by_name, get_conn, get_user_name, save_message
 from config import ADMIN_IDS, BEIJING_TZ, LOGS_PER_PAGE, DATA_DIR
 from export import export_excel
 import pandas as pd
