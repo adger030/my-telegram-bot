@@ -12,7 +12,7 @@ from config import ADMIN_IDS, BEIJING_TZ, LOGS_PER_PAGE, DATA_DIR
 from export import export_excel
 import pandas as pd
 import shutil
-from shift_manager import get_shift_times, get_shift_options
+from shift_manager import get_shift_times, get_shift_options, get_shift_times_short
 
 # 提取 Cloudinary public_id
 def extract_cloudinary_public_id(url: str) -> str | None:
