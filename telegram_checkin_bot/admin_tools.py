@@ -354,9 +354,6 @@ async def optimize_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===========================
 # 管理员补卡命令
 # ===========================
-# ===========================
-# 管理员补卡命令
-# ===========================
 async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ 无权限，仅管理员可使用补卡功能。")
@@ -380,7 +377,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 日期格式错误，应为 YYYY-MM-DD")
         return
 
-    shifts = get_shift_times()
+    shifts = get_shift_times_short()
     if shift_short not in shifts:
         await update.message.reply_text("⚠️ 无效班次，请检查班次代码。")
         return
