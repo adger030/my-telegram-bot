@@ -11,7 +11,7 @@ from db_pg import engine, get_user_logs, get_user_logs_by_name, get_conn
 from config import ADMIN_IDS, BEIJING_TZ, LOGS_PER_PAGE, DATA_DIR
 from export import export_excel
 import pandas as pd
-import shutilSHIFT_OPTIONS
+import shutil
 from shift_manager import get_shift_times, get_shift_options
 
 # 提取 Cloudinary public_id
