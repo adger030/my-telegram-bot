@@ -11,8 +11,8 @@ from db_pg import engine, get_user_logs, get_user_logs_by_name, get_conn
 from config import ADMIN_IDS, BEIJING_TZ, LOGS_PER_PAGE, DATA_DIR
 from export import export_excel
 import pandas as pd
-import shutil
-from shift_manager import get_shift_times
+import shutilSHIFT_OPTIONS
+from shift_manager import get_shift_times, get_shift_options
 
 # 提取 Cloudinary public_id
 def extract_cloudinary_public_id(url: str) -> str | None:
@@ -380,7 +380,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     punch_type = context.args[3] if len(context.args) == 4 else "上班"
 
     # 🚩 校验班次与打卡类型
-    if shift_code not in SHIFT_OPTIONS:
+    if shift_code not in get_shift_options():
         await update.message.reply_text("⚠️ 班次无效，请使用 F/G/H/I。")
         return
     if punch_type not in ("上班", "下班"):
@@ -401,7 +401,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # 班次与时间处理
-    shift_name = SHIFT_OPTIONS[shift_code] + "（补卡）"
+    shift_name = get_shift_options()[shift_code] + "（补卡）"
     shift_short = shift_name.split("（")[0]
     start_time, end_time = get_shift_times()[shift_short]
 
