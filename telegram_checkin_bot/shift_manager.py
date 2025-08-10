@@ -113,10 +113,7 @@ async def delete_shift_cmd(update, context):
     delete_shift(code)
     await update.message.reply_text(f"✅ 已删除班次 {code}")
 
-# ===========================
-# 初始化时创建表 & 加载数据
-# ===========================
-init_shift_table()
+
 
 # 如果是第一次运行且表为空，就插入默认班次
 with get_conn() as conn:
