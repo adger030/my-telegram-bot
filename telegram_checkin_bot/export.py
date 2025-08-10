@@ -9,7 +9,7 @@ import logging
 from datetime import datetime, time
 from sqlalchemy import create_engine
 from concurrent.futures import ThreadPoolExecutor
-from config import DATA_DIR, DATABASE_URL
+from config import DATA_DIR, DATABASE_URL, BEIJING_TZ
 import cloudinary
 import cloudinary.uploader
 from openpyxl import load_workbook
@@ -21,9 +21,6 @@ from shift_manager import get_shift_times_short
 # 基础配置
 # ===========================
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
-
-MAX_TELEGRAM_FILE_MB = 50  # Telegram 单文件上传限制
-BEIJING_TZ = pytz.timezone("Asia/Shanghai")  # 北京时区
 
 # ===========================
 # 文件名安全化（去除非法字符）
