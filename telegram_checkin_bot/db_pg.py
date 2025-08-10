@@ -32,7 +32,7 @@ def init_db():
             # 删除旧表
             cur.execute("DROP TABLE IF EXISTS messages;")
             cur.execute("DROP TABLE IF EXISTS users;")
-             cur.execute("DROP TABLE IF EXISTS shifts;")
+            cur.execute("DROP TABLE IF EXISTS shifts;")
 
             # 创建 messages 表（含 shift 和 name）
             cur.execute("""
