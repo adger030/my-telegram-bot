@@ -24,42 +24,38 @@ def get_db():
 
 
 # ===========================
-# 初始化数据库结构
+# 初始化数据库结构（删除并重建）
 # ===========================
 def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # 创建 messages 表（存储打卡记录）
+            # 删除旧表
+            cur.execute("DROP TABLE IF EXISTS messages;")
+            cur.execute("DROP TABLE IF EXISTS users;")
+
+            # 创建 messages 表（含 shift 和 name）
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
+                CREATE TABLE messages (
                     id SERIAL PRIMARY KEY,
                     username TEXT,
-                    content TEXT,
+                    name TEXT,
+                    keyword TEXT,
                     timestamp TIMESTAMPTZ NOT NULL,
-                    keyword TEXT
+                    shift TEXT,
+                    content TEXT
                 );
             """)
 
-            # 检查并补充 name 和 shift 列（用于姓名和班次）
-            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='messages'")
-            columns = [row[0] for row in cur.fetchall()]
-
-            if "name" not in columns:
-                cur.execute("ALTER TABLE messages ADD COLUMN name TEXT;")
-                print("✅ 已为 messages 表添加 name 字段")
-
-            if "shift" not in columns:
-                cur.execute("ALTER TABLE messages ADD COLUMN shift TEXT;")
-                print("✅ 已为 messages 表添加 shift 字段")
-
             # 创建 users 表（存储用户与姓名映射）
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
+                CREATE TABLE users (
                     username TEXT PRIMARY KEY,
                     name TEXT UNIQUE NOT NULL
                 );
             """)
+
             conn.commit()
+            print("✅ 数据库已重建，messages 和 users 表已初始化完成")
 
 
 # ===========================
