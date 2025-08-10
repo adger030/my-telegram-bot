@@ -4,37 +4,34 @@ from sqlalchemy import create_engine
 from datetime import datetime, timedelta, timezone
 
 # ===========================
-# 数据库初始化配置
+# 数据库配置
 # ===========================
-DATABASE_URL = os.getenv("DATABASE_URL")  # 从环境变量读取数据库连接 URL
-engine = create_engine(DATABASE_URL)  # SQLAlchemy 引擎（用于 SQL 操作）
-BEIJING_TZ = timezone(timedelta(hours=8))  # 北京时区
+DATABASE_URL = os.getenv("DATABASE_URL")
+engine = create_engine(DATABASE_URL)
+BEIJING_TZ = timezone(timedelta(hours=8))
 
 
 # ===========================
-# 基础连接封装
+# 数据库连接封装
 # ===========================
 def get_conn():
-    """建立 psycopg2 连接（底层连接池）"""
     return psycopg2.connect(DATABASE_URL)
 
 def get_db():
-    """兼容旧代码，等同于 get_conn"""
     return get_conn()
 
 
 # ===========================
-# 初始化数据库结构（删除并重建）
+# 初始化数据库结构
 # ===========================
 def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # 删除旧表
             cur.execute("DROP TABLE IF EXISTS messages;")
             cur.execute("DROP TABLE IF EXISTS users;")
             cur.execute("DROP TABLE IF EXISTS shifts;")
 
-            # 创建 messages 表（含 shift 和 name）
+            # 创建 messages 表
             cur.execute("""
                 CREATE TABLE messages (
                     id SERIAL PRIMARY KEY,
@@ -47,26 +44,51 @@ def init_db():
                 );
             """)
 
-            # 创建 users 表（存储用户与姓名映射）
+            # 创建 users 表
             cur.execute("""
                 CREATE TABLE users (
                     username TEXT PRIMARY KEY,
                     name TEXT UNIQUE NOT NULL
                 );
             """)
-            
-             # 创建 shifts 表
+
+            # 创建 shifts 表
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS shifts (
+                CREATE TABLE shifts (
                     code TEXT PRIMARY KEY,
                     label TEXT NOT NULL,
                     start TEXT NOT NULL,
                     "end" TEXT NOT NULL
                 );
             """)
-            
             conn.commit()
-            print("✅ 数据库已重建，messages 和 users 表已初始化完成")
+    print("✅ 数据库已重建")
+
+
+# ===========================
+# 初始化默认班次
+# ===========================
+def init_shifts():
+    from shift_manager import reload_shift_globals  # 避免循环导入
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM shifts;")
+            if cur.fetchone()[0] == 0:
+                defaults = [
+                    ("F", "F班（12:00-21:00）", "12:00", "21:00"),
+                    ("G", "G班（13:00-22:00）", "13:00", "22:00"),
+                    ("H", "H班（14:00-23:00）", "14:00", "23:00"),
+                    ("I", "I班（15:00-00:00）", "15:00", "00:00")
+                ]
+                cur.executemany("""
+                    INSERT INTO shifts (code, label, start, "end")
+                    VALUES (%s, %s, %s, %s)
+                """, defaults)
+                conn.commit()
+                print("✅ 默认班次已初始化")
+
+    reload_shift_globals()
 
 # ===========================
 # 用户打卡检查（指定关键词）
