@@ -367,10 +367,14 @@ async def optimize_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===========================
 # 管理员补卡命令
 # ===========================
+import logging
+from datetime import datetime, timedelta
+
 async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     用法：
     /admin_makeup @username YYYY-MM-DD 班次代码(F/G/H/I/...) [上班/下班]
+    （在你的原代码基础上：补下班卡严格使用班次结束时间整点）
     """
     # 权限校验
     if update.effective_user.id not in ADMIN_IDS:
@@ -406,46 +410,61 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 日期格式错误，应为 YYYY-MM-DD")
         return
 
-    # 用户姓名（这里可替换成 get_user_name(username)）
-    name = username
+    # 用户姓名（可改为 get_user_name(username)）
+    name = get_user_name(username) or username
 
-    # 获取班次时间
+    # 获取班次时间（从内存 map）
     shift_name = shift_options[shift_code] + "（补卡）"
     shift_short = shift_name.split("（")[0]
     shift_times_map = get_shift_times_short()
     if shift_short not in shift_times_map:
         await update.message.reply_text(f"⚠️ 班次 {shift_short} 未配置上下班时间")
         return
-    start_time, end_time = shift_times_map[shift_short]
+    start_time, end_time = shift_times_map[shift_short]  # datetime.time objects
 
-    # 生成打卡时间（确保整点）
+    # helper: 构造明确的 tz-aware datetime（确保整点、秒=0、微秒=0）
+    def build_shift_datetime(date_obj, time_obj, add_day=False):
+        if add_day:
+            date_obj = date_obj + timedelta(days=1)
+        return datetime(
+            date_obj.year, date_obj.month, date_obj.day,
+            time_obj.hour, time_obj.minute, 0, 0,
+            tzinfo=BEIJING_TZ
+        )
+
+    # 生成打卡时间（确保精确到班次时分，秒=0，微秒=0）
     if punch_type == "上班":
-        punch_dt = datetime.combine(makeup_date, start_time, tzinfo=BEIJING_TZ).replace(minute=0, second=0, microsecond=0)
+        punch_dt = build_shift_datetime(makeup_date, start_time, add_day=False)
         keyword = "#上班打卡"
         check_days = 1
     else:
-        # 固定使用班次结束时间（跨天自动 +1 天）
-        if end_time <= start_time:  # 跨天
-            punch_dt = datetime.combine(makeup_date + timedelta(days=1), end_time, tzinfo=BEIJING_TZ).replace(minute=0, second=0, microsecond=0)
-        else:
-            punch_dt = datetime.combine(makeup_date, end_time, tzinfo=BEIJING_TZ).replace(minute=0, second=0, microsecond=0)
+        # 下班：若 end_time <= start_time 视为跨天，时间设为 次日 end_time
+        is_cross_day = (end_time <= start_time)
+        punch_dt = build_shift_datetime(makeup_date, end_time, add_day=is_cross_day)
         keyword = "#下班打卡"
-        check_days = 2 if end_time <= start_time else 1
+        check_days = 2 if is_cross_day else 1
 
-    # 检查是否已有该类型打卡
-    start = datetime.combine(makeup_date, datetime.min.time(), tzinfo=BEIJING_TZ)
-    end = start + timedelta(days=check_days)
+    # DEBUG 日志：记录班次原始时间与计算结果，便于排查偏差
+    logging.info(f"[admin_makeup_cmd DEBUG] user={username} shift_short={shift_short} "
+                 f"start_time={start_time.isoformat()} end_time={end_time.isoformat()} "
+                 f"makeup_date={makeup_date} punch_type={punch_type} punch_dt={punch_dt.isoformat()}")
+
+    # 检查是否已有该类型打卡（按日期范围）
+    start_range = datetime.combine(makeup_date, datetime.min.time(), tzinfo=BEIJING_TZ)
+    end_range = start_range + timedelta(days=check_days)
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT timestamp FROM messages
                 WHERE username=%s AND keyword=%s AND timestamp >= %s AND timestamp < %s
-            """, (username, keyword, start, end))
+            """, (username, keyword, start_range, end_range))
             if cur.fetchone():
-                await update.message.reply_text(f"⚠️ {makeup_date.strftime('%m月%d日')} 已有{punch_type}打卡记录，禁止重复补卡。")
+                await update.message.reply_text(
+                    f"⚠️ {makeup_date.strftime('%m月%d日')} 已有{punch_type}打卡记录，禁止重复补卡。"
+                )
                 return
 
-    # 写入数据库
+    # 写入数据库（save_message 会保证时区一致）
     save_message(
         username=username,
         name=name,
