@@ -116,7 +116,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 🚩 未登记姓名则提示先登记
     if not get_user_name(username):
         WAITING_NAME[username] = True
-        await msg.reply_text("👤 请先输入姓名后再打卡：")
+        await msg.reply_text("👤 请重新输入工作姓名（英文大写）后再打卡：")
         return
 
     keyword = extract_keyword(text)  # 从消息中提取关键词
