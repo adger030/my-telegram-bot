@@ -129,7 +129,10 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🖼 Cloudinary 图片：{deleted_images}/{len(public_ids)} 张\n"
         f"📅 范围：{start_date} ~ {end_date}"
     )
-
+    
+# ===========================
+# 查看指定用户的考勤记录
+# ===========================
 async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ 无权限，仅管理员可查看他人记录。")
@@ -403,9 +406,9 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 日期格式错误，应为 YYYY-MM-DD")
         return
 
-    # 用户姓名
+    # 用户姓名（这里可替换成 get_user_name(username)）
     name = username
-    
+
     # 获取班次时间
     shift_name = shift_options[shift_code] + "（补卡）"
     shift_short = shift_name.split("（")[0]
@@ -415,17 +418,17 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     start_time, end_time = shift_times_map[shift_short]
 
-    # 生成打卡时间
+    # 生成打卡时间（确保整点）
     if punch_type == "上班":
-        punch_dt = datetime.combine(makeup_date, start_time, tzinfo=BEIJING_TZ)
+        punch_dt = datetime.combine(makeup_date, start_time, tzinfo=BEIJING_TZ).replace(minute=0, second=0, microsecond=0)
         keyword = "#上班打卡"
         check_days = 1
     else:
         # 固定使用班次结束时间（跨天自动 +1 天）
-        if end_time <= start_time:
-            punch_dt = datetime.combine(makeup_date + timedelta(days=1), end_time, tzinfo=BEIJING_TZ)
+        if end_time <= start_time:  # 跨天
+            punch_dt = datetime.combine(makeup_date + timedelta(days=1), end_time, tzinfo=BEIJING_TZ).replace(minute=0, second=0, microsecond=0)
         else:
-            punch_dt = datetime.combine(makeup_date, end_time, tzinfo=BEIJING_TZ)
+            punch_dt = datetime.combine(makeup_date, end_time, tzinfo=BEIJING_TZ).replace(minute=0, second=0, microsecond=0)
         keyword = "#下班打卡"
         check_days = 2 if end_time <= start_time else 1
 
@@ -459,6 +462,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔹 类型：{punch_type}\n"
         f"⏰ 时间：{punch_dt.strftime('%Y-%m-%d %H:%M')}"
     )
+
 
     
 # ===========================
