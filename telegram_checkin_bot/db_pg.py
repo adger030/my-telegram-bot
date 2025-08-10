@@ -32,6 +32,7 @@ def init_db():
             # 删除旧表
             cur.execute("DROP TABLE IF EXISTS messages;")
             cur.execute("DROP TABLE IF EXISTS users;")
+             cur.execute("DROP TABLE IF EXISTS shifts;")
 
             # 创建 messages 表（含 shift 和 name）
             cur.execute("""
@@ -53,10 +54,19 @@ def init_db():
                     name TEXT UNIQUE NOT NULL
                 );
             """)
-
+            
+             # 创建 shifts 表
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS shifts (
+                    code TEXT PRIMARY KEY,
+                    label TEXT NOT NULL,
+                    start TEXT NOT NULL,
+                    "end" TEXT NOT NULL
+                );
+            """)
+            
             conn.commit()
             print("✅ 数据库已重建，messages 和 users 表已初始化完成")
-
 
 # ===========================
 # 用户打卡检查（指定关键词）
