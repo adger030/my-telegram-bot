@@ -1,13 +1,10 @@
 import os
-import time
-from datetime import datetime, timedelta
 import pytz
-from sqlalchemy import text
-from db_pg import engine
-import cloudinary
-import cloudinary.uploader
-import cloudinary.api
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from db_pg import get_conn
+from cloudinary import api as cloudinary_api
+
 
 # ===========================
 # 入口：删除上月数据（定时任务）
@@ -30,10 +27,10 @@ def delete_last_month_data():
 # ===========================
 def delete_messages_and_images(start_date: str, end_date: str, batch_size: int = 100, max_workers: int = 3):
     """
-    批量删除指定日期内的 Cloudinary 图片与数据库记录
+    批量删除指定日期内的  图片与数据库记录
     :param start_date: 开始日期 (YYYY-MM-DD)
     :param end_date: 结束日期 (YYYY-MM-DD)
-    :param batch_size: Cloudinary 批量删除每次最多 100 张
+    :param batch_size:  批量删除每次最多 100 张
     :param max_workers: 并行线程数，用于分批删除
     """
     with engine.begin() as conn:
