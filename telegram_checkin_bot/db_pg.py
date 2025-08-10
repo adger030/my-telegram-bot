@@ -27,7 +27,7 @@ def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
             
-           cur.execute("DROP TABLE IF EXISTS messages;")
+            cur.execute("DROP TABLE IF EXISTS messages;")
           # cur.execute("DROP TABLE IF EXISTS users;")
           # cur.execute("DROP TABLE IF EXISTS shifts;")
             
@@ -38,8 +38,8 @@ def init_db():
                     username TEXT,
                     name TEXT,
                     keyword TEXT,
-                    timestamp TIMESTAMPTZ NOT NULL,
                     shift TEXT,
+                    timestamp TIMESTAMPTZ NOT NULL,
                     content TEXT
                 );
             """)
