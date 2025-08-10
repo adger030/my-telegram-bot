@@ -2,20 +2,14 @@ import os
 import re
 import pandas as pd
 import pytz
-import shutil
-import zipfile
-import requests
 import logging
-from datetime import datetime, time
-from sqlalchemy import create_engine
-from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from config import DATA_DIR, DATABASE_URL, BEIJING_TZ
 import cloudinary
-import cloudinary.uploader
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
-import logging
 from shift_manager import get_shift_times_short
+
 
 # ===========================
 # 基础配置
