@@ -70,7 +70,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = tg_user.username or f"user{tg_user.id}"
     if not get_user_name(username):  # 如果没登记过名字
         WAITING_NAME[username] = True
-        await update.message.reply_text("👤 第一次打卡前请输入你的工作名：")
+        await update.message.reply_text("👤 第一次打卡前请输入你的工作名（大写英文）：")
         return
     name = get_user_name(username)
     await send_welcome(update.message, name)
@@ -139,7 +139,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 🚩 检查用户姓名是否登记
     if not get_user_name(username):
         WAITING_NAME[username] = True
-        await msg.reply_text("👤 请先输入姓名后再打卡：")
+        await msg.reply_text("👤 请重新输入工作姓名（英文大写）后再打卡：")
         return
 
     # 🚩 必须有关键词才能处理
@@ -325,7 +325,7 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     shift_code = query.data.split(":")[1]  # 从回调数据中取班次代码（F/G/H/I）
     shift_name = get_shift_options()[shift_code]  # 转换为完整班次名
     shift_short = shift_name.split("（")[0]  # 提取班次简称（F班/G班/H班/I班）
-    start_time, _ = get_shift_times()[shift_short]  # 取班次对应的上班时间
+    start_time, _ = get_shift_times_short()[shift_short]  # 取班次对应的上班时间
     punch_dt = datetime.combine(data["date"], start_time, tzinfo=BEIJING_TZ)  # 拼接补卡时间
 
     # 将补卡信息保存到数据库
