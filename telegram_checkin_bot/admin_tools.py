@@ -14,6 +14,7 @@ import pandas as pd
 import shutil
 from shift_manager import get_shift_times, get_shift_options, get_shift_times_short
 
+
 # 提取 Cloudinary public_id
 def extract_cloudinary_public_id(url: str) -> str | None:
     """
@@ -73,6 +74,14 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_date, end_date = args[0], args[1]
     confirm = len(args) == 3 and args[2].lower() == "confirm"
 
+    # 校验日期格式
+    try:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        await update.message.reply_text("⚠️ 日期格式错误，请使用 YYYY-MM-DD")
+        return
+
     # 查询记录
     with engine.begin() as conn:
         result = conn.execute(
@@ -98,7 +107,9 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # 删除 Cloudinary 图片
-    deleted_images = batch_delete_cloudinary(public_ids)
+    deleted_images = 0
+    if public_ids:
+        deleted_images = batch_delete_cloudinary(public_ids)
 
     # 删除数据库记录
     with engine.begin() as conn:
@@ -118,7 +129,6 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🖼 Cloudinary 图片：{deleted_images}/{len(public_ids)} 张\n"
         f"📅 范围：{start_date} ~ {end_date}"
     )
-
 
 async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
