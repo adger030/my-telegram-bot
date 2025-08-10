@@ -41,7 +41,9 @@ cloudinary.config(
 # ✅ 初始化 Cloudinary 客户端，用于图片上传、删除、导出等操作。
 
 
-BEIJING_TZ = pytz.timezone("Asia/Shanghai")
+# BEIJING_TZ = pytz.timezone("Asia/Shanghai")
+from zoneinfo import ZoneInfo
+BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 
 LOGS_PER_PAGE = 5
 
