@@ -1,14 +1,16 @@
-import os
-import psycopg2
 from datetime import datetime
 from config import ADMIN_IDS
-from sqlalchemy import create_engine
-
-
+from db_pg import get_conn  # 统一数据库连接
+from db_pg import BEIJING_TZ  # 如果需要时区
+from psycopg2.extras import DictCursor
 
 # ===========================
 # 从数据库加载班次到内存
 # ===========================
+SHIFT_OPTIONS = {}
+SHIFT_TIMES = {}
+SHIFT_SHORT_TIMES = {}
+
 def reload_shift_globals():
     global SHIFT_OPTIONS, SHIFT_TIMES, SHIFT_SHORT_TIMES
     with get_conn() as conn:
@@ -81,8 +83,7 @@ async def list_shifts_cmd(update, context):
     await update.message.reply_text("\n".join(lines))
 
 async def edit_shift_cmd(update, context):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
+    if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ 你不是管理员，没有权限修改班次。")
         return
 
@@ -100,8 +101,7 @@ async def edit_shift_cmd(update, context):
     await update.message.reply_text(f"✅ 班次 {code} 已修改为：{name}（{start}-{end}）")
 
 async def delete_shift_cmd(update, context):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
+    if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ 你不是管理员，没有权限删除班次。")
         return
 
@@ -112,24 +112,3 @@ async def delete_shift_cmd(update, context):
     code = context.args[0].upper()
     delete_shift(code)
     await update.message.reply_text(f"✅ 已删除班次 {code}")
-
-
-
-# 如果是第一次运行且表为空，就插入默认班次
-with get_conn() as conn:
-    with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM shifts;")
-        if cur.fetchone()[0] == 0:
-            defaults = [
-                ("F", "F班（12:00-21:00）", "12:00", "21:00"),
-                ("G", "G班（13:00-22:00）", "13:00", "22:00"),
-                ("H", "H班（14:00-23:00）", "14:00", "23:00"),
-                ("I", "I班（15:00-00:00）", "15:00", "00:00")
-            ]
-            cur.executemany("""
-                INSERT INTO shifts (code, label, start, "end")
-                VALUES (%s, %s, %s, %s)
-            """, defaults)
-            conn.commit()
-
-reload_shift_globals()
