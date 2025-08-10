@@ -26,10 +26,7 @@ def get_db():
 def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("DROP TABLE IF EXISTS messages;")
-            cur.execute("DROP TABLE IF EXISTS users;")
-            cur.execute("DROP TABLE IF EXISTS shifts;")
-
+            
             # 创建 messages 表
             cur.execute("""
                 CREATE TABLE messages (
@@ -88,6 +85,8 @@ def init_shifts():
                 print("✅ 默认班次已初始化")
 
     reload_shift_globals()
+    
+init_shifts()
 
 # ===========================
 # 用户打卡检查（指定关键词）
