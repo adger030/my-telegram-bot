@@ -45,5 +45,5 @@ cloudinary.config(
 from zoneinfo import ZoneInfo
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 
-LOGS_PER_PAGE = 5
+LOGS_PER_PAGE = 7
 
