@@ -1,7 +1,6 @@
 from datetime import datetime
-from config import ADMIN_IDS
+from config import ADMIN_IDS, BEIJING_TZ
 from db_pg import get_conn  # 统一数据库连接
-from db_pg import BEIJING_TZ  # 如果需要时区
 from psycopg2.extras import DictCursor
 
 # ===========================
