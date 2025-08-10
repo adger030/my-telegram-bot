@@ -2,13 +2,12 @@ import os
 import psycopg2
 from sqlalchemy import create_engine
 from datetime import datetime, timedelta, timezone
+from config import BEIJING_TZ, DATABASE_URL
 
 # ===========================
 # 数据库配置
 # ===========================
-DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DATABASE_URL)
-BEIJING_TZ = timezone(timedelta(hours=8))
 
 
 # ===========================
