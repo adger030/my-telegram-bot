@@ -201,13 +201,13 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             total_makeup += 1
 
-        if has_up and shift_name in get_shift_times():
-            start_time, _ = get_shift_times()[shift_name]
+        if has_up and shift_name in get_shift_times_short():
+            start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
-        if has_down and shift_name in get_shift_times():
-            _, end_time = get_shift_times()[shift_name]
+        if has_down and shift_name in get_shift_times_short():
+            _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
             if shift_name == "I班" and down_ts.date() == day:
                 has_early = True
@@ -259,13 +259,13 @@ async def send_userlogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         has_down = "#下班打卡" in kw_map
         has_late = has_early = False
 
-        if has_up and shift_name in get_shift_times():
-            start_time, _ = get_shift_times()[shift_name]
+        if has_up and shift_name in get_shift_times_short():
+            start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
-        if has_down and shift_name in get_shift_times():
-            _, end_time = get_shift_times()[shift_name]
+        if has_down and shift_name in get_shift_times_short():
+            _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
             if shift_name == "I班" and down_ts.date() == day:
                 has_early = True
