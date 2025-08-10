@@ -1,21 +1,38 @@
+# ===========================
+# 标准库
+# ===========================
 import os
 import sys
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from collections import defaultdict
+
+# ===========================
+# 第三方库
+# ===========================
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dateutil.parser import parse
+import logging
+
+# ===========================
+# 项目内部模块
+# ===========================
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, ADMIN_USERNAMES, LOGS_PER_PAGE, BEIJING_TZ
 from db_pg import init_db, save_message, get_user_logs, save_shift, get_user_name, set_user_name, get_db, transfer_user_data
 from upload_image import upload_image
 from cleaner import delete_last_month_data
-from sqlalchemy import text
-from admin_tools import delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd, optimize_db, admin_makeup_cmd, export_cmd, export_images_cmd
-from shift_manager import get_shift_options, get_shift_times, get_shift_times_short, list_shifts_cmd, edit_shift_cmd, delete_shift_cmd
-import logging
+from admin_tools import (
+    delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd,
+    optimize_db, admin_makeup_cmd, export_cmd, export_images_cmd
+)
+from shift_manager import (
+    get_shift_options, get_shift_times, get_shift_times_short,
+    list_shifts_cmd, edit_shift_cmd, delete_shift_cmd
+)
+
 
 # 仅保留 WARNING 及以上的日志
 logging.getLogger("httpx").setLevel(logging.WARNING)  
