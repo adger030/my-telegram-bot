@@ -29,7 +29,7 @@ def init_db():
             
             # 创建 messages 表
             cur.execute("""
-                CREATE TABLE messages (
+                CREATE TABLE IF NOT EXISTS messages (
                     id SERIAL PRIMARY KEY,
                     username TEXT,
                     name TEXT,
@@ -42,7 +42,7 @@ def init_db():
 
             # 创建 users 表
             cur.execute("""
-                CREATE TABLE users (
+                CREATE TABLE IF NOT EXISTS users (
                     username TEXT PRIMARY KEY,
                     name TEXT UNIQUE NOT NULL
                 );
@@ -50,7 +50,7 @@ def init_db():
 
             # 创建 shifts 表
             cur.execute("""
-                CREATE TABLE shifts (
+                CREATE TABLE IF NOT EXISTS shifts (
                     code TEXT PRIMARY KEY,
                     label TEXT NOT NULL,
                     start TEXT NOT NULL,
