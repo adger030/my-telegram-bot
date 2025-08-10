@@ -7,7 +7,7 @@ import cloudinary.api
 from datetime import datetime, timedelta
 from collections import defaultdict
 from dateutil.parser import parse
-from db_pg import engine, get_user_logs, get_user_logs_by_name, get_conn, get_user_name, save_message
+from db_pg import engine, get_user_logs, get_user_logs_by_name, get_conn, get_user_name, save_message, transfer_user_data
 from config import ADMIN_IDS, BEIJING_TZ, LOGS_PER_PAGE, DATA_DIR
 from export import export_excel
 import pandas as pd
@@ -367,9 +367,6 @@ async def optimize_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===========================
 # 管理员补卡命令
 # ===========================
-import logging
-from datetime import datetime, timedelta
-
 async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     用法：
