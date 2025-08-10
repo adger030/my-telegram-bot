@@ -27,6 +27,10 @@ def init_db():
     with get_conn() as conn:
         with conn.cursor() as cur:
             
+            cur.execute("DROP TABLE IF EXISTS messages;")
+          # cur.execute("DROP TABLE IF EXISTS users;")
+          # cur.execute("DROP TABLE IF EXISTS shifts;")
+            
             # 创建 messages 表
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
