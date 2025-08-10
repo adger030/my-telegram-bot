@@ -4,33 +4,7 @@ from datetime import datetime
 from config import ADMIN_IDS
 from sqlalchemy import create_engine
 
-# ===========================
-# 数据库初始化配置
-# ===========================
-DATABASE_URL = os.getenv("DATABASE_URL")  # 从环境变量读取数据库连接 URL
-engine = create_engine(DATABASE_URL)  # SQLAlchemy 引擎（用于 SQL 操作）
 
-# ===========================
-# 数据库连接
-# ===========================
-def get_conn():
-    return psycopg2.connect(DATABASE_URL)
-
-# ===========================
-# 初始化数据库表
-# ===========================
-def init_shift_table():
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS shifts (
-                    code TEXT PRIMARY KEY,
-                    label TEXT NOT NULL,
-                    start TEXT NOT NULL,
-                    "end" TEXT NOT NULL
-                );
-            """)
-            conn.commit()
 
 # ===========================
 # 从数据库加载班次到内存
