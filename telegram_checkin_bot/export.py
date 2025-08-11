@@ -79,7 +79,7 @@ def get_all_user_names():
             cur.execute("SELECT name FROM users;")
             return [row[0] for row in cur.fetchall()]
 
-# 导出打卡记录（合并迟到/早退/补卡标记）
+# 导出打卡记录（合并迟到/早退/补卡标记+颜色填充）
 def export_excel(start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
     if df.empty:
@@ -134,7 +134,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     "timestamp": pd.NaT,
                     "keyword": None,
                     "shift": None,
-                    "remark": "当天未打卡"
+                    "remark": "未打卡"
                 })
                 group_df = pd.concat([group_df, missed_df], ignore_index=True)
 
@@ -182,8 +182,28 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
 
-    # ===== 生成统计表 =====
+    # ===== 给每日表加颜色 =====
     wb = load_workbook(excel_path)
+    red_fill = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")  # 淡红
+    yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")  # 淡黄
+    blue_fill_light = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")  # 淡蓝
+
+    for sheet in wb.worksheets:
+        if sheet.title == "统计":
+            continue
+        for row in sheet.iter_rows(min_row=2):
+            remark_val = str(row[4].value or "")
+            if "迟到" in remark_val or "早退" in remark_val:
+                for cell in row:
+                    cell.fill = red_fill
+            elif "补卡" in remark_val:
+                for cell in row:
+                    cell.fill = yellow_fill
+            elif "未打卡" in remark_val:
+                for cell in row:
+                    cell.fill = blue_fill_light
+
+    # ===== 生成统计表 =====
     stats = []
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -192,7 +212,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             name, _, _, _, remark = row
             if not name:
                 continue
-            if remark == "当天未打卡":
+            if remark == "未打卡":
                 continue
             elif remark == "补卡":
                 status = "补卡"
