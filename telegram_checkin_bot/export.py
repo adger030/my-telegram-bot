@@ -182,20 +182,19 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
 
-    # ===== 给每日表加颜色 =====
+    # ===== 打开工作簿，设置颜色 & 边框 =====
     wb = load_workbook(excel_path)
     red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")  # 淡红
     yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")  # 淡黄
     blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")  # 淡蓝
 
-   # ===== 定义边框样式 =====
     thin_border = Border(
         left=Side(style="thin", color="000000"),
         right=Side(style="thin", color="000000"),
         top=Side(style="thin", color="000000"),
         bottom=Side(style="thin", color="000000")
     )
-    
+
     for sheet in wb.worksheets:
         if sheet.title == "统计":
             continue
@@ -274,25 +273,25 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for col_idx in [4, 5, 6]:
             row[col_idx - 1].fill = blue_fill
 
-    # ===== 智能列宽（只按数据内容，不含表头） =====  # 修改
+    # ===== 智能列宽 + 所有表格加框线 =====
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
-        for cell in sheet[1]:  # 表头加粗居中
+        for cell in sheet[1]:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
         for col in sheet.columns:
             col_letter = col[0].column_letter
             max_length = 0
-            for cell in col:  # 包括表头
+            for cell in col:
                 if isinstance(cell.value, datetime):
-                    length = 19  # 'YYYY-MM-DD HH:MM:SS'
+                    length = 19
                 else:
                     length = len(str(cell.value or ""))
                 max_length = max(max_length, length)
-            sheet.column_dimensions[col_letter].width = min(max_length + 2, 30)
-            for cell in col:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = thin_border  # 添加边框
+            sheet.column_dimensions[col_letter].width = min(max_length + 2, 30)
 
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
