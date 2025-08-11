@@ -200,7 +200,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             group_df = group_df.sort_values("timestamp", na_position="last")
             slim_df = group_df[["name", "timestamp", "keyword", "shift"]].copy()
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次"]
-            slim_df["打卡时间"] = slim_df["打卡时间"].dt.strftime("%Y-%m-%d %H:%M:%S")
+            slim_df["打卡时间"] = pd.to_datetime(slim_df["打卡时间"], errors="coerce") \
+                .dt.strftime("%Y-%m-%d %H:%M:%S") \
+                .fillna("")
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
 
