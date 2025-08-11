@@ -72,90 +72,20 @@ def _fetch_data(start_datetime: datetime, end_datetime: datetime) -> pd.DataFram
     df = df.dropna(subset=["timestamp"]).copy()
     return df
 
-# ===========================
-# Excel 内标记迟到/早退/补卡
-# ===========================
-def _mark_late_early(excel_path: str):
-    wb = load_workbook(excel_path)
-    fill_red = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")      # 浅红色填充（异常）
-    fill_yellow = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")  # 浅黄色填充（补卡）
-
-    for sheet in wb.worksheets:
-        for row in sheet.iter_rows(min_row=2):  # 跳过表头
-            shift_cell, time_cell, keyword_cell = row[3], row[1], row[2]
-
-            if not shift_cell.value or not time_cell.value:
-                continue
-
-            shift_text = str(shift_cell.value).strip()
-            shift_name = re.split(r'[（(]', shift_text)[0]  # 班次名（去除括号）
-
-            # 解析时间（兼容 Excel datetime 和字符串）
-            if isinstance(time_cell.value, datetime):
-                dt = time_cell.value
-            else:
-                try:
-                    dt = datetime.strptime(str(time_cell.value), "%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    continue
-
-            # 1️⃣ 补卡标记
-            if "补卡" in shift_text:
-                time_cell.fill = fill_yellow
-                shift_cell.fill = fill_yellow
-                if "（补卡）" not in shift_text:
-                    shift_cell.value = f"{shift_text}（补卡）"
-                continue
-
-            # 2️⃣ 迟到/早退判定
-            if shift_name in get_shift_times_short():
-                start_time, end_time = get_shift_times_short()[shift_name]
-
-                # ---- 迟到 ----
-                if keyword_cell.value == "#上班打卡" and dt.time() > start_time:
-                    time_cell.fill = fill_red
-                    shift_cell.fill = fill_red
-                    if "（迟到）" not in shift_text:
-                        shift_cell.value = f"{shift_text}（迟到）"
-
-                # ---- 早退 ----
-                elif keyword_cell.value == "#下班打卡":
-                    if shift_name == "I班":
-                        if dt.hour == 0:  # I班次日 00:00 正常
-                            continue
-                        elif 15 <= dt.hour <= 23:  # 当天提早下班
-                            time_cell.fill = fill_red
-                            shift_cell.fill = fill_red
-                            if "（早退）" not in shift_text:
-                                shift_cell.value = f"{shift_text}（早退）"
-                    else:
-                        if 0 <= dt.hour <= 1:  # 跨天凌晨下班正常
-                            continue
-                        if dt.time() < end_time:  # 提前下班
-                            time_cell.fill = fill_red
-                            shift_cell.fill = fill_red
-                            if "（早退）" not in shift_text:
-                                shift_cell.value = f"{shift_text}（早退）"
-
-    wb.save(excel_path)
-    
 # 获取所有用户姓名
 def get_all_user_names():
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT name FROM users;")
             return [row[0] for row in cur.fetchall()]
-            
-# ===========================
-# 导出打卡记录 Excel
-# ===========================
+
+# 导出打卡记录（合并迟到/早退/补卡标记）
 def export_excel(start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
     if df.empty:
         logging.warning("⚠️ 指定日期内没有数据")
         return None
 
-    # 去掉时区
     if pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
         try:
             df["timestamp"] = df["timestamp"].dt.tz_localize(None)
@@ -184,7 +114,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             return f"{shift_text}（{start.strftime('%H:%M')}-{end.strftime('%H:%M')}）"
         return shift_text
 
-    # 统计未打卡
     missed_days_count = {u: 0 for u in all_user_names}
 
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
@@ -195,6 +124,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             group_df = group_df.copy()
             group_df["remark"] = ""
 
+            # 标记缺卡
             for u in missed_users:
                 missed_days_count[u] += 1
 
@@ -208,6 +138,42 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 })
                 group_df = pd.concat([group_df, missed_df], ignore_index=True)
 
+            # 标记迟到/早退/补卡
+            for idx, row in group_df.iterrows():
+                shift_val = row["shift"]
+                keyword = row["keyword"]
+                ts = row["timestamp"]
+
+                if not shift_val or pd.isna(ts):
+                    continue
+
+                shift_text = str(shift_val).strip()
+                shift_name = re.split(r'[（(]', shift_text)[0]
+
+                # 补卡
+                if "补卡" in shift_text:
+                    group_df.at[idx, "remark"] = "补卡"
+                    continue
+
+                if shift_name in get_shift_times_short():
+                    start_time, end_time = get_shift_times_short()[shift_name]
+                    ts_time = ts.time()
+
+                    # 迟到
+                    if keyword == "#上班打卡" and ts_time > start_time:
+                        group_df.at[idx, "remark"] = "迟到"
+
+                    # 早退
+                    elif keyword == "#下班打卡":
+                        if shift_name == "I班":
+                            if not (ts.hour == 0):
+                                if 15 <= ts.hour <= 23:
+                                    group_df.at[idx, "remark"] = "早退"
+                        else:
+                            if not (0 <= ts.hour <= 1):
+                                if ts_time < end_time:
+                                    group_df.at[idx, "remark"] = "早退"
+
             group_df = group_df.sort_values("timestamp", na_position="last")
             slim_df = group_df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
@@ -215,47 +181,22 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             slim_df["打卡时间"] = pd.to_datetime(slim_df["打卡时间"], errors="coerce").dt.tz_localize(None)
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
-            
-    # 标记迟到/早退/补卡
-    _mark_late_early(excel_path)
-    
-    # 打开写好的文件
+
+    # ===== 生成统计表 =====
     wb = load_workbook(excel_path)
-
-    # 每日明细表格样式
-    red_fill = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")  # 淡红
-    yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")  # 淡黄
-    blue_fill_light = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")  # 淡蓝
-
-    for sheet in wb.worksheets:
-        if sheet.title == "统计":
-            continue
-        for row in sheet.iter_rows(min_row=2):
-            remark_val = str(row[4].value or "")
-            if "迟到" in remark_val or "早退" in remark_val:
-                for cell in row:
-                    cell.fill = red_fill
-            elif "补卡" in remark_val:
-                for cell in row:
-                    cell.fill = yellow_fill
-            elif "未打卡" in remark_val:
-                for cell in row:
-                    cell.fill = blue_fill_light
-
-    # 生成统计数据
     stats = []
     for sheet in wb.worksheets:
         if sheet.title == "统计":
             continue
         for row in sheet.iter_rows(min_row=2, values_only=True):
-            name, _, keyword, shift_text, remark = row
+            name, _, _, _, remark = row
             if not name:
                 continue
             if remark == "当天未打卡":
                 continue
-            elif "补卡" in str(shift_text):
+            elif remark == "补卡":
                 status = "补卡"
-            elif "迟到" in str(shift_text) or "早退" in str(shift_text):
+            elif remark in ("迟到", "早退"):
                 status = "迟到/早退"
             else:
                 status = "正常"
@@ -267,7 +208,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     else:
         summary_df = pd.DataFrame(columns=["姓名", "正常", "迟到/早退", "补卡"])
 
-    # 确保所有用户都在统计表
     for user in all_user_names:
         if user not in summary_df["姓名"].values:
             summary_df = pd.concat([
@@ -280,14 +220,12 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             summary_df[col] = 0
     summary_df = summary_df.fillna(0).astype({"正常": int, "迟到/早退": int, "补卡": int})
 
-    # 未打卡次数
     summary_df["未打卡"] = summary_df["姓名"].map(missed_days_count)
     summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"]
 
     summary_df = summary_df[["姓名", "正常", "未打卡", "迟到/早退", "补卡", "异常总数"]]
     summary_df = summary_df.sort_values(by="正常", ascending=False)
 
-    # 写入统计表
     stats_sheet = wb.create_sheet("统计", 0)
     headers = ["姓名", "正常打卡", "未打卡", "迟到/早退", "补卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
@@ -296,7 +234,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
     stats_sheet.freeze_panes = "A2"
 
-    # 样式
     header_font = Font(bold=True)
     center_align = Alignment(horizontal="center")
     blue_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
@@ -305,12 +242,10 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         cell.font = header_font
         cell.alignment = center_align
 
-    # 给 迟到/早退、补卡、异常总数 列加淡蓝色背景
     for row in stats_sheet.iter_rows(min_row=2):
-        for col_idx in [4, 5, 6]:  # 第4,5,6列
+        for col_idx in [4, 5, 6]:
             row[col_idx - 1].fill = blue_fill
 
-    # 调整所有表样式
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         for cell in sheet[1]:
