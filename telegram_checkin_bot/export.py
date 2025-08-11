@@ -269,20 +269,20 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     # ===== 智能列宽（只按数据内容，不含表头） =====  # 修改
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
-        for cell in sheet[1]:
+        for cell in sheet[1]:  # 表头加粗居中
             cell.font = Font(bold=True)
-            cell.alignment = center_align
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
         for col in sheet.columns:
             col_letter = col[0].column_letter
-            values = [cell.value for cell in col[1:]]  # 跳过表头
             max_length = 0
-            for v in values:
-                if isinstance(v, datetime):
+            for cell in col:  # 包括表头
+                if isinstance(cell.value, datetime):
                     length = 19  # 'YYYY-MM-DD HH:MM:SS'
                 else:
-                    length = len(str(v or ""))
+                    length = len(str(cell.value or ""))
                 max_length = max(max_length, length)
-            sheet.column_dimensions[col_letter].width = min(max_length + 2, 30)  # 限制最大宽度
+            sheet.column_dimensions[col_letter].width = min(max_length + 2, 30)
             for cell in col:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
 
