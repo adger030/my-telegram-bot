@@ -184,7 +184,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             return f"{shift_text}（{start.strftime('%H:%M')}-{end.strftime('%H:%M')}）"
         return shift_text
 
-    # 统计未打卡次数
+    # 统计未打卡
     missed_days_count = {u: 0 for u in all_user_names}
 
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
@@ -249,37 +249,47 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 pd.DataFrame([{"姓名": user}])
             ], ignore_index=True)
 
-    # 补齐缺失列并填 0
     for col in ["正常", "迟到/早退", "补卡"]:
         if col not in summary_df.columns:
             summary_df[col] = 0
     summary_df = summary_df.fillna(0).astype({"正常": int, "迟到/早退": int, "补卡": int})
 
-    # 未打卡次数排第3列
-    summary_df["未打卡次数"] = summary_df["姓名"].map(missed_days_count)
+    # 未打卡排第3列
+    summary_df["未打卡"] = summary_df["姓名"].map(missed_days_count)
     summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"]
 
-    summary_df = summary_df[["姓名", "正常", "未打卡次数", "迟到/早退", "补卡", "异常总数"]]
+    summary_df = summary_df[["姓名", "正常", "未打卡", "迟到/早退", "补卡", "异常总数"]]
     summary_df = summary_df.sort_values(by="正常", ascending=False)
 
     # 写入统计表
     stats_sheet = wb.create_sheet("统计", 0)
-    headers = ["姓名", "正常打卡", "未打卡次数", "迟到/早退", "补卡", "异常总数"]
+    headers = ["姓名", "正常打卡", "未打卡", "迟到/早退", "补卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
 
     stats_sheet.freeze_panes = "A2"
+
+    # 样式
+    header_font = Font(bold=True)
+    center_align = Alignment(horizontal="center")
+    blue_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
+
     for cell in stats_sheet[1]:
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center")
+        cell.font = header_font
+        cell.alignment = center_align
+
+    # 给 迟到/早退、补卡、异常总数 列加淡蓝色背景
+    for row in stats_sheet.iter_rows(min_row=2):
+        for col_idx in [4, 5, 6]:  # 第4,5,6列
+            row[col_idx - 1].fill = blue_fill
 
     # 调整所有表样式
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         for cell in sheet[1]:
             cell.font = Font(bold=True)
-            cell.alignment = Alignment(horizontal="center")
+            cell.alignment = center_align
         for col in sheet.columns:
             max_length = max(len(str(cell.value or "")) for cell in col)
             sheet.column_dimensions[col[0].column_letter].width = max_length + 2
