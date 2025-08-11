@@ -62,10 +62,11 @@ def init_db():
                 );
             """)
 
-            # 创建 reminders 表
+           # 创建 reminders 表
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS reminders (
                     username TEXT PRIMARY KEY,
+                    chat_id BIGINT NOT NULL,
                     shift_code TEXT NOT NULL,
                     active BOOLEAN DEFAULT TRUE
                 );
@@ -295,20 +296,24 @@ def transfer_user_data(user_a, user_b):
             conn.commit()
             print(f"✅ 数据已从 {user_a} 转移至 {user_b}")
 
-def set_reminder(username, shift_code, active=True):
+
+def set_reminder(username, chat_id, shift_code, active=True):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO reminders (username, shift_code, active)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (username) DO UPDATE SET shift_code=EXCLUDED.shift_code, active=EXCLUDED.active
-            """, (username, shift_code, active))
+                INSERT INTO reminders (username, chat_id, shift_code, active)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (username) DO UPDATE 
+                    SET chat_id=EXCLUDED.chat_id,
+                        shift_code=EXCLUDED.shift_code,
+                        active=EXCLUDED.active
+            """, (username, chat_id, shift_code, active))
             conn.commit()
 
 def get_active_reminders():
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT username, shift_code FROM reminders WHERE active = TRUE")
+            cur.execute("SELECT username, chat_id, shift_code FROM reminders WHERE active = TRUE")
             return cur.fetchall()
 
 def disable_reminder(username):
