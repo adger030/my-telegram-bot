@@ -759,7 +759,7 @@ def main():
     # 新增提醒命令
     app.add_handler(CommandHandler("remind_off", remind_off_cmd))
     app.add_handler(CommandHandler("remind_checkin", remind_cmd))
-    app.add_handler(CallbackQueryHandler(remind_choice_callback, pattern=r"^remind_(yes|no)$"))
+    # app.add_handler(CallbackQueryHandler(remind_choice_callback, pattern=r"^remind_(yes|no)$"))
     app.add_handler(CallbackQueryHandler(remind_shift_callback, pattern=r"^remind_shift:"))
     # ===========================
     # ✅ 注册消息处理器（监听非命令消息）
