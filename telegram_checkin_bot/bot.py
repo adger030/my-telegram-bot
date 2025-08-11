@@ -640,6 +640,13 @@ def schedule_daily_reminders():
         # 查用户名的 chat_id（需要你有映射，如果没有就得在 set_reminder 时存 chat_id）
         # 这里假设我们在 reminders 表加了 chat_id 字段才能发消息
 
+def schedule_send_reminder(chat_id, shift_name):
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        loop.create_task(send_reminder(chat_id, shift_name))
+    else:
+        loop.run_until_complete(send_reminder(chat_id, shift_name))
+
 def restore_reminder_jobs():
     active_reminders = get_active_reminders()
     for username, chat_id, shift_code in active_reminders:
@@ -656,7 +663,7 @@ def restore_reminder_jobs():
         remind_time -= timedelta(minutes=30)
 
         scheduler.add_job(
-            send_reminder,
+            schedule_send_reminder,
             trigger="date",
             run_date=remind_time,
             args=[chat_id, shift_name],
