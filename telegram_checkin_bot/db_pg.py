@@ -30,7 +30,7 @@ def init_db():
           # cur.execute("DROP TABLE IF EXISTS messages;")
           # cur.execute("DROP TABLE IF EXISTS users;")
           # cur.execute("DROP TABLE IF EXISTS shifts;")
-            cur.execute("DROP TABLE IF EXISTS reminders;")
+          # cur.execute("DROP TABLE IF EXISTS reminders;")
             
             # 创建 messages 表
             cur.execute("""
