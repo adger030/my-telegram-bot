@@ -184,9 +184,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
     # ===== 给每日表加颜色 =====
     wb = load_workbook(excel_path)
-    red_fill = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")  # 淡红
-    yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")  # 淡黄
-    blue_fill_light = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")  # 淡蓝
+    red_fill = PatternFill(start_color="ff6d6d", end_color="ff6d6d", fill_type="solid")  # 淡红
+    yellow_fill = PatternFill(start_color="ffde6d", end_color="ffde6d", fill_type="solid")  # 淡黄
+    blue_fill_light = PatternFill(start_color="6dd4ff", end_color="6dd4ff", fill_type="solid")  # 淡蓝
 
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -256,7 +256,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
     header_font = Font(bold=True)
     center_align = Alignment(horizontal="center")
-    blue_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
+    blue_fill = PatternFill(start_color="ff6d6d", end_color="ff6d6d", fill_type="solid")
 
     for cell in stats_sheet[1]:
         cell.font = header_font
