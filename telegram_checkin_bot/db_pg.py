@@ -294,3 +294,26 @@ def transfer_user_data(user_a, user_b):
 
             conn.commit()
             print(f"✅ 数据已从 {user_a} 转移至 {user_b}")
+
+def set_reminder(username, shift_code, active=True):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO reminders (username, shift_code, active)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (username) DO UPDATE SET shift_code=EXCLUDED.shift_code, active=EXCLUDED.active
+            """, (username, shift_code, active))
+            conn.commit()
+
+def get_active_reminders():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT username, shift_code FROM reminders WHERE active = TRUE")
+            return cur.fetchall()
+
+def disable_reminder(username):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE reminders SET active = FALSE WHERE username=%s", (username,))
+            conn.commit()
+
