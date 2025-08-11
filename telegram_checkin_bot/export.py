@@ -193,16 +193,18 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     "name": missed_users,
                     "timestamp": pd.NaT,
                     "keyword": None,
-                    "shift": "当天未打卡"
+                    "shift": None,  # 班次为空
+                    "remark": "当天未打卡"  # 新增备注列
                 })
+                group_df["remark"] = ""
                 group_df = pd.concat([group_df, missed_df], ignore_index=True)
+            else:
+                group_df["remark"] = ""
 
             group_df = group_df.sort_values("timestamp", na_position="last")
-            slim_df = group_df[["name", "timestamp", "keyword", "shift"]].copy()
-            slim_df.columns = ["姓名", "打卡时间", "关键词", "班次"]
-            slim_df["打卡时间"] = pd.to_datetime(slim_df["打卡时间"], errors="coerce") \
-                .dt.strftime("%Y-%m-%d %H:%M:%S") \
-                .fillna("")
+            slim_df = group_df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
+            slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+            slim_df["打卡时间"] = pd.to_datetime(slim_df["打卡时间"], errors="coerce")
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
 
@@ -212,10 +214,10 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         if sheet.title == "统计":
             continue
         for row in sheet.iter_rows(min_row=2, values_only=True):
-            name, _, keyword, shift_text = row
-            if not name or not shift_text:
+            name, _, keyword, shift_text, remark = row
+            if not name:
                 continue
-            if "当天未打卡" in str(shift_text):
+            if remark == "当天未打卡":
                 continue  # 不计入正常/迟到/补卡
             elif "补卡" in str(shift_text):
                 status = "补卡"
@@ -272,3 +274,4 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
+
