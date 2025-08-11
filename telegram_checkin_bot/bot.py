@@ -575,20 +575,36 @@ async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 # 提醒功能
 # ===========================
 async def remind_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("✅ 开启", callback_data="remind_yes")],
-        [InlineKeyboardButton("❌ 取消", callback_data="remind_no")]
-    ]
-    await update.message.reply_text("是否开启明天的上班打卡提醒？", reply_markup=InlineKeyboardMarkup(keyboard))
+    username = update.effective_user.username or f"user{update.effective_user.id}"
+    # 查询当前提醒状态
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT active, shift_code FROM reminders WHERE username=%s", (username,))
+        row = cur.fetchone()
+
+    if row and row[0]:  # 已开启
+        shift_name = get_shift_options().get(row[1], "未知班次")
+        keyboard = [[InlineKeyboardButton("❌ 关闭提醒", callback_data="remind_disable")]]
+        text = f"你已开启每日提醒（班次：{shift_name}）"
+    else:  # 未开启
+        keyboard = [[InlineKeyboardButton("✅ 开启提醒", callback_data="remind_yes")]]
+        text = "是否开启明天的上班打卡提醒？"
+
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def remind_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    username = query.from_user.username or f"user{query.from_user.id}"
+    
     if query.data == "remind_yes":
+        # 选择班次
         keyboard = [[InlineKeyboardButton(v, callback_data=f"remind_shift:{k}")] for k, v in get_shift_options().items()]
         await query.edit_message_text("请选择班次：", reply_markup=InlineKeyboardMarkup(keyboard))
-    else:
-        await query.edit_message_text("已取消提醒设置。")
+
+    elif query.data == "remind_disable":
+        disable_reminder(username)
+        await query.edit_message_text("🔕 已关闭每日上班打卡提醒。")
 
 async def remind_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -758,6 +774,7 @@ def main():
     app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:")) # 用户点击“选择补卡班次”按钮
     app.add_handler(CallbackQueryHandler(mylogs_page_callback, pattern=r"^mylogs_(prev|next)$"))     # 用户点击“我的打卡记录”翻页按钮
     app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^userlogs_(prev|next)$")) # 管理员查看“指定用户打卡记录”翻页按钮
+    app.add_handler(CallbackQueryHandler(remind_choice_callback, pattern=r"^remind_(yes|disable)$"))
 
     # ===========================
     # 启动 Bot
