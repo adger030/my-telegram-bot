@@ -216,7 +216,30 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
 
+    # 打开写好的文件
     wb = load_workbook(excel_path)
+
+    # 每日明细表格样式
+    red_fill = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")  # 淡红
+    yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")  # 淡黄
+    blue_fill_light = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")  # 淡蓝
+
+    for sheet in wb.worksheets:
+        if sheet.title == "统计":
+            continue
+        for row in sheet.iter_rows(min_row=2):
+            remark_val = str(row[4].value or "")
+            if "迟到" in remark_val or "早退" in remark_val:
+                for cell in row:
+                    cell.fill = red_fill
+            elif "补卡" in remark_val:
+                for cell in row:
+                    cell.fill = yellow_fill
+            elif "未打卡" in remark_val:
+                for cell in row:
+                    cell.fill = blue_fill_light
+
+    # 生成统计数据
     stats = []
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -254,7 +277,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             summary_df[col] = 0
     summary_df = summary_df.fillna(0).astype({"正常": int, "迟到/早退": int, "补卡": int})
 
-    # 未打卡排第3列
+    # 未打卡次数
     summary_df["未打卡"] = summary_df["姓名"].map(missed_days_count)
     summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"]
 
