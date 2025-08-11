@@ -36,6 +36,8 @@ from shift_manager import (
     list_shifts_cmd, edit_shift_cmd, delete_shift_cmd
 )
 
+app = None  # 全局声明，初始为空
+
 # ===========================
 # 全局定时任务调度器
 # ===========================
@@ -708,8 +710,7 @@ def main():
     # ✅ 确保数据存储目录存在，用于导出文件、缓存等
 
 
-    scheduler.add_job(schedule_daily_reminders, CronTrigger(hour=0, minute=10))
-
+    scheduler.add_job(schedule_daily_reminders, CronTrigger(hour=0, minute=30))
     # ===========================
     # 定时任务：自动清理上个月的数据
     # ===========================
@@ -720,6 +721,7 @@ def main():
     # ===========================
     # 初始化 Telegram Bot 应用
     # ===========================
+    global app
     app = Application.builder().token(TOKEN).build()
 
     # ===========================
