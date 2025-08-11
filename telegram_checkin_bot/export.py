@@ -155,6 +155,13 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         logging.warning("⚠️ 指定日期内没有数据")
         return None
 
+    # 统一去掉时区（防止 Excel 写入报错）
+    if pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        try:
+            df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+        except AttributeError:
+            pass
+
     df["date"] = df["timestamp"].dt.strftime("%Y-%m-%d")
     start_str = start_datetime.strftime("%Y-%m-%d")
     end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
@@ -184,6 +191,11 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for day, group_df in df.groupby("date"):
             checked_users = set(group_df["name"].unique())
             missed_users = [u for u in all_user_names if u not in checked_users]
+
+            # 初始化 remark 列
+            group_df = group_df.copy()
+            group_df["remark"] = ""
+
             # 记录未打卡天数
             for u in missed_users:
                 missed_days_count[u] += 1
@@ -193,18 +205,18 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     "name": missed_users,
                     "timestamp": pd.NaT,
                     "keyword": None,
-                    "shift": None,  # 班次为空
-                    "remark": "当天未打卡"  # 新增备注列
+                    "shift": None,
+                    "remark": "当天未打卡"
                 })
-                group_df["remark"] = ""
                 group_df = pd.concat([group_df, missed_df], ignore_index=True)
-            else:
-                group_df["remark"] = ""
 
             group_df = group_df.sort_values("timestamp", na_position="last")
             slim_df = group_df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
-            slim_df["打卡时间"] = pd.to_datetime(slim_df["打卡时间"], errors="coerce")
+
+            # 确保打卡时间是 datetime 且无时区
+            slim_df["打卡时间"] = pd.to_datetime(slim_df["打卡时间"], errors="coerce").dt.tz_localize(None)
+
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
 
@@ -274,4 +286,3 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
-
