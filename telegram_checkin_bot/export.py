@@ -291,7 +291,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 max_length = max(max_length, length)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
                 cell.border = thin_border  # 添加边框
-            sheet.column_dimensions[col_letter].width = min(max_length + 10, 30)
+            sheet.column_dimensions[col_letter].width = min(max_length + 8, 30)
 
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
