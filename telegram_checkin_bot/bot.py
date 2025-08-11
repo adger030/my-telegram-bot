@@ -608,7 +608,7 @@ async def remind_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     remind_time = datetime.now(BEIJING_TZ) + timedelta(minutes=1)
     
     scheduler.add_job(
-        send_reminder,
+        schedule_send_reminder,
         trigger="date",
         run_date=remind_time,
         args=[chat_id, shift_name],
