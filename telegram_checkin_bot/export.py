@@ -215,7 +215,10 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             slim_df["打卡时间"] = pd.to_datetime(slim_df["打卡时间"], errors="coerce").dt.tz_localize(None)
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
-
+            
+    # 标记迟到/早退/补卡
+    _mark_late_early(excel_path)
+    
     # 打开写好的文件
     wb = load_workbook(excel_path)
 
