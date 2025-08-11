@@ -184,9 +184,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
     # ===== 给每日表加颜色 =====
     wb = load_workbook(excel_path)
-    red_fill = PatternFill(start_color="ff6d6d", end_color="ff6d6d", fill_type="solid")  # 淡红
-    yellow_fill = PatternFill(start_color="ffde6d", end_color="ffde6d", fill_type="solid")  # 淡黄
-    blue_fill_light = PatternFill(start_color="6dd4ff", end_color="6dd4ff", fill_type="solid")  # 淡蓝
+    red_fill = PatternFill(start_color="ffa5a5", end_color="ffa5a5", fill_type="solid")  # 淡红
+    yellow_fill = PatternFill(start_color="ffe7a5", end_color="ffe7a5", fill_type="solid")  # 淡黄
+    blue_fill_light = PatternFill(start_color="a5d4ff", end_color="a5d4ff", fill_type="solid")  # 淡蓝
 
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -256,7 +256,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
     header_font = Font(bold=True)
     center_align = Alignment(horizontal="center")
-    blue_fill = PatternFill(start_color="ff6d6d", end_color="ff6d6d", fill_type="solid")
+    blue_fill = PatternFill(start_color="ffa5a5", end_color="ffa5a5", fill_type="solid")
 
     for cell in stats_sheet[1]:
         cell.font = header_font
@@ -266,14 +266,23 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for col_idx in [4, 5, 6]:
             row[col_idx - 1].fill = blue_fill
 
+    # ===== 智能列宽（只按数据内容，不含表头） =====  # 修改
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         for cell in sheet[1]:
             cell.font = Font(bold=True)
             cell.alignment = center_align
         for col in sheet.columns:
-            max_length = max(len(str(cell.value or "")) for cell in col)
-            sheet.column_dimensions[col[0].column_letter].width = max_length + 2
+            col_letter = col[0].column_letter
+            values = [cell.value for cell in col[1:]]  # 跳过表头
+            max_length = 0
+            for v in values:
+                if isinstance(v, datetime):
+                    length = 19  # 'YYYY-MM-DD HH:MM:SS'
+                else:
+                    length = len(str(v or ""))
+                max_length = max(max_length, length)
+            sheet.column_dimensions[col_letter].width = min(max_length + 2, 30)  # 限制最大宽度
             for cell in col:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
 
