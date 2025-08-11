@@ -61,6 +61,15 @@ def init_db():
                     "end" TEXT NOT NULL
                 );
             """)
+
+            # 创建 reminders 表
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS reminders (
+                    username TEXT PRIMARY KEY,
+                    shift_code TEXT NOT NULL,
+                    active BOOLEAN DEFAULT TRUE
+                );
+            """)
             conn.commit()
     print("✅ 数据库已重建")
 
