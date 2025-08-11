@@ -592,19 +592,19 @@ async def remind_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     username = query.from_user.username or f"user{query.from_user.id}"
+    chat_id = query.message.chat_id
     shift_code = query.data.split(":")[1]
     shift_name = get_shift_options()[shift_code]
     shift_short = shift_name.split("（")[0]
     start_time, _ = get_shift_times_short()[shift_short]
 
-    # 保存到数据库
-    set_reminder(username, shift_code, True)
+    # 保存到数据库（带 chat_id）
+    set_reminder(username, chat_id, shift_code, True)
 
     # 明天提醒时间
     remind_time = datetime.now(BEIJING_TZ).replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0) + timedelta(days=1)
-    remind_time -= timedelta(minutes=30)  
+    remind_time -= timedelta(minutes=30)
 
-    chat_id = query.message.chat_id
     scheduler.add_job(
         send_reminder,
         trigger="date",
@@ -637,6 +637,31 @@ def schedule_daily_reminders():
 
         # 查用户名的 chat_id（需要你有映射，如果没有就得在 set_reminder 时存 chat_id）
         # 这里假设我们在 reminders 表加了 chat_id 字段才能发消息
+
+def restore_reminder_jobs():
+    active_reminders = get_active_reminders()
+    for username, chat_id, shift_code in active_reminders:
+        shift_name = get_shift_options().get(shift_code)
+        if not shift_name:
+            continue
+        shift_short = shift_name.split("（")[0]
+        start_time, _ = get_shift_times_short()[shift_short]
+
+        remind_time = datetime.now(BEIJING_TZ).replace(
+            hour=start_time.hour, minute=start_time.minute,
+            second=0, microsecond=0
+        ) + timedelta(days=1)
+        remind_time -= timedelta(minutes=30)
+
+        scheduler.add_job(
+            send_reminder,
+            trigger="date",
+            run_date=remind_time,
+            args=[chat_id, shift_name],
+            id=f"remind_{chat_id}",
+            replace_existing=True
+        )
+        print(f"[提醒恢复] {username} - {shift_name} - {remind_time}")
 
 # ===========================
 # 单实例检查：防止重复启动 Bot
@@ -675,7 +700,7 @@ def main():
     scheduler.add_job(delete_last_month_data, CronTrigger(day=15, hour=3))
     # 每月15号凌晨3点，执行 delete_last_month_data 清理旧数据
     scheduler.start()
-
+    restore_reminder_jobs()
     # ===========================
     # 初始化 Telegram Bot 应用
     # ===========================
