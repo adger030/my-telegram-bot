@@ -631,9 +631,10 @@ def schedule_daily_reminders():
             continue
         shift_short = shift_name.split("（")[0]
         start_time, _ = get_shift_times_short()[shift_short]
-        remind_time = datetime.now(BEIJING_TZ).replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0) + timedelta(days=1)
-        remind_time -= timedelta(minutes=30)
-        
+      #  remind_time = datetime.now(BEIJING_TZ).replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0) + timedelta(days=1)
+      #  remind_time -= timedelta(minutes=30)
+        remind_time = datetime.now(BEIJING_TZ) + timedelta(minutes=1)
+
         # 查用户名的 chat_id（需要你有映射，如果没有就得在 set_reminder 时存 chat_id）
         # 这里假设我们在 reminders 表加了 chat_id 字段才能发消息
 
