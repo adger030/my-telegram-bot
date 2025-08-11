@@ -270,7 +270,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         cell.alignment = center_align
 
     for row in stats_sheet.iter_rows(min_row=2):
-        for col_idx in [4, 5, 6]:
+        for col_idx in [6]:
             row[col_idx - 1].fill = blue_fill
 
     # ===== 智能列宽 + 所有表格加框线 =====
