@@ -619,10 +619,27 @@ async def remind_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     # 保存到数据库（带 chat_id）
     set_reminder(username, chat_id, shift_code, True)
 
-    # 明天提醒时间
-     remind_time = datetime.now(BEIJING_TZ).replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0) + timedelta(days=1)
-     remind_time -= timedelta(minutes=30)
+    # 提醒时间
+     now = datetime.now(BEIJING_TZ)
+    
+    # 今天的上班时间
+     target_time = now.replace(
+        hour=start_time.hour,
+        minute=start_time.minute,
+        second=0,
+        microsecond=0
+     )
+    
+    # 如果现在已经过了今天的上班时间，就改为明天
+     if now >= target_time:
+        target_time += timedelta(days=1)
+    
+    # 提前 30 分钟
+     remind_time = target_time - timedelta(minutes=30)
+
     # 测试用：1 分钟后提醒
+     #remind_time = datetime.now(BEIJING_TZ).replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0) + timedelta(days=1)
+     #remind_time -= timedelta(minutes=30)
    # remind_time = datetime.now(BEIJING_TZ) + timedelta(minutes=1)
     
     scheduler.add_job(
@@ -679,13 +696,25 @@ def restore_reminder_jobs():
             continue
         shift_short = shift_name.split("（")[0]
         start_time, _ = get_shift_times_short()[shift_short]
-
-        remind_time = datetime.now(BEIJING_TZ).replace(
-            hour=start_time.hour, minute=start_time.minute,
-            second=0, microsecond=0
-        ) + timedelta(days=1)
-        remind_time -= timedelta(minutes=30)
-
+        
+      # 提醒时间
+        now = datetime.now(BEIJING_TZ)
+        
+        # 今天的上班时间
+        target_time = now.replace(
+            hour=start_time.hour,
+            minute=start_time.minute,
+            second=0,
+            microsecond=0
+        )
+        
+        # 如果现在已经过了今天的上班时间，就改为明天
+        if now >= target_time:
+            target_time += timedelta(days=1)
+        
+        # 提前 30 分钟
+        remind_time = target_time - timedelta(minutes=30)
+        
         scheduler.add_job(
             schedule_send_reminder,
             trigger="date",
