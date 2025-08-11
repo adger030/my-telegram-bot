@@ -786,7 +786,7 @@ def main():
     app.add_handler(CommandHandler("userlogs", userlogs_cmd))            # /userlogs @username：查看指定用户的考勤记录（管理员）
     # 新增提醒命令
     app.add_handler(CommandHandler("remind_off", remind_off_cmd))
-    app.add_handler(CommandHandler("remind_checkin", remind_cmd))
+    app.add_handler(CommandHandler("remind", remind_cmd))
     # app.add_handler(CallbackQueryHandler(remind_choice_callback, pattern=r"^remind_(yes|no)$"))
     app.add_handler(CallbackQueryHandler(remind_shift_callback, pattern=r"^remind_shift:"))
     # ===========================
