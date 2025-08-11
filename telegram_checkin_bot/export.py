@@ -155,6 +155,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         logging.warning("⚠️ 指定日期内没有数据")
         return None
 
+    # 去掉时区
     if pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
         try:
             df["timestamp"] = df["timestamp"].dt.tz_localize(None)
@@ -183,6 +184,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             return f"{shift_text}（{start.strftime('%H:%M')}-{end.strftime('%H:%M')}）"
         return shift_text
 
+    # 统计未打卡次数
     missed_days_count = {u: 0 for u in all_user_names}
 
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
@@ -239,27 +241,30 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     else:
         summary_df = pd.DataFrame(columns=["姓名", "正常", "迟到/早退", "补卡"])
 
-    # ★ 修改：确保所有用户都出现在统计表中
+    # 确保所有用户都在统计表
     for user in all_user_names:
         if user not in summary_df["姓名"].values:
             summary_df = pd.concat([
                 summary_df,
-                pd.DataFrame([{"姓名": user, "正常": 0, "迟到/早退": 0, "补卡": 0}])
+                pd.DataFrame([{"姓名": user}])
             ], ignore_index=True)
 
+    # 补齐缺失列并填 0
     for col in ["正常", "迟到/早退", "补卡"]:
         if col not in summary_df.columns:
             summary_df[col] = 0
+    summary_df = summary_df.fillna(0).astype({"正常": int, "迟到/早退": int, "补卡": int})
 
-    # ★ 修改：未打卡天数 → 未打卡次数
+    # 未打卡次数排第3列
     summary_df["未打卡次数"] = summary_df["姓名"].map(missed_days_count)
     summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"]
 
-    summary_df = summary_df[["姓名", "正常", "迟到/早退", "补卡", "未打卡次数", "异常总数"]]
+    summary_df = summary_df[["姓名", "正常", "未打卡次数", "迟到/早退", "补卡", "异常总数"]]
     summary_df = summary_df.sort_values(by="正常", ascending=False)
 
+    # 写入统计表
     stats_sheet = wb.create_sheet("统计", 0)
-    headers = ["姓名", "正常打卡", "迟到/早退", "补卡", "未打卡次数", "异常总数"]
+    headers = ["姓名", "正常打卡", "未打卡次数", "迟到/早退", "补卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
@@ -269,6 +274,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center")
 
+    # 调整所有表样式
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         for cell in sheet[1]:
@@ -283,4 +289,3 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
-
