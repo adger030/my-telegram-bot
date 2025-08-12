@@ -11,7 +11,7 @@ from collections import defaultdict
 # 第三方库
 # ===========================
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ApplicationBuilder
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dateutil.parser import parse
@@ -745,7 +745,12 @@ def check_existing_instance():
     # 注册退出时清理锁文件
     import atexit
     atexit.register(lambda: os.remove(lock_file) if os.path.exists(lock_file) else None)
-
+    
+async def get_sticker_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message and update.message.sticker:
+        file_id = update.message.sticker.file_id
+        await update.message.reply_text(f"收到贴纸 file_id：\n`{file_id}`", parse_mode="Markdown")
+        
 def main():
     init_db()  
     # ✅ 初始化数据库（创建表、索引等，确保运行环境准备就绪）
@@ -794,6 +799,8 @@ def main():
     # ===========================
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))  # 普通文本消息（识别打卡关键词）
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))                   # 图片消息（识别打卡截图）
+    # 监听所有贴纸消息
+    app.add_handler(MessageHandler(filters.Sticker.ALL, get_sticker_id))
 
     # ===========================
     # ✅ 注册回调按钮处理器（InlineKeyboard）
