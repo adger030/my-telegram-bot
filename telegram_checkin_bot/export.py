@@ -138,26 +138,10 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 if u in checked_users:
                     continue
 
-                # ===== 跨天班次豁免 =====
-                is_cross_day = False
-                for shift_name, (start_t, end_t) in get_shift_times_short().items():
-                    if end_t < start_t:  # 跨天班次
-                        prev_day_start = day_start - timedelta(days=1)
-                        prev_day_end = day_start
-                        prev_records = df[
-                            (df["name"] == u) &
-                            (df["keyword"] == "#上班打卡") &  # 只看上班卡
-                            (df["timestamp"] >= prev_day_start) &
-                            (df["timestamp"] < day_end)
-                        ]
-                        if not prev_records.empty:
-                            is_cross_day = True
-                            break
-
-                if not is_cross_day:
+                if u not in checked_users:
                     missed_users.append(u)
                     missed_days_count[u] += 1
-
+                    
             if missed_users:
                 missed_df = pd.DataFrame({
                     "name": missed_users,
