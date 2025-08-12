@@ -99,9 +99,9 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     name = get_user_name(username)
     await send_welcome(update.message, name)
-    await update.message.reply_sticker(
-        sticker="CAACAgUAAxkBAAIdqWibWBP7RZ-_Gx_0UznjeAHuiz2HAAKlBwACsCjwVqRGdbv4kuN-NgQ"  # 贴纸 file_id
-    )
+ #   await update.message.reply_sticker(
+ #       sticker="CAACAgUAAxkBAAIdqWibWBP7RZ-_Gx_0UznjeAHuiz2HAAKlBwACsCjwVqRGdbv4kuN-NgQ"  # 贴纸 file_id
+ #   )
 
 # ===========================
 # 处理纯文本消息
@@ -749,16 +749,16 @@ def check_existing_instance():
     import atexit
     atexit.register(lambda: os.remove(lock_file) if os.path.exists(lock_file) else None)
     
-async def get_sticker_id(update, context):
-    if not update.message.sticker:
-        await update.message.reply_text("❌ 请发送一个贴纸")
-        return
+# async def get_sticker_id(update, context):
+#    if not update.message.sticker:
+#        await update.message.reply_text("❌ 请发送一个贴纸")
+#        return
 
-    file_id = update.message.sticker.file_id
-    await update.message.reply_text(
-        f"收到贴纸 file_id：<code>{file_id}</code>",
-        parse_mode="HTML"
-    )
+#    file_id = update.message.sticker.file_id
+#    await update.message.reply_text(
+#        f"收到贴纸 file_id：<code>{file_id}</code>",
+#        parse_mode="HTML"
+#    )
         
 def main():
     init_db()  
