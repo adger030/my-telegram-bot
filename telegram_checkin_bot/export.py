@@ -118,15 +118,45 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         for day, group_df in df.groupby("date"):
-            checked_users = set(group_df["name"].unique())
-            missed_users = [u for u in all_user_names if u not in checked_users]
+            checked_users = set()
+            missed_users = []
+
+            # 获取当天日期对象
+            day_date = datetime.strptime(day, "%Y-%m-%d").date()
+            day_start = datetime.combine(day_date, datetime.min.time())
+            day_end = day_start + timedelta(days=1)
+
+            for u in all_user_names:
+                user_records = group_df[group_df["name"] == u]
+
+                if not user_records.empty:
+                    checked_users.add(u)
+                    continue
+
+                # ===== 跨天班次检测 =====
+                is_cross_day = False
+                for shift_name, (start_t, end_t) in get_shift_times_short().items():
+                    # 判断是否跨天班次（下班时间早于上班时间）
+                    if end_t < start_t:
+                        # 检查前一天的该用户记录
+                        prev_day_start = day_start - timedelta(days=1)
+                        prev_day_end = day_start
+
+                        prev_records = df[
+                            (df["name"] == u) &
+                            (df["timestamp"] >= prev_day_start) &
+                            (df["timestamp"] < day_end)  # 跨天可能到今天
+                        ]
+                        if not prev_records.empty:
+                            is_cross_day = True
+                            break
+
+                if not is_cross_day:
+                    missed_users.append(u)
+                    missed_days_count[u] += 1
 
             group_df = group_df.copy()
             group_df["remark"] = ""
-
-            # 标记缺卡
-            for u in missed_users:
-                missed_days_count[u] += 1
 
             if missed_users:
                 missed_df = pd.DataFrame({
@@ -138,7 +168,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 })
                 group_df = pd.concat([group_df, missed_df], ignore_index=True)
 
-            # 标记迟到/早退/补卡
+            # ===== 下面你的迟到/早退/补卡逻辑原封不动 =====
             for idx, row in group_df.iterrows():
                 shift_val = row["shift"]
                 keyword = row["keyword"]
