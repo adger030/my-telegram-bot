@@ -746,10 +746,16 @@ def check_existing_instance():
     import atexit
     atexit.register(lambda: os.remove(lock_file) if os.path.exists(lock_file) else None)
     
-async def get_sticker_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message and update.message.sticker:
-        file_id = update.message.sticker.file_id
-        await update.message.reply_text(f"收到贴纸 file_id：\n`{file_id}`", parse_mode="Markdown")
+async def get_sticker_id(update, context):
+    if not update.message.sticker:
+        await update.message.reply_text("❌ 请发送一个贴纸")
+        return
+
+    file_id = update.message.sticker.file_id
+    await update.message.reply_text(
+        f"收到贴纸 file_id：<code>{file_id}</code>",
+        parse_mode="HTML"
+    )
         
 def main():
     init_db()  
