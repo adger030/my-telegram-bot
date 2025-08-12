@@ -809,7 +809,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))  # 普通文本消息（识别打卡关键词）
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))                   # 图片消息（识别打卡截图）
     # 监听所有贴纸消息
-    app.add_handler(MessageHandler(filters.Sticker.ALL, get_sticker_id))
+   # app.add_handler(MessageHandler(filters.Sticker.ALL, get_sticker_id))
 
     # ===========================
     # ✅ 注册回调按钮处理器（InlineKeyboard）
