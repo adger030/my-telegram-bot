@@ -99,6 +99,9 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     name = get_user_name(username)
     await send_welcome(update.message, name)
+    await update_or_msg.reply_sticker(
+        sticker="CAACAgUAAxkBAAIdqWibWBP7RZ-_Gx_0UznjeAHuiz2HAAKlBwACsCjwVqRGdbv4kuN-NgQ"  # 贴纸 file_id
+    )
 
 # ===========================
 # 处理纯文本消息
@@ -651,9 +654,6 @@ async def remind_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
         replace_existing=True
     )
     await query.edit_message_text(f"✅ 已保存 {shift_name} 提醒，将在每天提前 30 分钟提醒你打卡。")
-    await update_or_msg.reply_sticker(
-        sticker="CAACAgUAAxkBAAIdqWibWBP7RZ-_Gx_0UznjeAHuiz2HAAKlBwACsCjwVqRGdbv4kuN-NgQ"  # 贴纸 file_id
-    )
 
 async def send_reminder(chat_id, shift_name):
     await app.bot.send_message(chat_id, f"⏰ 提醒：{shift_name} 上班打卡还有 30 分钟，请准备打卡。")
