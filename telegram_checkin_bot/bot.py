@@ -99,7 +99,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     name = get_user_name(username)
     await send_welcome(update.message, name)
-    await update_or_msg.reply_sticker(
+    await update.message.reply_sticker(
         sticker="CAACAgUAAxkBAAIdqWibWBP7RZ-_Gx_0UznjeAHuiz2HAAKlBwACsCjwVqRGdbv4kuN-NgQ"  # 贴纸 file_id
     )
 
