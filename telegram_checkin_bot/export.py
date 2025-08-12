@@ -3,7 +3,7 @@ import re
 import pandas as pd
 import pytz
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import DATA_DIR, DATABASE_URL, BEIJING_TZ
 import cloudinary
 import cloudinary.uploader
