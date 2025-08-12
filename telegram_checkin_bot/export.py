@@ -117,35 +117,38 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     missed_days_count = {u: 0 for u in all_user_names}
 
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+        sheet_written = False  # 防止空文件报错
+
         for day, group_df in df.groupby("date"):
-            checked_users = set()
+            group_df = group_df.copy()
+            group_df["remark"] = ""
+
+            # 当天有上班卡的用户
+            checked_users = set(
+                group_df.loc[group_df["keyword"] == "#上班打卡", "name"].unique()
+            )
             missed_users = []
 
-            # 获取当天日期对象
+            # 获取当天起止时间
             day_date = datetime.strptime(day, "%Y-%m-%d").date()
             day_start = datetime.combine(day_date, datetime.min.time())
             day_end = day_start + timedelta(days=1)
 
             for u in all_user_names:
-                user_records = group_df[group_df["name"] == u]
-
-                if not user_records.empty:
-                    checked_users.add(u)
+                if u in checked_users:
                     continue
 
-                # ===== 跨天班次检测 =====
+                # ===== 跨天班次豁免 =====
                 is_cross_day = False
                 for shift_name, (start_t, end_t) in get_shift_times_short().items():
-                    # 判断是否跨天班次（下班时间早于上班时间）
-                    if end_t < start_t:
-                        # 检查前一天的该用户记录
+                    if end_t < start_t:  # 跨天班次
                         prev_day_start = day_start - timedelta(days=1)
                         prev_day_end = day_start
-
                         prev_records = df[
                             (df["name"] == u) &
+                            (df["keyword"] == "#上班打卡") &  # 只看上班卡
                             (df["timestamp"] >= prev_day_start) &
-                            (df["timestamp"] < day_end)  # 跨天可能到今天
+                            (df["timestamp"] < day_end)
                         ]
                         if not prev_records.empty:
                             is_cross_day = True
@@ -155,20 +158,17 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     missed_users.append(u)
                     missed_days_count[u] += 1
 
-            group_df = group_df.copy()
-            group_df["remark"] = ""
-
             if missed_users:
                 missed_df = pd.DataFrame({
                     "name": missed_users,
                     "timestamp": pd.NaT,
                     "keyword": None,
                     "shift": None,
-                    "remark": "未打卡"
+                    "remark": "未打上班卡"
                 })
                 group_df = pd.concat([group_df, missed_df], ignore_index=True)
 
-            # ===== 下面你的迟到/早退/补卡逻辑原封不动 =====
+            # ===== 迟到 / 早退 / 补卡 =====
             for idx, row in group_df.iterrows():
                 shift_val = row["shift"]
                 keyword = row["keyword"]
@@ -211,12 +211,19 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             slim_df["打卡时间"] = pd.to_datetime(slim_df["打卡时间"], errors="coerce").dt.tz_localize(None)
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
+            sheet_written = True
 
-    # ===== 打开工作簿，设置颜色 & 边框 =====
+        # 防止无sheet时报错
+        if not sheet_written:
+            pd.DataFrame(columns=["姓名", "打卡时间", "关键词", "班次", "备注"]).to_excel(
+                writer, sheet_name="空表", index=False
+            )
+
+    # ===== Excel 样式、统计表逻辑保留原样 =====
     wb = load_workbook(excel_path)
-    red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")  # 淡红
-    yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")  # 淡黄
-    blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")  # 淡蓝
+    red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
+    yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
+    blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")
 
     thin_border = Border(
         left=Side(style="thin", color="000000"),
@@ -236,7 +243,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             elif "补卡" in remark_val:
                 for cell in row:
                     cell.fill = yellow_fill
-            elif "未打卡" in remark_val:
+            elif "未打上班卡" in remark_val:
                 for cell in row:
                     cell.fill = blue_fill_light
 
@@ -249,7 +256,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             name, _, _, _, remark = row
             if not name:
                 continue
-            if remark == "未打卡":
+            if remark == "未打上班卡":
                 continue
             elif remark == "补卡":
                 status = "补卡"
@@ -277,20 +284,19 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             summary_df[col] = 0
     summary_df = summary_df.fillna(0).astype({"正常": int, "迟到/早退": int, "补卡": int})
 
-    summary_df["未打卡"] = summary_df["姓名"].map(missed_days_count)
+    summary_df["未打上班卡"] = summary_df["姓名"].map(missed_days_count)
     summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"]
 
-    summary_df = summary_df[["姓名", "正常", "未打卡", "迟到/早退", "补卡", "异常总数"]]
+    summary_df = summary_df[["姓名", "正常", "未打上班卡", "迟到/早退", "补卡", "异常总数"]]
     summary_df = summary_df.sort_values(by="正常", ascending=False)
 
     stats_sheet = wb.create_sheet("统计", 0)
-    headers = ["姓名", "正常打卡", "未打卡", "迟到/早退", "补卡", "异常总数"]
+    headers = ["姓名", "正常打卡", "未打上班卡", "迟到/早退", "补卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
 
     stats_sheet.freeze_panes = "A2"
-
     header_font = Font(bold=True)
     center_align = Alignment(horizontal="center")
     blue_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
@@ -303,7 +309,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for col_idx in [6]:
             row[col_idx - 1].fill = blue_fill
 
-    # ===== 智能列宽 + 所有表格加框线 =====
+    # ===== 智能列宽 + 边框 =====
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         for cell in sheet[1]:
@@ -320,7 +326,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     length = len(str(cell.value or ""))
                 max_length = max(max_length, length)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
-                cell.border = thin_border  # 添加边框
+                cell.border = thin_border
             sheet.column_dimensions[col_letter].width = min(max_length + 8, 30)
 
     wb.save(excel_path)
