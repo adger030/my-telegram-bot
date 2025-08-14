@@ -248,11 +248,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     username = query.from_user.username or f"user{query.from_user.id}"
     shift_code = query.data.split(":")[1]
     shift_name = get_shift_options()[shift_code]
+
     save_shift(username, shift_name)  # 保存班次
-    await query.edit_message_text(f"✅ 上班打卡成功！班次：{shift_name}")
+
+    new_text = f"✅ 上班打卡成功！班次：{shift_name}"
+    if query.message.text != new_text:
+        await query.edit_message_text(new_text)
 
 # ===========================
 # 检查用户当天是否已经打过指定关键词的卡（修复版）
