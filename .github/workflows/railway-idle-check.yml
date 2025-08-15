@@ -1,0 +1,52 @@
+name: Railway Idle Checker  # 工作流名称
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # 每 5 分钟运行一次
+
+jobs:
+  idle-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检查服务是否空闲
+        run: |
+          echo "=== 🚀 Railway 空闲检测开始 ==="
+          echo "⏰ 当前 UTC 时间: $(date -u +"%Y-%m-%d %H:%M:%S")"
+
+          # 从 Railway API 获取 LAST_SEEN（最后一次活跃时间）
+          LAST_SEEN=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer ${{ secrets.RAILWAY_API_KEY }}" \
+          -d '{"query": "query { variables(serviceId: \"${{ secrets.SERVICE_ID }}\") { name value } }"}' \
+          | jq -r '.data.variables[] | select(.name=="LAST_SEEN") | .value')
+
+          # 如果没拿到 LAST_SEEN，直接退出
+          if [ -z "$LAST_SEEN" ]; then
+            echo "⚠️ 没有找到 LAST_SEEN 数据，跳过检测..."
+            exit 0
+          fi
+
+          # 当前时间（秒）
+          NOW=$(date -u +%s)
+          # 最后活跃时间转为秒
+          LAST_SEEN_TS=$(date -d "$LAST_SEEN" +%s)
+          # 计算空闲秒数
+          DIFF=$((NOW - LAST_SEEN_TS))
+
+          echo "📌 最后活跃时间: $LAST_SEEN (UTC)"
+          echo "⏳ 距离上次活跃已过去: $DIFF 秒"
+
+          # 如果空闲时间 >= 600 秒（10分钟），就停掉服务
+          if [ $DIFF -ge 600 ]; then
+            echo "🛑 服务已空闲超过 10 分钟 — 正在停止服务..."
+            RESPONSE=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.RAILWAY_API_KEY }}" \
+            -d '{"query": "mutation { serviceStop(id: \"${{ secrets.SERVICE_ID }}\") { id } }"}')
+            echo "✅ 停止请求已发送，Railway API 返回："
+            echo "$RESPONSE"
+          else
+            echo "✅ 服务仍然活跃，无需操作。"
+          fi
+
+          echo "=== ✅ Railway 空闲检测结束 ==="
