@@ -124,7 +124,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 处理纯文本消息
 # ===========================
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-	update_last_seen()
+    update_last_seen()
     msg = update.message
     username = msg.from_user.username or f"user{msg.from_user.id}"
     text = msg.text.strip()
@@ -177,7 +177,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 处理带图片的打卡消息
 # ===========================
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-	update_last_seen()
+    update_last_seen()
     msg = update.message
     username = msg.from_user.username or f"user{msg.from_user.id}"
     caption = msg.caption or ""
