@@ -46,6 +46,3 @@ from zoneinfo import ZoneInfo
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 
 LOGS_PER_PAGE = 7
-
-RAILWAY_API_KEY = os.getenv("RAILWAY_API_KEY")
-SERVICE_ID = os.getenv("SERVICE_ID")
