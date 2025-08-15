@@ -1,26 +1,56 @@
-name: Railway Scheduler
+name: ⏳ Railway 定时开关服务
 
 on:
   schedule:
-    - cron: '0 18 * * *'   # UTC 18:00 = 北京时间 2:00 停机
-    - cron: '0 3 * * *'    # UTC 3:00  = 北京时间 11:00 启动
+    # 每天 UTC 18:00（北京时间 02:00）执行关闭
+    - cron: "0 18 * * *"
+    # 每天 UTC 03:00（北京时间 11:00）执行开启
+    - cron: "0 3 * * *"
+  workflow_dispatch: # 允许手动触发
 
 jobs:
-  schedule:
+  railway-control:
     runs-on: ubuntu-latest
     steps:
-      - name: Stop at 2:00
-        if: github.event.schedule == '0 18 * * *'
+      - name: 🚀 显示当前时间
         run: |
-          curl -s -X POST https://backboard.railway.app/graphql/v2 \
-          -H "Content-Type: application/json" \
-          -H "Authorization: Bearer ${{ secrets.RAILWAY_API_KEY }}" \
-          -d '{"query": "mutation { serviceStop(id: \"${{ secrets.SERVICE_ID }}\") { id } }"}'
+          echo "当前 UTC 时间: $(date -u '+%Y-%m-%d %H:%M:%S')"
+      
+      - name: 📦 执行 Railway 控制
+        run: |
+          # 定义 GraphQL API
+          API_URL="https://backboard.railway.app/graphql"
+          
+          # 判断当前执行时间是关还是开
+          if [ "$(date -u '+%H')" == "18" ]; then
+            ACTION="STOP"
+          else
+            ACTION="START"
+          fi
 
-      - name: Start at 11:00
-        if: github.event.schedule == '0 3 * * *'
-        run: |
-          curl -s -X POST https://backboard.railway.app/graphql/v2 \
-          -H "Content-Type: application/json" \
-          -H "Authorization: Bearer ${{ secrets.RAILWAY_API_KEY }}" \
-          -d '{"query": "mutation { serviceStart(id: \"${{ secrets.SERVICE_ID }}\") { id } }"}'
+          echo "执行操作: $ACTION"
+
+          # GraphQL 查询
+          if [ "$ACTION" == "STOP" ]; then
+            QUERY="mutation { serviceInstanceDelete(id: \"${{ secrets.RAILWAY_SERVICE_ID }}\") { id } }"
+          else
+            QUERY="mutation { serviceInstanceCreate(input: { serviceId: \"${{ secrets.RAILWAY_SERVICE_ID }}\" }) { id } }"
+          fi
+
+          # 调用 API
+          RESPONSE=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.RAILWAY_API_KEY }}" \
+            --data "{\"query\":\"$QUERY\"}" \
+            $API_URL)
+
+          echo "📜 Railway API 返回:"
+          echo "$RESPONSE"
+
+          # 检查错误
+          if echo "$RESPONSE" | grep -q "errors"; then
+            echo "❌ Railway API 调用失败"
+            exit 1
+          else
+            echo "✅ 操作成功"
+          fi
