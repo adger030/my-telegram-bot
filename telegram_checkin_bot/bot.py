@@ -20,7 +20,7 @@ import logging
 # ===========================
 # 项目内部模块
 # ===========================
-from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, ADMIN_USERNAMES, LOGS_PER_PAGE, BEIJING_TZ
+from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, ADMIN_USERNAMES, LOGS_PER_PAGE, BEIJING_TZ, RAILWAY_API_KEY, SERVICE_ID
 from upload_image import upload_image
 from cleaner import delete_last_month_data
 from db_pg import (
@@ -52,6 +52,21 @@ logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 # 记录需要输入姓名的用户
 # ===========================
 WAITING_NAME = {}  
+
+def update_last_seen():
+    now = datetime.utcnow().isoformat()
+    query = f'''
+    mutation {{
+      variableUpdate(serviceId: "{SERVICE_ID}", name: "LAST_SEEN", value: "{now}") {{
+        id
+      }}
+    }}
+    '''
+    requests.post(
+        "https://backboard.railway.app/graphql/v2",
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {RAILWAY_API_KEY}"},
+        json={"query": query}
+    )
 
 # ===========================
 # 提取关键词（例如 #上班打卡、#下班打卡 等）
@@ -109,6 +124,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 处理纯文本消息
 # ===========================
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	update_last_seen()
     msg = update.message
     username = msg.from_user.username or f"user{msg.from_user.id}"
     text = msg.text.strip()
@@ -161,6 +177,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 处理带图片的打卡消息
 # ===========================
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	update_last_seen()
     msg = update.message
     username = msg.from_user.username or f"user{msg.from_user.id}"
     caption = msg.caption or ""
