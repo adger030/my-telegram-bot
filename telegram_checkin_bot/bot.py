@@ -880,7 +880,7 @@ def main():
     # 启动 Bot
     # ===========================
     print("🤖 Bot 正在运行...")
-    print("Bot 启动时间:", datetime.datetime.now(BEIJING_TZ).strftime("%Y-%m-%d %H:%M:%S"))
+    print("Bot 启动时间:", datetime.now(BEIJING_TZ).strftime("%Y-%m-%d %H:%M:%S"))
     app.run_polling()  # 开始长轮询，持续接收 Telegram 消息
 
 
