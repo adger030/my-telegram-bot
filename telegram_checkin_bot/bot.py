@@ -16,6 +16,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dateutil.parser import parse
 import logging
+import requests
 
 # ===========================
 # 项目内部模块
@@ -54,18 +55,22 @@ logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 WAITING_NAME = {}  
 
 def update_last_seen():
-    now = datetime.utcnow().isoformat()
-    query = f'''
-    mutation {{
-      variableUpdate(serviceId: "{SERVICE_ID}", name: "LAST_SEEN", value: "{now}") {{
-        id
-      }}
-    }}
-    '''
+    now = datetime.now(BEIJING_TZ).isoformat()  # 使用北京时间
     requests.post(
         "https://backboard.railway.app/graphql/v2",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {RAILWAY_API_KEY}"},
-        json={"query": query}
+        headers={
+            "Authorization": f"Bearer {RAILWAY_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "query": """
+                mutation {
+                  serviceInstanceUpdateLastSeen(serviceInstanceId: "%s") {
+                    id
+                  }
+                }
+            """ % SERVICE_ID
+        }
     )
 
 # ===========================
