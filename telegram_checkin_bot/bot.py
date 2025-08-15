@@ -37,8 +37,6 @@ from shift_manager import (
     list_shifts_cmd, edit_shift_cmd, delete_shift_cmd
 )
 
-print("Bot 启动时间:", datetime.datetime.now())
-
 app = None  # 全局声明，初始为空
 
 # ===========================
@@ -882,6 +880,7 @@ def main():
     # 启动 Bot
     # ===========================
     print("🤖 Bot 正在运行...")
+	print("Bot 启动时间:", datetime.datetime.now())
     app.run_polling()  # 开始长轮询，持续接收 Telegram 消息
 
 
