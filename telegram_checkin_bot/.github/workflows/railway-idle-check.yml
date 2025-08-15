@@ -1,0 +1,38 @@
+name: Railway Idle Checker
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+
+jobs:
+  idle-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Last Seen
+        run: |
+          LAST_SEEN=$(curl -s -X POST https://backboard.railway.app/graphql/v2 \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer ${{ secrets.RAILWAY_API_KEY }}" \
+          -d '{"query": "query { variables(serviceId: \"${{ secrets.SERVICE_ID }}\") { name value } }"}' \
+          | jq -r '.data.variables[] | select(.name=="LAST_SEEN") | .value')
+
+          if [ -z "$LAST_SEEN" ]; then
+            echo "No LAST_SEEN data, skipping..."
+            exit 0
+          fi
+
+          NOW=$(date -u +%s)
+          LAST_SEEN_TS=$(date -d "$LAST_SEEN" +%s)
+          DIFF=$((NOW - LAST_SEEN_TS))
+
+          echo "Last seen: $DIFF seconds ago"
+
+          if [ $DIFF -ge 600 ]; then
+            echo "Idle for more than 10 minutes. Stopping service..."
+            curl -s -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.RAILWAY_API_KEY }}" \
+            -d '{"query": "mutation { serviceStop(id: \"${{ secrets.SERVICE_ID }}\") { id } }"}'
+          else
+            echo "Service still active."
+          fi
