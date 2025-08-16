@@ -278,7 +278,6 @@ def has_user_checked_keyword_today_fixed(username, keyword):
     start = ref_day.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
 
-    # 查询数据库，获取当日打卡记录
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -289,14 +288,20 @@ def has_user_checked_keyword_today_fixed(username, keyword):
         """, (username, keyword, start, end))
         rows = cur.fetchall()
 
-    # 逐条验证
+    valid_found = False
     for (ts,) in rows:
         ts_local = ts.astimezone(BEIJING_TZ)
-        # 特殊情况：凌晨的下班卡忽略
+
+        # 下班卡凌晨归前一天 → 不算今天的
         if keyword == "#下班打卡" and ts_local.hour < 6:
-            continue
-        return True
-    return False
+            continue  
+
+        # 只要发现当天有有效记录，就标记
+        valid_found = True
+        break
+
+    return valid_found
+
 
 # ===========================
 # 处理补上班卡的逻辑
