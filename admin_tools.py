@@ -9,7 +9,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from sqlalchemy import text
 from dateutil.parser import parse
-from dateutil.rrule import rrule, DAILY   # ✅ 修复 NameError
 
 from db_pg import engine, get_user_logs, get_user_logs_by_name, get_conn, get_user_name, save_message, transfer_user_data
 from config import ADMIN_IDS, BEIJING_TZ, LOGS_PER_PAGE, DATA_DIR
