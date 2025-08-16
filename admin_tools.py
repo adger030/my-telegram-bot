@@ -276,7 +276,7 @@ async def send_userlogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{'（迟到）' if has_late else ''}\n"
         else:
-            reply += f"   └─ #上班打卡：缺失 ❌\n"
+            reply += f"   └─ #上班打卡：未打卡 ❌\n"
 
         # 下班卡
         if has_down:
@@ -284,7 +284,7 @@ async def send_userlogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
         else:
-            reply += f"   └─ #下班打卡：缺失 ❌\n"
+            reply += f"   └─ #下班打卡：未打卡 ❌\n"
     
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
