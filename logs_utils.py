@@ -80,31 +80,38 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
         if is_makeup:
             total_makeup += 1
 
-        # 缺卡直接算异常（补卡除外）
-        if not has_up or not has_down:
+        # ===== 上班统计 =====
+        if has_up:
+            if shift_name in get_shift_times_short():
+                start_time, _ = get_shift_times_short()[shift_name]
+                if kw_map["#上班打卡"].time() > start_time:
+                    has_late = True
+            if not is_makeup:
+                if has_late:
+                    total_abnormal += 1
+                else:
+                    total_complete += 1
+        else:
             if not is_makeup:
                 total_abnormal += 1
-            continue
 
-        # 迟到判断
-        if shift_name in get_shift_times_short():
-            start_time, _ = get_shift_times_short()[shift_name]
-            if kw_map["#上班打卡"].time() > start_time:
-                has_late = True
-
-        # 早退判断
-        if shift_name in get_shift_times_short():
-            _, end_time = get_shift_times_short()[shift_name]
-            down_ts = kw_map["#下班打卡"]
-            if shift_name == "I班" and down_ts.date() == day:
-                has_early = True
-            elif shift_name != "I班" and down_ts.time() < end_time:
-                has_early = True
-
-        if has_late or has_early:
-            total_abnormal += 1
+        # ===== 下班统计 =====
+        if has_down:
+            if shift_name in get_shift_times_short():
+                _, end_time = get_shift_times_short()[shift_name]
+                down_ts = kw_map["#下班打卡"]
+                if shift_name == "I班" and down_ts.date() == day:
+                    has_early = True
+                elif shift_name != "I班" and down_ts.time() < end_time:
+                    has_early = True
+            if not is_makeup:
+                if has_early:
+                    total_abnormal += 1
+                else:
+                    total_complete += 1
         else:
-            total_complete += 1
+            if not is_makeup:
+                total_abnormal += 1
 
     # ===========================
     # 分页
