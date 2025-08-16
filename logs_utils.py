@@ -1,3 +1,4 @@
+# logs_utils.py
 from datetime import datetime, timedelta
 from collections import defaultdict
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -30,7 +31,7 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
         if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
 
-        # 🔹 补卡一定按当天算，不受凌晨规则影响
+        # 补卡一定按当天算，不受凌晨规则影响
         if shift and "（补卡）" in shift:
             date_key = ts.date()
 
@@ -50,11 +51,13 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
                     daily_map[date_key]["#下班打卡"] = ts2
                     break
                 j += 1
-            i = j if j > i else i + 1
+
+            # ✅ 始终自增，避免最后一条补卡丢失
+            i += 1
 
         else:  # 下班打卡
             daily_map[date_key]["#下班打卡"] = ts
-            # 🔹 即便没有上班卡，也要让当天显示
+            # 即便没有上班卡，也要让当天显示
             if "shift" not in daily_map[date_key]:
                 daily_map[date_key]["shift"] = shift or "未选择班次"
             i += 1
