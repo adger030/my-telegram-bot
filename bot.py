@@ -421,9 +421,9 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # 转换时区 & 排序
-    logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]  # 解析字符串时间
-    logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]  # 转换为北京时间
-    logs = sorted(logs, key=lambda x: x[0])  # 按时间排序
+    logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
+    logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
+    logs = sorted(logs, key=lambda x: x[0])
 
     # 按天组合上下班打卡记录
     daily_map = defaultdict(dict)
@@ -450,45 +450,54 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
+    # ✅ 补齐整月所有日期（避免漏掉没有打卡的天）
+    full_map = {}
+    current_day = start.date()
+    while current_day < now.date() + timedelta(days=1):  # 包含今天
+        if current_day in daily_map:
+            full_map[current_day] = daily_map[current_day]
+        else:
+            full_map[current_day] = {"shift": "未选择班次"}  # 占位
+        current_day += timedelta(days=1)
+
+    daily_map = full_map  # 用补齐后的 map
+
     # ✅ 统计整月数据：正常打卡、异常（迟到/早退）、补卡
     total_complete = total_abnormal = total_makeup = 0
     for day, kw_map in daily_map.items():
         shift_full = kw_map.get("shift", "未选择班次")
         is_makeup = shift_full.endswith("（补卡）")  # 是否补卡
-        shift_name = shift_full.split("（")[0]  # 去除补卡标记
+        shift_name = shift_full.split("（")[0]
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
         has_late = has_early = False
 
         if is_makeup:
-            total_makeup += 1  # 补卡计数
+            total_makeup += 1
 
-        # 迟到判定：上班时间 > 班次规定时间
         if has_up and shift_name in get_shift_times_short():
             start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
-        # 早退判定：下班时间 < 班次规定时间（I班跨天特殊判断）
         if has_down and shift_name in get_shift_times_short():
             _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
-            if shift_name == "I班" and down_ts.date() == day:  # I班若未跨天则早退
+            if shift_name == "I班" and down_ts.date() == day:
                 has_early = True
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
-        # 计数逻辑
         if is_makeup:
-            continue  # 补卡不计入正常/异常
+            continue
         if has_late:
             total_abnormal += 1
         if has_early:
             total_abnormal += 1
         if not has_late and not has_early and (has_up or has_down):
-            total_complete += 2 if has_up and has_down else 1  # 正常计次
+            total_complete += 2 if has_up and has_down else 1
 
-    # 分页：每页 5 天
+    # 分页
     all_days = sorted(daily_map)
     pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
     context.user_data["mylogs_pages"] = {
@@ -498,7 +507,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "summary": (total_complete, total_abnormal, total_makeup)
     }
 
-    await send_mylogs_page(update, context)  # 展示第一页
+    await send_mylogs_page(update, context)
 
 # ===========================
 # 发送分页内容（安全版）
@@ -506,7 +515,6 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = context.user_data.get("mylogs_pages")
     if not data:
-        # 会话过期
         if update.callback_query:
             await update.callback_query.edit_message_text("⚠️ 会话已过期，请重新使用 /mylogs")
         else:
@@ -516,7 +524,6 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pages, daily_map, page_index = data["pages"], data["daily_map"], data["page_index"]
     total_complete, total_abnormal, total_makeup = data["summary"]
 
-    # ✅ 安全检查：防止索引越界
     if page_index < 0:
         page_index = 0
         data["page_index"] = 0
@@ -527,7 +534,6 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_page_days = pages[page_index]
     reply = f"🗓️ 本月打卡情况（第 {page_index+1}/{len(pages)} 页）：\n\n"
 
-    # 遍历当前页的每日记录
     for idx, day in enumerate(current_page_days, start=1 + page_index * LOGS_PER_PAGE):
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
@@ -537,13 +543,11 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_down = "#下班打卡" in kw_map
         has_late = has_early = False
 
-        # 迟到判定
         if has_up and shift_name in get_shift_times_short():
             start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
-        # 早退判定
         if has_down and shift_name in get_shift_times_short():
             _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
@@ -552,23 +556,24 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
-        # 生成每日详情
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{'（迟到）' if has_late else ''}\n"
+        else:
+            reply += "   └─ #上班打卡：❌ 未打卡\n"
         if has_down:
             down_ts = kw_map["#下班打卡"]
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
+        else:
+            reply += "   └─ #下班打卡：❌ 未打卡\n"
 
-    # 汇总信息
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
         f"🔴 异常（迟到/早退）：{total_abnormal} 次\n"
         f"🟡 补卡：{total_makeup} 次"
     )
 
-    # 分页按钮
     buttons = []
     if page_index > 0:
         buttons.append(InlineKeyboardButton("⬅ 上一页", callback_data="mylogs_prev"))
