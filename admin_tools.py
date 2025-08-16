@@ -180,74 +180,22 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===========================
 # 发送分页内容
 # ===========================
-async def send_userlogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = context.user_data["userlogs_pages"]
-    pages, daily_map, page_index = data["pages"], data["daily_map"], data["page_index"]
-    total_normal, total_abnormal, total_makeup = data["summary"]
-    target_username = data["target_username"]
+async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if "userlogs_pages" not in context.user_data:
+        await query.edit_message_text("⚠️ 会话已过期，请重新使用 /userlogs")
+        return
 
-    current_page_days = pages[page_index]
-    reply = f"🗓️ {target_username} 本月打卡记录（第 {page_index+1}/{len(pages)} 页）：\n\n"
+    pages_info = context.user_data["userlogs_pages"]
+    total_pages = len(pages_info["pages"])
+    if query.data == "userlogs_prev" and pages_info["page_index"] > 0:
+        pages_info["page_index"] -= 1
+    elif query.data == "userlogs_next" and pages_info["page_index"] < total_pages - 1:
+        pages_info["page_index"] += 1
 
-    for idx, day in enumerate(current_page_days, start=1 + page_index * LOGS_PER_PAGE):
-        kw_map = daily_map.get(day, {})
-        shift_full = kw_map.get("shift", "未选择班次")
-        is_makeup = shift_full.endswith("（补卡）")
-        shift_name = shift_full.split("（")[0]
-
-        has_up = "#上班打卡" in kw_map
-        has_down = "#下班打卡" in kw_map
-        has_late = has_early = False
-
-        if has_up and shift_name in get_shift_times_short():
-            start_time, _ = get_shift_times_short()[shift_name]
-            if kw_map["#上班打卡"].time() > start_time:
-                has_late = True
-
-        if has_down and shift_name in get_shift_times_short():
-            _, end_time = get_shift_times_short()[shift_name]
-            down_ts = kw_map["#下班打卡"]
-            if shift_name == "I班" and down_ts.date() == day:
-                has_early = True
-            elif shift_name != "I班" and down_ts.time() < end_time:
-                has_early = True
-
-        # 🔹 输出记录
-        reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
-
-        # 上班卡
-        if has_up:
-            reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{'（迟到）' if has_late else ''}\n"
-        else:
-            reply += f"   └─ #上班打卡：未打卡 ❌\n"
-
-        # 下班卡
-        if has_down:
-            down_ts = kw_map["#下班打卡"]
-            next_day = down_ts.date() > day
-            reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
-        else:
-            reply += f"   └─ #下班打卡：未打卡 ❌\n"
+    await send_logs_page(update, context, key="userlogs")
     
-    reply += (
-        f"\n🟢 正常：{total_normal} 次\n"
-        f"🔴 异常（迟到/早退/缺卡）：{total_abnormal} 次\n"
-        f"🟡 补卡：{total_makeup} 次"
-    )
-
-    # 分页按钮
-    buttons = []
-    if page_index > 0:
-        buttons.append(InlineKeyboardButton("⬅ 上一页", callback_data="userlogs_prev"))
-    if page_index < len(pages) - 1:
-        buttons.append(InlineKeyboardButton("➡ 下一页", callback_data="userlogs_next"))
-    markup = InlineKeyboardMarkup([buttons]) if buttons else None
-
-    if update.callback_query:
-        await update.callback_query.edit_message_text(reply, reply_markup=markup)
-    else:
-        await update.message.reply_text(reply, reply_markup=markup)
-
 # ===========================
 # 分页按钮回调
 # ===========================
