@@ -198,10 +198,10 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["shift"] = shift
         daily_map[date_key][kw] = ts
 
-    # 7️⃣ 分页（⚡只展示有数据的日期）
-    all_days = sorted(daily_map.keys())  # ✅ 直接取有记录的日期，不再遍历整个月
+    # 6️⃣ 获取所有有记录的天
+    all_days = sorted(daily_map.keys())
     
-    # ✅ 统计整月数据：正常打卡、异常（迟到/早退）、补卡
+    # 7️⃣ 统计整月数据
     total_complete = total_abnormal = total_makeup = 0
     for day in all_days:
         kw_map = daily_map[day]
@@ -215,37 +215,33 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             total_makeup += 1
 
-        # 判断迟到
-        if has_up and shift_name in get_shift_times_short():
-            start_time, _ = get_shift_times_short()[shift_name]
-            if kw_map["#上班打卡"].time() > start_time:
-                has_late = True
-
-        # 判断早退
-        if has_down and shift_name in get_shift_times_short():
-            _, end_time = get_shift_times_short()[shift_name]
-            down_ts = kw_map["#下班打卡"]
-            if shift_name == "I班" and down_ts.date() == day:
-                has_early = True
-            elif shift_name != "I班" and down_ts.time() < end_time:
-                has_early = True
-
         if not is_makeup:
-            # ⬇️ 上班正常算 1 次
+            # 上班打卡
             if has_up:
-                if has_late:
-                    total_abnormal += 1
-                else:
-                    total_complete += 1
+                if shift_name in get_shift_times_short():
+                    start_time, _ = get_shift_times_short()[shift_name]
+                    if kw_map["#上班打卡"].time() > start_time:
+                        has_late = True
+                total_complete += 1 if not has_late else 0
+                total_abnormal += 1 if has_late else 0
+            else:
+                total_abnormal += 1  # 缺卡
 
-            # ⬇️ 下班正常算 1 次
+            # 下班打卡
             if has_down:
-                if has_early:
-                    total_abnormal += 1
-                else:
-                    total_complete += 1
+                if shift_name in get_shift_times_short():
+                    _, end_time = get_shift_times_short()[shift_name]
+                    down_ts = kw_map["#下班打卡"]
+                    if shift_name == "I班" and down_ts.date() == day:
+                        has_early = True
+                    elif shift_name != "I班" and down_ts.time() < end_time:
+                        has_early = True
+                total_complete += 1 if not has_early else 0
+                total_abnormal += 1 if has_early else 0
+            else:
+                total_abnormal += 1  # 缺卡
 
-
+    # 8️⃣ 分页
     pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
     context.user_data["userlogs_pages"] = {
         "pages": pages,
@@ -313,7 +309,7 @@ async def send_userlogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
-        f"🔴 异常（迟到/早退）：{total_abnormal} 次\n"
+        f"🔴 异常（迟到/早退/缺卡）：{total_abnormal} 次\n"
         f"🟡 补卡：{total_makeup} 次"
     )
 
