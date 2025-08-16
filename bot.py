@@ -446,11 +446,13 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             total_makeup += 1
 
+        # 判断迟到
         if has_up and shift_name in get_shift_times_short():
             start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
+        # 判断早退
         if has_down and shift_name in get_shift_times_short():
             _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
@@ -460,13 +462,20 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 has_early = True
 
         if not is_makeup:
-            if has_late:
-                total_abnormal += 1
-            if has_early:
-                total_abnormal += 1
-            if has_up and has_down and not has_late and not has_early:
-                total_complete += 1
+            # ⬇️ 上班正常算 1 次
+            if has_up:
+                if has_late:
+                    total_abnormal += 1
+                else:
+                    total_complete += 1
 
+            # ⬇️ 下班正常算 1 次
+            if has_down:
+                if has_early:
+                    total_abnormal += 1
+                else:
+                    total_complete += 1
+	
     # ✅ 分页（只分页有数据的日期）
     pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
     context.user_data["mylogs_pages"] = {
