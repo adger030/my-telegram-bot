@@ -219,9 +219,8 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if has_up and has_down and not has_late and not has_early:
                 total_complete += 1
 
-    # 7️⃣ 分页（把每一天都列出来，即使缺卡）
-    all_days = list(rrule(DAILY, dtstart=start, until=now))  # 从月初到今天，每天一条
-    all_days = [d.date() for d in all_days]
+    # 7️⃣ 分页（⚡只展示有数据的日期）
+    all_days = sorted(daily_map.keys())  # ✅ 直接取有记录的日期，不再遍历整个月
 
     pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
     context.user_data["userlogs_pages"] = {
@@ -275,15 +274,10 @@ async def send_userlogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{'（迟到）' if has_late else ''}\n"
-        else:
-            reply += f"   └─ #上班打卡：❌ 未打卡\n"
-
         if has_down:
             down_ts = kw_map["#下班打卡"]
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
-        else:
-            reply += f"   └─ #下班打卡：❌ 未打卡\n"
 
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
@@ -303,7 +297,6 @@ async def send_userlogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.callback_query.edit_message_text(reply, reply_markup=markup)
     else:
         await update.message.reply_text(reply, reply_markup=markup)
-
 
 # ===========================
 # 分页按钮回调
