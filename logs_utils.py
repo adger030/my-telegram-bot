@@ -74,22 +74,24 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
 
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
-
+                
         if is_makeup:
             total_makeup += 1
-
-        # ===== 上班统计 =====
-        if has_up:
-            if shift_name in get_shift_times_short():
-                start_time, _ = get_shift_times_short()[shift_name]
-                if kw_map["#上班打卡"].time() > start_time:
-                    total_abnormal += 1  # 迟到
-                else:
-                    total_complete += 1  # 正常
-            else:
-                total_complete += 1  # 没班次表，算正常
+            # 🔹 上班补卡的情况，不再进入正常/异常统计
+            if has_up:
+                pass  
         else:
-            if not is_makeup:
+            # ===== 上班统计 =====
+            if has_up:
+                if shift_name in get_shift_times_short():
+                    start_time, _ = get_shift_times_short()[shift_name]
+                    if kw_map["#上班打卡"].time() > start_time:
+                        total_abnormal += 1  # 迟到
+                    else:
+                        total_complete += 1  # 正常
+                else:
+                    total_complete += 1
+            else:
                 total_abnormal += 1  # 缺卡
 
         # ===== 下班统计 =====
