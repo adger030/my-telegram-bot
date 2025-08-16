@@ -198,6 +198,9 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["shift"] = shift
         daily_map[date_key][kw] = ts
 
+    # 7️⃣ 分页（⚡只展示有数据的日期）
+    all_days = sorted(daily_map.keys())  # ✅ 直接取有记录的日期，不再遍历整个月
+    
     # ✅ 统计整月数据：正常打卡、异常（迟到/早退）、补卡
     total_complete = total_abnormal = total_makeup = 0
     for day in all_days:
@@ -242,9 +245,6 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     total_complete += 1
 
-    
-    # 7️⃣ 分页（⚡只展示有数据的日期）
-    all_days = sorted(daily_map.keys())  # ✅ 直接取有记录的日期，不再遍历整个月
 
     pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
     context.user_data["userlogs_pages"] = {
