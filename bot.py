@@ -290,25 +290,38 @@ def has_user_checked_keyword_today_fixed(username, keyword):
         rows = cur.fetchall()
 
     # ---- 规则判断 ----
+    has_up = False
+    has_down = False
+
     for kw, shift, ts in rows:
         ts_local = ts.astimezone(BEIJING_TZ)
 
-        # 忽略凌晨下班卡归到前一天的情况
+        # 忽略凌晨下班卡算前一天
         if kw == "#下班打卡" and ts_local.hour < 6:
             continue
 
-        # 已经有上班卡 → 不允许再上班或补卡
-        if keyword in ("#上班打卡", "#补卡") and kw in ("#上班打卡", "#补卡"):
-            return True
+        # 统一识别：上班 = "#上班打卡" 或 "#补卡(上班)"
+        if kw == "#上班打卡" or (kw == "#补卡" and shift and "上班" in shift):
+            has_up = True
 
-        # 已经有下班卡 → 不允许再下班或补卡
-        if keyword == "#下班打卡" and kw == "#下班打卡":
-            return True
+        # 统一识别：下班 = "#下班打卡" 或 "#补卡(下班)"
+        if kw == "#下班打卡" or (kw == "#补卡" and shift and "下班" in shift):
+            has_down = True
+
+    # ---- 限制逻辑 ----
+    if keyword == "#上班打卡":
+        return has_up  # 已有上班 → 禁止再打
+    if keyword == "#下班打卡":
+        return has_down  # 已有下班 → 禁止再打
+    if keyword == "#补卡":
+        # 上班补卡
+        if "上班" in (shift or ""):
+            return has_up  # 已有上班 → 禁止补卡
+        # 下班补卡
+        if "下班" in (shift or ""):
+            return has_down  # 已有下班 → 禁止补卡
 
     return False
-
-
-
 
 # ===========================
 # 处理补上班卡的逻辑
