@@ -583,7 +583,7 @@ async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await send_mylogs_page(update, context)
 
 # ===========================
-# 提醒功能（上下班提醒）
+# 命令入口
 # ===========================
 async def remind_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
@@ -604,18 +604,21 @@ async def remind_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
+# ===========================
+# 回调处理
+# ===========================
 async def remind_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     username = query.from_user.username or f"user{query.from_user.id}"
-    
+
     if query.data == "remind_yes":
         # 选择班次
         keyboard = [[InlineKeyboardButton(v, callback_data=f"remind_shift:{k}")] for k, v in get_shift_options().items()]
         await query.edit_message_text("请选择班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif query.data == "remind_disable":
-        disable_reminder(username)
+        await disable_user_reminder(username)
         await query.edit_message_text("🔕 已关闭每日上班打卡提醒。")
 
 
@@ -632,9 +635,21 @@ async def remind_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     # 保存到数据库（带 chat_id）
     set_reminder(username, chat_id, shift_code, True)
 
+    # 安排上班和下班提醒
+    schedule_user_reminders(chat_id, username, shift_name, start_time, end_time)
+
+    await query.edit_message_text(
+        f"✅ 已保存 {shift_name} 提醒，将在每天提前 30 分钟提醒上班，提前 5 分钟提醒下班。"
+    )
+
+
+# ===========================
+# 调度与发送
+# ===========================
+def schedule_user_reminders(chat_id, username, shift_name, start_time, end_time):
     now = datetime.now(BEIJING_TZ)
-    
-    # ========== 上班提醒 ==========
+
+    # 上班提醒
     work_target_time = now.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
     if now >= work_target_time:
         work_target_time += timedelta(days=1)
@@ -644,12 +659,12 @@ async def remind_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
         schedule_send_reminder,
         trigger="date",
         run_date=work_remind_time,
-        args=[chat_id, shift_name],
+        args=[chat_id, username, shift_name],
         id=f"remind_on_{chat_id}",
         replace_existing=True
     )
 
-    # ========== 下班提醒 ==========
+    # 下班提醒
     off_target_time = now.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
     if now >= off_target_time:
         off_target_time += timedelta(days=1)
@@ -659,109 +674,75 @@ async def remind_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
         schedule_send_off_reminder,
         trigger="date",
         run_date=off_remind_time,
-        args=[chat_id, shift_name],
+        args=[chat_id, username, shift_name],
         id=f"remind_off_{chat_id}",
         replace_existing=True
     )
 
-    await query.edit_message_text(f"✅ 已保存 {shift_name} 提醒，将在每天提前 30 分钟提醒上班，提前 5 分钟提醒下班。")
 
-
-async def send_reminder(chat_id, shift_name):
+async def send_reminder(chat_id, username, shift_name):
+    if not is_reminder_active(username):
+        return
     await app.bot.send_message(chat_id, f"⏰ 提醒：{shift_name} 上班打卡还有 30 分钟，请准备打卡。")
 
 
-async def send_off_work_reminder(chat_id, shift_name):
+async def send_off_work_reminder(chat_id, username, shift_name):
+    if not is_reminder_active(username):
+        return
     await app.bot.send_message(chat_id, f"⏰ 提醒：{shift_name} 下班打卡还有 5 分钟，请记得打卡。")
 
 
-async def remind_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    username = update.effective_user.username or f"user{update.effective_user.id}"
+def schedule_send_reminder(chat_id, username, shift_name):
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    if loop.is_running():
+        loop.create_task(send_reminder(chat_id, username, shift_name))
+    else:
+        loop.run_until_complete(send_reminder(chat_id, username, shift_name))
+
+
+def schedule_send_off_reminder(chat_id, username, shift_name):
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    if loop.is_running():
+        loop.create_task(send_off_work_reminder(chat_id, username, shift_name))
+    else:
+        loop.run_until_complete(send_off_work_reminder(chat_id, username, shift_name))
+
+
+# ===========================
+# 关闭提醒
+# ===========================
+async def disable_user_reminder(username):
     disable_reminder(username)
-    await update.message.reply_text("🔕 已关闭每日上班打卡提醒。")
+    # 取消调度任务
+    for suffix in ["on", "off"]:
+        job_id = f"remind_{suffix}_{username}"
+        try:
+            scheduler.remove_job(job_id)
+        except Exception:
+            pass
 
 
-def schedule_daily_reminders():
-    active = get_active_reminders()
-    for username, shift_code in active:
-        shift_name = get_shift_options().get(shift_code)
-        if not shift_name:
-            continue
-        shift_short = shift_name.split("（")[0]
-        start_time, end_time = get_shift_times_short()[shift_short]
-        remind_time = datetime.now(BEIJING_TZ).replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0) + timedelta(days=1)
-        remind_time -= timedelta(minutes=30)
-        # 这里只演示结构，实际下班提醒同理
-
-
-def schedule_send_reminder(chat_id, shift_name):
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    if loop.is_running():
-        loop.create_task(send_reminder(chat_id, shift_name))
-    else:
-        loop.run_until_complete(send_reminder(chat_id, shift_name))
-
-
-def schedule_send_off_reminder(chat_id, shift_name):
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    if loop.is_running():
-        loop.create_task(send_off_work_reminder(chat_id, shift_name))
-    else:
-        loop.run_until_complete(send_off_work_reminder(chat_id, shift_name))
-
-
+# ===========================
+# 启动时恢复任务
+# ===========================
 def restore_reminder_jobs():
-    active_reminders = get_active_reminders()
+    active_reminders = get_active_reminders()  # 必须只返回 active=True 的用户
     for username, chat_id, shift_code in active_reminders:
         shift_name = get_shift_options().get(shift_code)
         if not shift_name:
             continue
         shift_short = shift_name.split("（")[0]
         start_time, end_time = get_shift_times_short()[shift_short]
-        
-        now = datetime.now(BEIJING_TZ)
-        
-        # ========== 上班提醒 ==========
-        work_target_time = now.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
-        if now >= work_target_time:
-            work_target_time += timedelta(days=1)
-        work_remind_time = work_target_time - timedelta(minutes=30)
-
-        scheduler.add_job(
-            schedule_send_reminder,
-            trigger="date",
-            run_date=work_remind_time,
-            args=[chat_id, shift_name],
-            id=f"remind_on_{chat_id}",
-            replace_existing=True
-        )
-
-        # ========== 下班提醒 ==========
-        off_target_time = now.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
-        if now >= off_target_time:
-            off_target_time += timedelta(days=1)
-        off_remind_time = off_target_time - timedelta(minutes=5)
-
-        scheduler.add_job(
-            schedule_send_off_reminder,
-            trigger="date",
-            run_date=off_remind_time,
-            args=[chat_id, shift_name],
-            id=f"remind_off_{chat_id}",
-            replace_existing=True
-        )
-
-        print(f"[提醒恢复] {username} - {shift_name} - 上班:{work_remind_time} / 下班:{off_remind_time}")
+        schedule_user_reminders(chat_id, username, shift_name, start_time, end_time)
+        print(f"[提醒恢复] {username} - {shift_name}")
 
 # ===========================
 # 单实例检查：防止重复启动 Bot
