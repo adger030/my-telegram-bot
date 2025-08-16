@@ -14,6 +14,7 @@ from db_pg import engine, get_user_logs, get_user_logs_by_name, get_conn, get_us
 from config import ADMIN_IDS, BEIJING_TZ, LOGS_PER_PAGE, DATA_DIR
 from export import export_excel
 from shift_manager import get_shift_options, get_shift_times_short
+from bot import build_and_send_logs  # 导入公共函数
 
 
 # 提取 Cloudinary public_id
@@ -149,6 +150,7 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     
+
 # ===========================
 # 查看指定用户的考勤记录
 # ===========================
@@ -161,98 +163,18 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 用法：/userlogs @用户名 或 /userlogs 中文姓名")
         return
 
-    # 1️⃣ 解析查询对象
     raw_input = context.args[0]
     is_username = raw_input.startswith("@")
     target_key = raw_input.lstrip("@") if is_username else raw_input
 
-    # 2️⃣ 计算本月时间范围
-    now = datetime.now(BEIJING_TZ)
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    end = (start + timedelta(days=32)).replace(day=1)
+    start, end = get_default_month_range()
 
-    # 3️⃣ 获取记录
     if is_username:
         logs = get_user_logs(target_key, start, end)
     else:
         logs = get_user_logs_by_name(target_key, start, end)
 
-    if not logs:
-        await update.message.reply_text(f"📭 用户 {target_key} 本月暂无打卡记录。")
-        return
-
-    # 4️⃣ 转换时区 & 排序
-    logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
-    logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
-    logs = sorted(logs, key=lambda x: x[0])
-
-    # 5️⃣ 按天组合上下班打卡
-    daily_map = defaultdict(dict)
-    for ts, kw, shift in logs:
-        date_key = ts.date()
-        # ⏰ 下班在凌晨 -> 归到前一天
-        if kw == "#下班打卡" and ts.hour < 6:
-            date_key = (ts - timedelta(days=1)).date()
-
-        if "shift" not in daily_map[date_key]:
-            daily_map[date_key]["shift"] = shift
-        daily_map[date_key][kw] = ts
-
-    # 6️⃣ 获取所有有记录的天
-    all_days = sorted(daily_map.keys())
-    
-    # 7️⃣ 统计整月数据
-    total_normal = total_abnormal = total_makeup = 0
-    for day in all_days:
-        kw_map = daily_map[day]
-        shift_full = kw_map.get("shift", "未选择班次")
-        is_makeup = shift_full.endswith("（补卡）")
-        shift_name = shift_full.split("（")[0]
-
-        has_up = "#上班打卡" in kw_map
-        has_down = "#下班打卡" in kw_map
-        has_late = has_early = False
-
-        if is_makeup:
-            total_makeup += 1
-
-        # 检查上班卡
-        if has_up and shift_name in get_shift_times_short():
-            start_time, _ = get_shift_times_short()[shift_name]
-            if kw_map["#上班打卡"].time() > start_time:
-                has_late = True
-
-        # 检查下班卡
-        if has_down and shift_name in get_shift_times_short():
-            _, end_time = get_shift_times_short()[shift_name]
-            down_ts = kw_map["#下班打卡"]
-            if shift_name == "I班" and down_ts.date() == day:
-                has_early = True
-            elif shift_name != "I班" and down_ts.time() < end_time:
-                has_early = True
-
-        # ✅ 正常次数（每个正常打卡记 1 次）
-        if has_up and not has_late and not is_makeup:
-            total_normal += 1
-        if has_down and not has_early and not is_makeup:
-            total_normal += 1
-
-        # 🔴 异常（只要缺卡/迟到/早退且不是补卡）
-        if (not has_up or not has_down or has_late or has_early) and not is_makeup:
-            total_abnormal += 1
-
-    # 8️⃣ 分页
-    pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
-    context.user_data["userlogs_pages"] = {
-        "pages": pages,
-        "daily_map": daily_map,
-        "page_index": 0,
-        "summary": (total_normal, total_abnormal, total_makeup),
-        "target_username": target_key,
-        "is_username": is_username
-    }
-
-    await send_userlogs_page(update, context)
+    await build_and_send_logs(update, context, logs, target_key, key="userlogs")
 
 
 # ===========================
