@@ -275,22 +275,38 @@ def has_user_checked_keyword_today_fixed(username, keyword):
     else:
         ref_day = now
 
-    # 查询区间（自然日 00:00 - 23:59）
+    # 当天范围
     start = ref_day.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
 
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT 1 FROM messages
-            WHERE username=%s AND keyword=%s
+            SELECT keyword, shift, timestamp
+            FROM messages
+            WHERE username=%s
             AND timestamp >= %s AND timestamp < %s
-            LIMIT 1
-        """, (username, keyword, start, end))
-        row = cur.fetchone()
+        """, (username, start, end))
+        rows = cur.fetchall()
 
-    # ✅ 已经有上班/下班卡 → 无论是否补卡 → 禁止再次打卡
-    return row is not None
+    # ---- 规则判断 ----
+    for kw, shift, ts in rows:
+        ts_local = ts.astimezone(BEIJING_TZ)
+
+        # 忽略凌晨下班卡归到前一天的情况
+        if kw == "#下班打卡" and ts_local.hour < 6:
+            continue
+
+        # 已经有上班卡 → 不允许再上班或补卡
+        if keyword in ("#上班打卡", "#补卡") and kw in ("#上班打卡", "#补卡"):
+            return True
+
+        # 已经有下班卡 → 不允许再下班或补卡
+        if keyword == "#下班打卡" and kw == "#下班打卡":
+            return True
+
+    return False
+
 
 
 
