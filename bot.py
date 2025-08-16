@@ -705,6 +705,56 @@ def schedule_send_off_reminder(chat_id, username, shift_name):
     else:
         loop.run_until_complete(send_off_work_reminder(chat_id, username, shift_name))
 
+# =============================
+# 每天凌晨批量刷新所有用户的提醒任务
+# =============================
+def schedule_daily_reminders():
+    active = get_active_reminders()  # 从数据库获取所有开启提醒的用户 [(username, shift_code), ...]
+
+    for username, shift_code in active:
+        shift_name = get_shift_options().get(shift_code)
+        if not shift_name:
+            continue
+
+        # 提取班次简称，例如 I班（14:30-23:30） -> "I班"
+        shift_short = shift_name.split("（")[0]
+
+        # 获取该班次的上/下班时间
+        start_time, end_time = get_shift_times_short()[shift_short]
+
+        # ========== 上班提醒 ==========
+        remind_time_start = (
+            datetime.now(BEIJING_TZ)
+            .replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
+            + timedelta(days=1)          # 提前一天算明天的提醒
+        )
+        remind_time_start -= timedelta(minutes=30)  # 提前 30 分钟提醒上班
+
+        scheduler.add_job(
+            send_reminder,
+            trigger=DateTrigger(run_date=remind_time_start),
+            args=[username, f"⏰ 提醒：您 {shift_short} 即将上班，请及时打卡！"],
+            id=f"{username}_start",
+            replace_existing=True
+        )
+
+        # ========== 下班提醒 ==========
+        remind_time_end = (
+            datetime.now(BEIJING_TZ)
+            .replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
+            + timedelta(days=1)
+        )
+        remind_time_end -= timedelta(minutes=30)  # 提前 30 分钟提醒下班
+
+        scheduler.add_job(
+            send_reminder,
+            trigger=DateTrigger(run_date=remind_time_end),
+            args=[username, f"⏰ 提醒：您 {shift_short} 即将下班，请及时打卡！"],
+            id=f"{username}_end",
+            replace_existing=True
+        )
+
+    logging.info("✅ 已为所有开启提醒的用户刷新明日的上/下班提醒任务")
 
 # ===========================
 # 关闭提醒
