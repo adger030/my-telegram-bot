@@ -170,34 +170,23 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 5️⃣ 按天组合上下班打卡
     daily_map = defaultdict(dict)
-    i = 0
-    while i < len(logs):
-        ts, kw, shift = logs[i]
+    for ts, kw, shift in logs:
         date_key = ts.date()
+        # ⏰ 下班在凌晨 -> 归到前一天
         if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
 
-        if kw == "#上班打卡":
+        if "shift" not in daily_map[date_key]:
             daily_map[date_key]["shift"] = shift
-            daily_map[date_key]["#上班打卡"] = ts
-            j = i + 1
-            while j < len(logs):
-                ts2, kw2, _ = logs[j]
-                if kw2 == "#下班打卡" and timedelta(0) < (ts2 - ts) <= timedelta(hours=12):
-                    daily_map[date_key]["#下班打卡"] = ts2
-                    break
-                j += 1
-            i = j if j > i else i + 1
-        else:
-            daily_map[date_key]["#下班打卡"] = ts
-            i += 1
+        daily_map[date_key][kw] = ts
 
-    # 6️⃣ 统计
+    # 6️⃣ 统计（补卡、迟到、早退、正常）
     total_complete = total_abnormal = total_makeup = 0
     for day, kw_map in daily_map.items():
         shift_full = kw_map.get("shift", "未选择班次")
         is_makeup = shift_full.endswith("（补卡）")
         shift_name = shift_full.split("（")[0]
+
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
         has_late = has_early = False
@@ -205,11 +194,13 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             total_makeup += 1
 
+        # 迟到
         if has_up and shift_name in get_shift_times_short():
             start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
+        # 早退
         if has_down and shift_name in get_shift_times_short():
             _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
@@ -218,28 +209,30 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
-        if is_makeup:
-            continue
-        if has_late:
-            total_abnormal += 1
-        if has_early:
-            total_abnormal += 1
-        if not has_late and not has_early and (has_up or has_down):
-            total_complete += 2 if has_up and has_down else 1
+        # 统计
+        if not is_makeup:
+            if has_late:
+                total_abnormal += 1
+            if has_early:
+                total_abnormal += 1
+            if has_up and has_down and not has_late and not has_early:
+                total_complete += 1
 
-    # 7️⃣ 分页
-    all_days = sorted(daily_map)
+    # 7️⃣ 分页（把每一天都列出来，即使缺卡）
+    all_days = list(rrule(DAILY, dtstart=start, until=now))  # 从月初到今天，每天一条
+    all_days = [d.date() for d in all_days]
+
     pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
     context.user_data["userlogs_pages"] = {
         "pages": pages,
         "daily_map": daily_map,
         "page_index": 0,
         "summary": (total_complete, total_abnormal, total_makeup),
-        "target_username": target_key,  # 无论是 username 还是 name，都记录
-        "is_username": is_username      # 记录查询方式
+        "target_username": target_key,
+        "is_username": is_username
     }
 
-    await send_userlogs_page(update, context)  # 展示第一页
+    await send_userlogs_page(update, context)
 
 
 # ===========================
@@ -255,10 +248,11 @@ async def send_userlogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
     reply = f"🗓️ {target_username} 本月打卡记录（第 {page_index+1}/{len(pages)} 页）：\n\n"
 
     for idx, day in enumerate(current_page_days, start=1 + page_index * LOGS_PER_PAGE):
-        kw_map = daily_map[day]
+        kw_map = daily_map.get(day, {})
         shift_full = kw_map.get("shift", "未选择班次")
         is_makeup = shift_full.endswith("（补卡）")
         shift_name = shift_full.split("（")[0]
+
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
         has_late = has_early = False
@@ -276,13 +270,19 @@ async def send_userlogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
+        # 🔹 输出记录
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{'（迟到）' if has_late else ''}\n"
+        else:
+            reply += f"   └─ #上班打卡：❌ 未打卡\n"
+
         if has_down:
             down_ts = kw_map["#下班打卡"]
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
+        else:
+            reply += f"   └─ #下班打卡：❌ 未打卡\n"
 
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
@@ -302,6 +302,7 @@ async def send_userlogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.callback_query.edit_message_text(reply, reply_markup=markup)
     else:
         await update.message.reply_text(reply, reply_markup=markup)
+
 
 # ===========================
 # 分页按钮回调
