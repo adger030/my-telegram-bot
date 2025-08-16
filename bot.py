@@ -36,6 +36,7 @@ from shift_manager import (
     get_shift_options, get_shift_times, get_shift_times_short,
     list_shifts_cmd, edit_shift_cmd, delete_shift_cmd
 )
+from logs_utils import build_and_send_logs, send_logs_page
 
 app = None  # 全局声明，初始为空
 
