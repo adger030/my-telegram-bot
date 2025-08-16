@@ -267,10 +267,17 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 检查用户当天是否已经打过指定关键词的卡（修复版）
 # ===========================
 def has_user_checked_keyword_today_fixed(username, keyword):
+    """
+    检查用户当天是否已经打过某种卡（修复版）
+    规则：
+      - 上班卡和补卡视为同一类，只能打一次
+      - 下班卡只能打一次
+      - 凌晨 0-6 点的补卡/下班卡算前一天
+    """
     now = datetime.now(BEIJING_TZ)
 
-    # 特殊规则：凌晨 0-6 点的下班卡算前一天
-    if keyword == "#下班打卡" and now.hour < 6:
+    # 特殊规则：凌晨 0-6 点算前一天
+    if keyword in ("#下班打卡", "#补卡") and now.hour < 6:
         ref_day = now - timedelta(days=1)
     else:
         ref_day = now
@@ -282,44 +289,35 @@ def has_user_checked_keyword_today_fixed(username, keyword):
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT keyword, shift, timestamp
-            FROM messages
+            SELECT keyword, timestamp FROM messages
             WHERE username=%s
             AND timestamp >= %s AND timestamp < %s
         """, (username, start, end))
         rows = cur.fetchall()
 
-    # ---- 规则判断 ----
     has_up = False
     has_down = False
 
-    for kw, shift, ts in rows:
+    for kw, ts in rows:
         ts_local = ts.astimezone(BEIJING_TZ)
 
-        # 忽略凌晨下班卡算前一天
+        # 忽略凌晨下班卡（算前一天）
         if kw == "#下班打卡" and ts_local.hour < 6:
             continue
+        # 忽略凌晨补卡（算前一天）
+        if kw == "#补卡" and ts_local.hour < 6:
+            continue
 
-        # 统一识别：上班 = "#上班打卡" 或 "#补卡(上班)"
-        if kw == "#上班打卡" or (kw == "#补卡" and shift and "上班" in shift):
+        if kw in ("#上班打卡", "#补卡"):
             has_up = True
-
-        # 统一识别：下班 = "#下班打卡" 或 "#补卡(下班)"
-        if kw == "#下班打卡" or (kw == "#补卡" and shift and "下班" in shift):
+        elif kw == "#下班打卡":
             has_down = True
 
     # ---- 限制逻辑 ----
-    if keyword == "#上班打卡":
-        return has_up  # 已有上班 → 禁止再打
+    if keyword in ("#上班打卡", "#补卡"):
+        return has_up  # 已有上班/补卡 → 禁止
     if keyword == "#下班打卡":
-        return has_down  # 已有下班 → 禁止再打
-    if keyword == "#补卡":
-        # 上班补卡
-        if "上班" in (shift or ""):
-            return has_up  # 已有上班 → 禁止补卡
-        # 下班补卡
-        if "下班" in (shift or ""):
-            return has_down  # 已有下班 → 禁止补卡
+        return has_down  # 已有下班 → 禁止
 
     return False
 
