@@ -68,12 +68,23 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     args = context.args
-    if len(args) not in (2, 3):
-        await update.message.reply_text("⚠️ 用法：/delete_range YYYY-MM-DD YYYY-MM-DD [confirm]")
+    if len(args) not in (2, 3, 4):
+        await update.message.reply_text("⚠️ 用法：/delete_range YYYY-MM-DD YYYY-MM-DD [username] [confirm]")
         return
 
     start_date, end_date = args[0], args[1]
-    confirm = len(args) == 3 and args[2].lower() == "confirm"
+    username = None
+    confirm = False
+
+    # 判断参数是否有 username 或 confirm
+    if len(args) == 3:
+        if args[2].lower() == "confirm":
+            confirm = True
+        else:
+            username = args[2]
+    elif len(args) == 4:
+        username = args[2]
+        confirm = args[3].lower() == "confirm"
 
     # 校验日期格式
     try:
@@ -84,14 +95,18 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # 查询记录
+    query = """
+        SELECT id, content FROM messages
+        WHERE timestamp >= :start_date AND timestamp <= :end_date
+    """
+    params = {"start_date": f"{start_date} 00:00:00", "end_date": f"{end_date} 23:59:59"}
+
+    if username:
+        query += " AND username = :username"
+        params["username"] = username
+
     with engine.begin() as conn:
-        result = conn.execute(
-            text("""
-                SELECT id, content FROM messages
-                WHERE timestamp >= :start_date AND timestamp <= :end_date
-            """),
-            {"start_date": f"{start_date} 00:00:00", "end_date": f"{end_date} 23:59:59"}
-        )
+        result = conn.execute(text(query), params)
         rows = result.fetchall()
 
     total_count = len(rows)
@@ -101,8 +116,9 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not confirm:
         await update.message.reply_text(
             f"🔍 预览删除范围：{start_date} 至 {end_date}\n"
+            f"👤 用户：{username or '所有用户'}\n"
             f"📄 共 {total_count} 条记录，其中 {len(public_ids)} 张图片。\n\n"
-            f"要确认删除，请使用：\n`/delete_range {start_date} {end_date} confirm`",
+            f"要确认删除，请使用：\n`/delete_range {start_date} {end_date} {username or ''} confirm`",
             parse_mode="Markdown"
         )
         return
@@ -113,23 +129,25 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         deleted_images = batch_delete_cloudinary(public_ids)
 
     # 删除数据库记录
+    delete_query = """
+        DELETE FROM messages
+        WHERE timestamp >= :start_date AND timestamp <= :end_date
+    """
+    if username:
+        delete_query += " AND username = :username"
+
     with engine.begin() as conn:
-        delete_result = conn.execute(
-            text("""
-                DELETE FROM messages
-                WHERE timestamp >= :start_date AND timestamp <= :end_date
-                RETURNING id
-            """),
-            {"start_date": f"{start_date} 00:00:00", "end_date": f"{end_date} 23:59:59"}
-        )
+        delete_result = conn.execute(text(delete_query + " RETURNING id"), params)
         deleted_count = len(delete_result.fetchall())
 
     await update.message.reply_text(
         f"✅ 删除完成！\n\n"
+        f"👤 用户：{username or '所有用户'}\n"
         f"📄 数据库记录：{deleted_count}/{total_count} 条\n"
         f"🖼 Cloudinary 图片：{deleted_images}/{len(public_ids)} 张\n"
         f"📅 范围：{start_date} ~ {end_date}"
     )
+
     
 # ===========================
 # 查看指定用户的考勤记录
