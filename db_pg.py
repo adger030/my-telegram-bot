@@ -316,9 +316,19 @@ def get_active_reminders():
             cur.execute("SELECT username, chat_id, shift_code FROM reminders WHERE active = TRUE")
             return cur.fetchall()
 
-def disable_reminder(username):
-    with get_conn() as conn:
+def disable_reminder(username, chat_id=None):
+    with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("UPDATE reminders SET active = FALSE WHERE username=%s", (username,))
             conn.commit()
 
+    # 如果有 chat_id，就同时移除 APScheduler 里的定时任务
+    if chat_id:
+        try:
+            scheduler.remove_job(f"remind_on_{chat_id}")
+        except Exception:
+            pass
+        try:
+            scheduler.remove_job(f"remind_off_{chat_id}")
+        except Exception:
+            pass
