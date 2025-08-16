@@ -21,7 +21,7 @@ import requests
 # ===========================
 # 项目内部模块
 # ===========================
-from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, ADMIN_USERNAMES, LOGS_PER_PAGE, BEIJING_TZ, build_and_send_logs
+from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, ADMIN_USERNAMES, LOGS_PER_PAGE, BEIJING_TZ
 from upload_image import upload_image
 from cleaner import delete_last_month_data
 from db_pg import (
