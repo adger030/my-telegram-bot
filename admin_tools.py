@@ -198,13 +198,13 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["shift"] = shift
         daily_map[date_key][kw] = ts
 
-    # 6️⃣ 统计（补卡、迟到、早退、正常）
+    # ✅ 统计整月数据：正常打卡、异常（迟到/早退）、补卡
     total_complete = total_abnormal = total_makeup = 0
-    for day, kw_map in daily_map.items():
+    for day in all_days:
+        kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
-        is_makeup = shift_full.endswith("（补卡）")
+        is_makeup = shift_full.endswith("（补卡）")  # 是否补卡
         shift_name = shift_full.split("（")[0]
-
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
         has_late = has_early = False
@@ -212,13 +212,13 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             total_makeup += 1
 
-        # 迟到
+        # 判断迟到
         if has_up and shift_name in get_shift_times_short():
             start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
-        # 早退
+        # 判断早退
         if has_down and shift_name in get_shift_times_short():
             _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
@@ -227,15 +227,22 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
-        # 统计
         if not is_makeup:
-            if has_late:
-                total_abnormal += 1
-            if has_early:
-                total_abnormal += 1
-            if has_up and has_down and not has_late and not has_early:
-                total_complete += 1
+            # ⬇️ 上班正常算 1 次
+            if has_up:
+                if has_late:
+                    total_abnormal += 1
+                else:
+                    total_complete += 1
 
+            # ⬇️ 下班正常算 1 次
+            if has_down:
+                if has_early:
+                    total_abnormal += 1
+                else:
+                    total_complete += 1
+
+    
     # 7️⃣ 分页（⚡只展示有数据的日期）
     all_days = sorted(daily_map.keys())  # ✅ 直接取有记录的日期，不再遍历整个月
 
