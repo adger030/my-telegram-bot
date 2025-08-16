@@ -634,14 +634,14 @@ async def remind_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
         work_target_time += timedelta(days=1)
     work_remind_time = work_target_time - timedelta(minutes=30)
 
-    scheduler.add_job(
-        schedule_send_reminder,
-        trigger="date",
-        run_date=work_remind_time,
-        args=[chat_id, shift_name],
-        id=f"remind_on_{chat_id}",
-        replace_existing=True
-    )
+	scheduler.add_job(
+	    schedule_send_reminder,
+	    trigger="date",
+	    run_date=work_remind_time,
+	    args=[chat_id, shift_name],
+	    id=f"remind_on_{username}",   # ✅ 改成 username
+	    replace_existing=True
+	)
 
     # ========== 下班提醒 ==========
     off_target_time = now.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
@@ -654,7 +654,7 @@ async def remind_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
         trigger="date",
         run_date=off_remind_time,
         args=[chat_id, shift_name],
-        id=f"remind_off_{chat_id}",
+        id=f"remind_off_{username}",
         replace_existing=True
     )
 
@@ -736,7 +736,7 @@ def restore_reminder_jobs():
             trigger="date",
             run_date=work_remind_time,
             args=[chat_id, shift_name],
-            id=f"remind_on_{chat_id}",
+            id=f"remind_on_{username}",
             replace_existing=True
         )
 
@@ -751,7 +751,7 @@ def restore_reminder_jobs():
             trigger="date",
             run_date=off_remind_time,
             args=[chat_id, shift_name],
-            id=f"remind_off_{chat_id}",
+            id=f"remind_off_{username}",
             replace_existing=True
         )
 
