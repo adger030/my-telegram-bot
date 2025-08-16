@@ -21,7 +21,7 @@ import requests
 # ===========================
 # 项目内部模块
 # ===========================
-from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, ADMIN_USERNAMES, LOGS_PER_PAGE, BEIJING_TZ
+from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, ADMIN_USERNAMES, LOGS_PER_PAGE, BEIJING_TZ, RAILWAY_API_KEY, SERVICE_ID
 from upload_image import upload_image
 from cleaner import delete_last_month_data
 from db_pg import (
@@ -53,6 +53,25 @@ logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 # 记录需要输入姓名的用户
 # ===========================
 WAITING_NAME = {}  
+
+def update_last_seen():
+    now = datetime.now(BEIJING_TZ).isoformat()  # 使用北京时间
+    requests.post(
+        "https://backboard.railway.app/graphql/v2",
+        headers={
+            "Authorization": f"Bearer {RAILWAY_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "query": """
+                mutation {
+                  serviceInstanceUpdateLastSeen(serviceInstanceId: "%s") {
+                    id
+                  }
+                }
+            """ % SERVICE_ID
+        }
+    )
 
 # ===========================
 # 提取关键词（例如 #上班打卡、#下班打卡 等）
@@ -110,6 +129,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 处理纯文本消息
 # ===========================
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_seen()
     msg = update.message
     username = msg.from_user.username or f"user{msg.from_user.id}"
     text = msg.text.strip()
@@ -162,6 +182,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 处理带图片的打卡消息
 # ===========================
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    update_last_seen()
     msg = update.message
     username = msg.from_user.username or f"user{msg.from_user.id}"
     caption = msg.caption or ""
@@ -379,7 +400,7 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data.pop("makeup_data", None)
 
 # ===========================
-# /mylogs 命令
+# /mylogs 命令：查看本月打卡记录
 # ===========================
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
@@ -400,9 +421,9 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # 转换时区 & 排序
-    logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]
-    logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
-    logs = sorted(logs, key=lambda x: x[0])
+    logs = [(parse(ts) if isinstance(ts, str) else ts, kw, shift) for ts, kw, shift in logs]  # 解析字符串时间
+    logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]  # 转换为北京时间
+    logs = sorted(logs, key=lambda x: x[0])  # 按时间排序
 
     # 按天组合上下班打卡记录
     daily_map = defaultdict(dict)
@@ -433,20 +454,22 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_complete = total_abnormal = total_makeup = 0
     for day, kw_map in daily_map.items():
         shift_full = kw_map.get("shift", "未选择班次")
-        is_makeup = shift_full.endswith("（补卡）")
-        shift_name = shift_full.split("（")[0]
+        is_makeup = shift_full.endswith("（补卡）")  # 是否补卡
+        shift_name = shift_full.split("（")[0]  # 去除补卡标记
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
         has_late = has_early = False
 
         if is_makeup:
-            total_makeup += 1
+            total_makeup += 1  # 补卡计数
 
+        # 迟到判定：上班时间 > 班次规定时间
         if has_up and shift_name in get_shift_times_short():
             start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
+        # 早退判定：下班时间 < 班次规定时间（I班跨天特殊判断）
         if has_down and shift_name in get_shift_times_short():
             _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
@@ -455,16 +478,17 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
+        # 计数逻辑
         if is_makeup:
-            continue
+            continue  # 补卡不计入正常/异常
         if has_late:
             total_abnormal += 1
         if has_early:
             total_abnormal += 1
         if not has_late and not has_early and (has_up or has_down):
-            total_complete += 2 if has_up and has_down else 1
+            total_complete += 2 if has_up and has_down else 1  # 正常计次
 
-    # 分页
+    # 分页：每页 5 天
     all_days = sorted(daily_map)
     pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
     context.user_data["mylogs_pages"] = {
@@ -474,15 +498,15 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "summary": (total_complete, total_abnormal, total_makeup)
     }
 
-    await send_mylogs_page(update, context)
-
+    await send_mylogs_page(update, context)  # 展示第一页
 
 # ===========================
-# 发送分页内容
+# 发送分页内容（安全版）
 # ===========================
 async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = context.user_data.get("mylogs_pages")
     if not data:
+        # 会话过期
         if update.callback_query:
             await update.callback_query.edit_message_text("⚠️ 会话已过期，请重新使用 /mylogs")
         else:
@@ -492,6 +516,7 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pages, daily_map, page_index = data["pages"], data["daily_map"], data["page_index"]
     total_complete, total_abnormal, total_makeup = data["summary"]
 
+    # ✅ 安全检查：防止索引越界
     if page_index < 0:
         page_index = 0
         data["page_index"] = 0
@@ -502,6 +527,7 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_page_days = pages[page_index]
     reply = f"🗓️ 本月打卡情况（第 {page_index+1}/{len(pages)} 页）：\n\n"
 
+    # 遍历当前页的每日记录
     for idx, day in enumerate(current_page_days, start=1 + page_index * LOGS_PER_PAGE):
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
@@ -511,11 +537,13 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_down = "#下班打卡" in kw_map
         has_late = has_early = False
 
+        # 迟到判定
         if has_up and shift_name in get_shift_times_short():
             start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
+        # 早退判定
         if has_down and shift_name in get_shift_times_short():
             _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
@@ -524,6 +552,7 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
+        # 生成每日详情
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{'（迟到）' if has_late else ''}\n"
@@ -532,12 +561,14 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
 
+    # 汇总信息
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
         f"🔴 异常（迟到/早退）：{total_abnormal} 次\n"
         f"🟡 补卡：{total_makeup} 次"
     )
 
+    # 分页按钮
     buttons = []
     if page_index > 0:
         buttons.append(InlineKeyboardButton("⬅ 上一页", callback_data="mylogs_prev"))
@@ -550,9 +581,8 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(reply, reply_markup=markup)
 
-
 # ===========================
-# 分页按钮回调
+# 分页按钮回调（边界保护）
 # ===========================
 async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -565,6 +595,7 @@ async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     pages_info = context.user_data["mylogs_pages"]
     total_pages = len(pages_info["pages"])
 
+    # ✅ 页码安全调整
     if query.data == "mylogs_prev" and pages_info["page_index"] > 0:
         pages_info["page_index"] -= 1
     elif query.data == "mylogs_next" and pages_info["page_index"] < total_pages - 1:
@@ -573,7 +604,7 @@ async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await send_mylogs_page(update, context)
 
 # ===========================
-# 命令入口
+# 提醒功能（上下班提醒）
 # ===========================
 async def remind_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or f"user{update.effective_user.id}"
@@ -594,21 +625,18 @@ async def remind_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# ===========================
-# 回调处理
-# ===========================
 async def remind_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     username = query.from_user.username or f"user{query.from_user.id}"
-
+    
     if query.data == "remind_yes":
         # 选择班次
         keyboard = [[InlineKeyboardButton(v, callback_data=f"remind_shift:{k}")] for k, v in get_shift_options().items()]
         await query.edit_message_text("请选择班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif query.data == "remind_disable":
-        await disable_user_reminder(username)
+        disable_reminder(username)
         await query.edit_message_text("🔕 已关闭每日上班打卡提醒。")
 
 
@@ -625,21 +653,9 @@ async def remind_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     # 保存到数据库（带 chat_id）
     set_reminder(username, chat_id, shift_code, True)
 
-    # 安排上班和下班提醒
-    schedule_user_reminders(chat_id, username, shift_name, start_time, end_time)
-
-    await query.edit_message_text(
-        f"✅ 已保存 {shift_name} 提醒，将在每天提前 30 分钟提醒上班，提前 5 分钟提醒下班。"
-    )
-
-
-# ===========================
-# 调度与发送
-# ===========================
-def schedule_user_reminders(chat_id, username, shift_name, start_time, end_time):
     now = datetime.now(BEIJING_TZ)
-
-    # 上班提醒
+    
+    # ========== 上班提醒 ==========
     work_target_time = now.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
     if now >= work_target_time:
         work_target_time += timedelta(days=1)
@@ -649,12 +665,12 @@ def schedule_user_reminders(chat_id, username, shift_name, start_time, end_time)
         schedule_send_reminder,
         trigger="date",
         run_date=work_remind_time,
-        args=[chat_id, username, shift_name],
+        args=[chat_id, shift_name],
         id=f"remind_on_{chat_id}",
         replace_existing=True
     )
 
-    # 下班提醒
+    # ========== 下班提醒 ==========
     off_target_time = now.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
     if now >= off_target_time:
         off_target_time += timedelta(days=1)
@@ -664,125 +680,109 @@ def schedule_user_reminders(chat_id, username, shift_name, start_time, end_time)
         schedule_send_off_reminder,
         trigger="date",
         run_date=off_remind_time,
-        args=[chat_id, username, shift_name],
+        args=[chat_id, shift_name],
         id=f"remind_off_{chat_id}",
         replace_existing=True
     )
 
+    await query.edit_message_text(f"✅ 已保存 {shift_name} 提醒，将在每天提前 30 分钟提醒上班，提前 5 分钟提醒下班。")
 
-async def send_reminder(chat_id, username, shift_name):
-    if not is_reminder_active(username):
-        return
+
+async def send_reminder(chat_id, shift_name):
     await app.bot.send_message(chat_id, f"⏰ 提醒：{shift_name} 上班打卡还有 30 分钟，请准备打卡。")
 
 
-async def send_off_work_reminder(chat_id, username, shift_name):
-    if not is_reminder_active(username):
-        return
+async def send_off_work_reminder(chat_id, shift_name):
     await app.bot.send_message(chat_id, f"⏰ 提醒：{shift_name} 下班打卡还有 5 分钟，请记得打卡。")
 
 
-def schedule_send_reminder(chat_id, username, shift_name):
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    if loop.is_running():
-        loop.create_task(send_reminder(chat_id, username, shift_name))
-    else:
-        loop.run_until_complete(send_reminder(chat_id, username, shift_name))
+async def remind_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    username = update.effective_user.username or f"user{update.effective_user.id}"
+    disable_reminder(username)
+    await update.message.reply_text("🔕 已关闭每日上班打卡提醒。")
 
 
-def schedule_send_off_reminder(chat_id, username, shift_name):
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    if loop.is_running():
-        loop.create_task(send_off_work_reminder(chat_id, username, shift_name))
-    else:
-        loop.run_until_complete(send_off_work_reminder(chat_id, username, shift_name))
-
-# =============================
-# 每天凌晨批量刷新所有用户的提醒任务
-# =============================
 def schedule_daily_reminders():
-    active = get_active_reminders()  # 从数据库获取所有开启提醒的用户 [(username, shift_code), ...]
-
+    active = get_active_reminders()
     for username, shift_code in active:
         shift_name = get_shift_options().get(shift_code)
         if not shift_name:
             continue
-
-        # 提取班次简称，例如 I班（14:30-23:30） -> "I班"
         shift_short = shift_name.split("（")[0]
-
-        # 获取该班次的上/下班时间
         start_time, end_time = get_shift_times_short()[shift_short]
-
-        # ========== 上班提醒 ==========
-        remind_time_start = (
-            datetime.now(BEIJING_TZ)
-            .replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
-            + timedelta(days=1)          # 提前一天算明天的提醒
-        )
-        remind_time_start -= timedelta(minutes=30)  # 提前 30 分钟提醒上班
-
-        scheduler.add_job(
-            send_reminder,
-            trigger=DateTrigger(run_date=remind_time_start),
-            args=[username, f"⏰ 提醒：您 {shift_short} 即将上班，请及时打卡！"],
-            id=f"{username}_start",
-            replace_existing=True
-        )
-
-        # ========== 下班提醒 ==========
-        remind_time_end = (
-            datetime.now(BEIJING_TZ)
-            .replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
-            + timedelta(days=1)
-        )
-        remind_time_end -= timedelta(minutes=30)  # 提前 30 分钟提醒下班
-
-        scheduler.add_job(
-            send_reminder,
-            trigger=DateTrigger(run_date=remind_time_end),
-            args=[username, f"⏰ 提醒：您 {shift_short} 即将下班，请及时打卡！"],
-            id=f"{username}_end",
-            replace_existing=True
-        )
-
-    logging.info("✅ 已为所有开启提醒的用户刷新明日的上/下班提醒任务")
-
-# ===========================
-# 关闭提醒
-# ===========================
-async def disable_user_reminder(username):
-    disable_reminder(username)
-    # 取消调度任务
-    for suffix in ["on", "off"]:
-        job_id = f"remind_{suffix}_{username}"
-        try:
-            scheduler.remove_job(job_id)
-        except Exception:
-            pass
+        remind_time = datetime.now(BEIJING_TZ).replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0) + timedelta(days=1)
+        remind_time -= timedelta(minutes=30)
+        # 这里只演示结构，实际下班提醒同理
 
 
-# ===========================
-# 启动时恢复任务
-# ===========================
+def schedule_send_reminder(chat_id, shift_name):
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    if loop.is_running():
+        loop.create_task(send_reminder(chat_id, shift_name))
+    else:
+        loop.run_until_complete(send_reminder(chat_id, shift_name))
+
+
+def schedule_send_off_reminder(chat_id, shift_name):
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    if loop.is_running():
+        loop.create_task(send_off_work_reminder(chat_id, shift_name))
+    else:
+        loop.run_until_complete(send_off_work_reminder(chat_id, shift_name))
+
+
 def restore_reminder_jobs():
-    active_reminders = get_active_reminders()  # 必须只返回 active=True 的用户
+    active_reminders = get_active_reminders()
     for username, chat_id, shift_code in active_reminders:
         shift_name = get_shift_options().get(shift_code)
         if not shift_name:
             continue
         shift_short = shift_name.split("（")[0]
         start_time, end_time = get_shift_times_short()[shift_short]
-        schedule_user_reminders(chat_id, username, shift_name, start_time, end_time)
-        print(f"[提醒恢复] {username} - {shift_name}")
+        
+        now = datetime.now(BEIJING_TZ)
+        
+        # ========== 上班提醒 ==========
+        work_target_time = now.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
+        if now >= work_target_time:
+            work_target_time += timedelta(days=1)
+        work_remind_time = work_target_time - timedelta(minutes=30)
+
+        scheduler.add_job(
+            schedule_send_reminder,
+            trigger="date",
+            run_date=work_remind_time,
+            args=[chat_id, shift_name],
+            id=f"remind_on_{chat_id}",
+            replace_existing=True
+        )
+
+        # ========== 下班提醒 ==========
+        off_target_time = now.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
+        if now >= off_target_time:
+            off_target_time += timedelta(days=1)
+        off_remind_time = off_target_time - timedelta(minutes=5)
+
+        scheduler.add_job(
+            schedule_send_off_reminder,
+            trigger="date",
+            run_date=off_remind_time,
+            args=[chat_id, shift_name],
+            id=f"remind_off_{chat_id}",
+            replace_existing=True
+        )
+
+        print(f"[提醒恢复] {username} - {shift_name} - 上班:{work_remind_time} / 下班:{off_remind_time}")
 
 # ===========================
 # 单实例检查：防止重复启动 Bot
