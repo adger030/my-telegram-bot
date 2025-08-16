@@ -282,18 +282,16 @@ def has_user_checked_keyword_today_fixed(username, keyword):
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT timestamp FROM messages
+            SELECT 1 FROM messages
             WHERE username=%s AND keyword=%s
             AND timestamp >= %s AND timestamp < %s
-            ORDER BY timestamp ASC
+            LIMIT 1
         """, (username, keyword, start, end))
-        rows = cur.fetchall()
+        row = cur.fetchone()
 
-    # ✅ 如果已有一条有效记录 → 禁止再次打卡
-    if rows:
-        return True
+    # ✅ 已经有上班/下班卡 → 无论是否补卡 → 禁止再次打卡
+    return row is not None
 
-    return False
 
 
 # ===========================
