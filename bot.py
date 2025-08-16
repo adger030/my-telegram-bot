@@ -379,7 +379,7 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data.pop("makeup_data", None)
 
 # ===========================
-# /mylogs 命令：查看本月打卡记录
+# /mylogs 命令：查看本月打卡记录（只展示有数据的日期）
 # ===========================
 async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
@@ -429,21 +429,13 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
-    # ✅ 补齐整月所有日期（避免漏掉没有打卡的天）
-    full_map = {}
-    current_day = start.date()
-    while current_day < now.date() + timedelta(days=1):  # 包含今天
-        if current_day in daily_map:
-            full_map[current_day] = daily_map[current_day]
-        else:
-            full_map[current_day] = {"shift": "未选择班次"}  # 占位
-        current_day += timedelta(days=1)
-
-    daily_map = full_map  # 用补齐后的 map
+    # ✅ 只保留有打卡记录的日期（不补齐）
+    all_days = sorted(daily_map.keys())
 
     # ✅ 统计整月数据：正常打卡、异常（迟到/早退）、补卡
     total_complete = total_abnormal = total_makeup = 0
-    for day, kw_map in daily_map.items():
+    for day in all_days:
+        kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
         is_makeup = shift_full.endswith("（补卡）")  # 是否补卡
         shift_name = shift_full.split("（")[0]
@@ -467,17 +459,15 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
-        if is_makeup:
-            continue
-        if has_late:
-            total_abnormal += 1
-        if has_early:
-            total_abnormal += 1
-        if not has_late and not has_early and (has_up or has_down):
-            total_complete += 2 if has_up and has_down else 1
+        if not is_makeup:
+            if has_late:
+                total_abnormal += 1
+            if has_early:
+                total_abnormal += 1
+            if has_up and has_down and not has_late and not has_early:
+                total_complete += 1
 
-    # 分页
-    all_days = sorted(daily_map)
+    # ✅ 分页（只分页有数据的日期）
     pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
     context.user_data["mylogs_pages"] = {
         "pages": pages,
@@ -488,8 +478,9 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await send_mylogs_page(update, context)
 
+
 # ===========================
-# 发送分页内容（安全版）
+# 发送分页内容
 # ===========================
 async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = context.user_data.get("mylogs_pages")
@@ -502,13 +493,6 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     pages, daily_map, page_index = data["pages"], data["daily_map"], data["page_index"]
     total_complete, total_abnormal, total_makeup = data["summary"]
-
-    if page_index < 0:
-        page_index = 0
-        data["page_index"] = 0
-    elif page_index >= len(pages):
-        page_index = len(pages) - 1
-        data["page_index"] = page_index
 
     current_page_days = pages[page_index]
     reply = f"🗓️ 本月打卡情况（第 {page_index+1}/{len(pages)} 页）：\n\n"
@@ -535,17 +519,22 @@ async def send_mylogs_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
+        # 🔹 输出记录
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
+
+        # 上班卡
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{'（迟到）' if has_late else ''}\n"
         else:
-            reply += "   └─ #上班打卡：❌ 未打卡\n"
+            reply += f"   └─ #上班打卡：缺失 ❌\n"
+
+        # 下班卡
         if has_down:
             down_ts = kw_map["#下班打卡"]
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M')}{'（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
         else:
-            reply += "   └─ #下班打卡：❌ 未打卡\n"
+            reply += f"   └─ #下班打卡：缺失 ❌\n"
 
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
