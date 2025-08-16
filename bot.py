@@ -268,13 +268,14 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===========================
 def has_user_checked_keyword_today_fixed(username, keyword):
     now = datetime.now(BEIJING_TZ)
-    # 特殊规则：凌晨 0-6 点算前一天
-    if keyword in ("#上班打卡", "#下班打卡") and now.hour < 6:
+
+    # 特殊规则：凌晨 0-6 点的下班卡算前一天
+    if keyword == "#下班打卡" and now.hour < 6:
         ref_day = now - timedelta(days=1)
     else:
         ref_day = now
 
-    # 定义查询的时间区间
+    # 查询区间（自然日 00:00 - 23:59）
     start = ref_day.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
 
@@ -284,23 +285,15 @@ def has_user_checked_keyword_today_fixed(username, keyword):
             SELECT timestamp FROM messages
             WHERE username=%s AND keyword=%s
             AND timestamp >= %s AND timestamp < %s
-            ORDER BY timestamp DESC
+            ORDER BY timestamp ASC
         """, (username, keyword, start, end))
         rows = cur.fetchall()
 
-    valid_found = False
-    for (ts,) in rows:
-        ts_local = ts.astimezone(BEIJING_TZ)
+    # ✅ 如果已有一条有效记录 → 禁止再次打卡
+    if rows:
+        return True
 
-        # 下班卡凌晨归前一天 → 不算今天的
-        if keyword == "#下班打卡" and ts_local.hour < 6:
-            continue  
-
-        # 只要发现当天有有效记录，就标记
-        valid_found = True
-        break
-
-    return valid_found
+    return False
 
 
 # ===========================
