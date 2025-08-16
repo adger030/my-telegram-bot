@@ -75,8 +75,6 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
 
-        has_late = has_early = False
-
         if is_makeup:
             total_makeup += 1
 
@@ -85,15 +83,14 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
             if shift_name in get_shift_times_short():
                 start_time, _ = get_shift_times_short()[shift_name]
                 if kw_map["#上班打卡"].time() > start_time:
-                    has_late = True
-            if not is_makeup:
-                if has_late:
-                    total_abnormal += 1
+                    total_abnormal += 1  # 迟到
                 else:
-                    total_complete += 1
+                    total_complete += 1  # 正常
+            else:
+                total_complete += 1  # 没班次表，算正常
         else:
             if not is_makeup:
-                total_abnormal += 1
+                total_abnormal += 1  # 缺卡
 
         # ===== 下班统计 =====
         if has_down:
@@ -101,17 +98,16 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
                 _, end_time = get_shift_times_short()[shift_name]
                 down_ts = kw_map["#下班打卡"]
                 if shift_name == "I班" and down_ts.date() == day:
-                    has_early = True
+                    total_abnormal += 1  # I 班下班当天就走 → 早退
                 elif shift_name != "I班" and down_ts.time() < end_time:
-                    has_early = True
-            if not is_makeup:
-                if has_early:
-                    total_abnormal += 1
+                    total_abnormal += 1  # 普通班早退
                 else:
-                    total_complete += 1
+                    total_complete += 1  # 正常
+            else:
+                total_complete += 1
         else:
             if not is_makeup:
-                total_abnormal += 1
+                total_abnormal += 1  # 缺卡
 
     # ===========================
     # 分页
