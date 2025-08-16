@@ -1,10 +1,9 @@
-# logs_utils.py
-from datetime import datetime, timedelta
 from collections import defaultdict
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from datetime import timedelta
 from dateutil.parser import parse
-from config import BEIJING_TZ, LOGS_PER_PAGE
-from shift_manager import get_shift_times_short
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+from config import BEIJING_TZ, LOGS_PER_PAGE, get_shift_times_short
 
 
 # ===========================
@@ -27,11 +26,11 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
         ts, kw, shift = logs[i]
         date_key = ts.date()
 
-        # 下班卡才应用“凌晨算前一天”
+        # 下班卡凌晨算前一天
         if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
 
-        # 补卡一定按当天算，不受凌晨规则影响
+        # 🔹 补卡一定算当天
         if shift and "（补卡）" in shift:
             date_key = ts.date()
 
@@ -52,38 +51,49 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
                     break
                 j += 1
 
-            # ✅ 始终自增，避免最后一条补卡丢失
+            # ✅ 始终自增，避免漏掉当天只有补卡的情况
             i += 1
 
         else:  # 下班打卡
             daily_map[date_key]["#下班打卡"] = ts
-            # 即便没有上班卡，也要让当天显示
             if "shift" not in daily_map[date_key]:
                 daily_map[date_key]["shift"] = shift or "未选择班次"
             i += 1
 
     all_days = sorted(daily_map.keys())
 
+    # ===========================
     # 统计
+    # ===========================
     total_complete = total_abnormal = total_makeup = 0
     for day in all_days:
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
         is_makeup = shift_full.endswith("（补卡）") or "补卡标记" in kw_map
         shift_name = shift_full.split("（")[0]
+
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
+
         has_late = has_early = False
 
         if is_makeup:
             total_makeup += 1
 
-        if has_up and shift_name in get_shift_times_short():
+        # 缺卡直接算异常（补卡除外）
+        if not has_up or not has_down:
+            if not is_makeup:
+                total_abnormal += 1
+            continue
+
+        # 迟到判断
+        if shift_name in get_shift_times_short():
             start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
-        if has_down and shift_name in get_shift_times_short():
+        # 早退判断
+        if shift_name in get_shift_times_short():
             _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
             if shift_name == "I班" and down_ts.date() == day:
@@ -91,15 +101,14 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
-        if not is_makeup:
-            if has_up:
-                total_abnormal += 1 if has_late else 0
-                total_complete += 1 if not has_late else 0
-            if has_down:
-                total_abnormal += 1 if has_early else 0
-                total_complete += 1 if not has_early else 0
+        if has_late or has_early:
+            total_abnormal += 1
+        else:
+            total_complete += 1
 
+    # ===========================
     # 分页
+    # ===========================
     pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
     context.user_data[f"{key}_pages"] = {
         "pages": pages,
@@ -140,10 +149,11 @@ async def send_logs_page(update, context, key="mylogs"):
         shift_full = kw_map.get("shift", "未选择班次")
         is_makeup = shift_full.endswith("（补卡）") or "补卡标记" in kw_map
         shift_name = shift_full.split("（")[0]
+
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
-        has_late = has_early = False
 
+        has_late = has_early = False
         if has_up and shift_name in get_shift_times_short():
             start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
@@ -157,6 +167,9 @@ async def send_logs_page(update, context, key="mylogs"):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
+        # ===========================
+        # 输出格式
+        # ===========================
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
 
         if has_up:
@@ -173,10 +186,11 @@ async def send_logs_page(update, context, key="mylogs"):
 
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
-        f"🔴 异常（迟到/早退）：{total_abnormal} 次\n"
+        f"🔴 异常（迟到/早退/缺卡）：{total_abnormal} 次\n"
         f"🟡 补卡：{total_makeup} 次"
     )
 
+    # 分页按钮
     buttons = []
     if page_index > 0:
         buttons.append(InlineKeyboardButton("⬅ 上一页", callback_data=f"{key}_prev"))
