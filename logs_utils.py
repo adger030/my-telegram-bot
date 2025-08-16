@@ -26,15 +26,19 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
         ts, kw, shift = logs[i]
         date_key = ts.date()
 
-        # 🔹 凌晨下班卡归到前一天
+        # 下班卡才应用“凌晨算前一天”
         if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
+
+        # 🔹 补卡一定按当天算，不受凌晨规则影响
+        if shift and "（补卡）" in shift:
+            date_key = ts.date()
 
         if kw == "#上班打卡":
             daily_map[date_key]["shift"] = shift
             daily_map[date_key]["#上班打卡"] = ts
 
-            # 🔹 如果是补卡，确保当天一定显示
+            # 标记补卡
             if shift and "（补卡）" in shift:
                 daily_map[date_key]["补卡标记"] = True
 
