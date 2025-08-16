@@ -379,24 +379,11 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data.pop("makeup_data", None)
 
 # ===========================
-# /mylogs 命令：查看本月打卡记录（只展示有数据的日期）
+# 通用日志构建函数
 # ===========================
-async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tg_user = update.effective_user
-    username = tg_user.username
-    fallback_username = f"user{tg_user.id}"
-
-    now = datetime.now(BEIJING_TZ)
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    end = (start + timedelta(days=32)).replace(day=1)
-
-    # 先尝试用真实 username 查，如果没有则用 user<id>
-    logs = get_user_logs(username, start, end) if username else None
+async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
     if not logs:
-        logs = get_user_logs(fallback_username, start, end)
-
-    if not logs:
-        await update.message.reply_text("📭 本月暂无打卡记录。")
+        await update.message.reply_text(f"📭 {target_name} 本月暂无打卡记录。")
         return
 
     # 转换时区 & 排序
@@ -404,19 +391,18 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
     logs = sorted(logs, key=lambda x: x[0])
 
-    # 按天组合上下班打卡记录
+    # 按天组合
     daily_map = defaultdict(dict)
     i = 0
     while i < len(logs):
         ts, kw, shift = logs[i]
         date_key = ts.date()
-        if kw == "#下班打卡" and ts.hour < 6:  # 下班卡凌晨 0-6 点算前一天
+        if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
 
         if kw == "#上班打卡":
             daily_map[date_key]["shift"] = shift
             daily_map[date_key]["#上班打卡"] = ts
-            # 查找对应下班卡（12小时内）
             j = i + 1
             while j < len(logs):
                 ts2, kw2, _ = logs[j]
@@ -429,15 +415,14 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_map[date_key]["#下班打卡"] = ts
             i += 1
 
-    # ✅ 只保留有打卡记录的日期（不补齐）
     all_days = sorted(daily_map.keys())
 
-    # ✅ 统计整月数据：正常打卡、异常（迟到/早退）、补卡
+    # 统计
     total_complete = total_abnormal = total_makeup = 0
     for day in all_days:
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
-        is_makeup = shift_full.endswith("（补卡）")  # 是否补卡
+        is_makeup = shift_full.endswith("（补卡）")
         shift_name = shift_full.split("（")[0]
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
@@ -446,13 +431,11 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_makeup:
             total_makeup += 1
 
-        # 判断迟到
         if has_up and shift_name in get_shift_times_short():
             start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
 
-        # 判断早退
         if has_down and shift_name in get_shift_times_short():
             _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
@@ -462,30 +445,45 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 has_early = True
 
         if not is_makeup:
-            # ⬇️ 上班正常算 1 次
             if has_up:
-                if has_late:
-                    total_abnormal += 1
-                else:
-                    total_complete += 1
-
-            # ⬇️ 下班正常算 1 次
+                total_abnormal += 1 if has_late else 0
+                total_complete += 1 if not has_late else 0
             if has_down:
-                if has_early:
-                    total_abnormal += 1
-                else:
-                    total_complete += 1
-	
-    # ✅ 分页（只分页有数据的日期）
+                total_abnormal += 1 if has_early else 0
+                total_complete += 1 if not has_early else 0
+
+    # 分页
     pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
-    context.user_data["mylogs_pages"] = {
+    context.user_data[f"{key}_pages"] = {
         "pages": pages,
         "daily_map": daily_map,
         "page_index": 0,
-        "summary": (total_complete, total_abnormal, total_makeup)
+        "summary": (total_complete, total_abnormal, total_makeup),
+        "target_name": target_name
     }
 
-    await send_mylogs_page(update, context)
+    if key == "mylogs":
+        await send_mylogs_page(update, context)
+    else:
+        await send_userlogs_page(update, context)
+
+# ===========================
+# /mylogs 命令
+# ===========================
+async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tg_user = update.effective_user
+    username = tg_user.username
+    fallback_username = f"user{tg_user.id}"
+
+    now = datetime.now(BEIJING_TZ)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = (start + timedelta(days=32)).replace(day=1)
+
+    logs = get_user_logs(username, start, end) if username else None
+    if not logs:
+        logs = get_user_logs(fallback_username, start, end)
+
+    await build_and_send_logs(update, context, logs, "本月打卡", key="mylogs")
 
 
 # ===========================
