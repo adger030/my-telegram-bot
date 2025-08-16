@@ -5,6 +5,7 @@ from dateutil.parser import parse
 from config import BEIJING_TZ, LOGS_PER_PAGE
 from shift_manager import get_shift_times_short
 
+
 # ===========================
 # 通用日志构建函数
 # ===========================
@@ -24,12 +25,20 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
     while i < len(logs):
         ts, kw, shift = logs[i]
         date_key = ts.date()
+
+        # 🔹 凌晨下班卡归到前一天
         if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
 
         if kw == "#上班打卡":
             daily_map[date_key]["shift"] = shift
             daily_map[date_key]["#上班打卡"] = ts
+
+            # 🔹 如果是补卡，确保当天一定显示
+            if shift and "（补卡）" in shift:
+                daily_map[date_key]["补卡标记"] = True
+
+            # 找可能匹配的下班卡
             j = i + 1
             while j < len(logs):
                 ts2, kw2, _ = logs[j]
@@ -38,8 +47,12 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
                     break
                 j += 1
             i = j if j > i else i + 1
-        else:
+
+        else:  # 下班打卡
             daily_map[date_key]["#下班打卡"] = ts
+            # 🔹 即便没有上班卡，也要让当天显示
+            if "shift" not in daily_map[date_key]:
+                daily_map[date_key]["shift"] = shift or "未选择班次"
             i += 1
 
     all_days = sorted(daily_map.keys())
@@ -49,7 +62,7 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
     for day in all_days:
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
-        is_makeup = shift_full.endswith("（补卡）")
+        is_makeup = shift_full.endswith("（补卡）") or "补卡标记" in kw_map
         shift_name = shift_full.split("（")[0]
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
@@ -91,6 +104,7 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
 
     await send_logs_page(update, context, key)
 
+
 # ===========================
 # 通用发送分页内容
 # ===========================
@@ -117,7 +131,7 @@ async def send_logs_page(update, context, key="mylogs"):
     for idx, day in enumerate(current_page_days, start=1 + page_index * LOGS_PER_PAGE):
         kw_map = daily_map[day]
         shift_full = kw_map.get("shift", "未选择班次")
-        is_makeup = shift_full.endswith("（补卡）")
+        is_makeup = shift_full.endswith("（补卡）") or "补卡标记" in kw_map
         shift_name = shift_full.split("（")[0]
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
@@ -137,10 +151,12 @@ async def send_logs_page(update, context, key="mylogs"):
                 has_early = True
 
         reply += f"{idx}. {day.strftime('%m月%d日')} - {shift_name}\n"
+
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{'（迟到）' if has_late else ''}\n"
         else:
             reply += "   └─ #上班打卡：未打卡 ❌\n"
+
         if has_down:
             down_ts = kw_map["#下班打卡"]
             next_day = down_ts.date() > day
