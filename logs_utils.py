@@ -2,8 +2,8 @@ from collections import defaultdict
 from datetime import timedelta
 from dateutil.parser import parse
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
-from config import BEIJING_TZ, LOGS_PER_PAGE, get_shift_times_short
+from shift_manager import get_shift_times_short
+from config import BEIJING_TZ, LOGS_PER_PAGE
 
 
 # ===========================
