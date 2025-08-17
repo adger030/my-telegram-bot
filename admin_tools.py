@@ -487,35 +487,35 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if shift_name in get_shift_times_short():
             start_time, end_time = get_shift_times_short()[shift_name]
             ts_time = ts.time()
+            dt = ts  # datetime 类型
     
             # ========== 上班打卡 ==========
             if keyword == "#上班打卡":
-                # 如果上班时间已过 → 迟到
                 if ts_time > start_time:
                     return "迟到"
-                # 如果比上班时间早一点 → 正常（不算异常）
                 else:
                     return ""
     
             # ========== 下班打卡 ==========
             elif keyword == "#下班打卡":
-                if shift_name == "I班":
-                    # I班：次日 00:00 ~ 01:59 正常
-                    if 0 <= ts.hour <= 1:
-                        return ""  # 正常
-                    # 当天 15:00 ~ 23:59 早退
-                    elif 15 <= ts.hour <= 23:
-                        return "早退"
-                    # 其他时间（比如 02:00 以后）异常
-                    else:
-                        return "签到异常"
+                # 构造当天的上下班时间
+                shift_start_dt = dt.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
+                shift_end_dt = dt.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
+    
+                # 如果跨天（比如 I 班 15:00 ~ 23:59，其实下班是次日 00:00 左右）
+                if shift_end_dt < shift_start_dt:
+                    shift_end_dt += timedelta(days=1)
+    
+                # 判定
+                if dt < shift_end_dt:  
+                    return "早退"
+                elif dt <= shift_end_dt + timedelta(hours=1):
+                    return ""  # 正常
                 else:
-                    # 其他班次
-                    if not (0 <= ts.hour <= 1):
-                        if ts_time < end_time:
-                            return "早退"
+                    return "签到异常"
     
         return ""
+
 
   
     photo_df["remark"] = photo_df.apply(get_remark, axis=1)
