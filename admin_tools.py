@@ -410,6 +410,9 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===========================
 # 在线模式导出图片链接（美化 + 搜索筛选 + 日期折叠）
 # ===========================
+# ===========================
+# 在线模式导出图片链接（美化 + 搜索筛选 + 日期折叠 + 打卡标签）
+# ===========================
 async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ 无权限，仅管理员可导出记录。")
@@ -429,10 +432,10 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     status_msg = await update.message.reply_text("⏳ 正在生成图片链接列表，请稍等...")
 
-    # 查询数据库
+    # 查询数据库，增加 shift
     with get_conn() as conn:
         df = pd.read_sql("""
-            SELECT timestamp, keyword, name, content
+            SELECT timestamp, keyword, name, shift, content
             FROM messages
             WHERE timestamp >= %s AND timestamp <= %s
             ORDER BY timestamp ASC
@@ -465,6 +468,45 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 构建图片URL
     photo_df["url"] = photo_df["public_id"].apply(lambda pid: cloudinary.CloudinaryImage(pid).build_url())
 
+    # 计算 remark（迟到/早退/补卡）
+    def get_remark(row):
+        shift_val = row.get("shift")
+        ts = row.get("timestamp")
+        keyword = row.get("keyword")
+
+        if not shift_val or pd.isna(ts):
+            return ""
+
+        shift_text = str(shift_val).strip()
+        shift_name = re.split(r'[（(]', shift_text)[0]
+
+        # 补卡
+        if "补卡" in shift_text:
+            return "补卡"
+
+        if shift_name in get_shift_times_short():
+            start_time, end_time = get_shift_times_short()[shift_name]
+            ts_time = ts.time()
+
+            # 迟到
+            if keyword == "#上班打卡" and ts_time > start_time:
+                return "迟到"
+
+            # 早退
+            elif keyword == "#下班打卡":
+                if shift_name == "I班":
+                    # I班特殊规则：必须在凌晨0点左右下班，否则算早退
+                    if not (ts.hour == 0):
+                        if 15 <= ts.hour <= 23:
+                            return "早退"
+                else:
+                    if not (0 <= ts.hour <= 1):
+                        if ts_time < end_time:
+                            return "早退"
+        return ""
+
+    photo_df["remark"] = photo_df.apply(get_remark, axis=1)
+
     # HTML 头部（样式 + 搜索 + 折叠功能）
     html_lines = [
         "<!DOCTYPE html>",
@@ -483,6 +525,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "a { color: #007bff; text-decoration: none; }",
         "a:hover { text-decoration: underline; }",
         ".hidden { display: none; }",
+        ".tag { font-weight: bold; color: #d9534f; margin-right: 5px; }",
         "</style>",
         "<script>",
         "function filterList() {",
@@ -521,8 +564,10 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyword = row.get("keyword", "无关键词") or "无关键词"
             name = row.get("name", "未知") or "未知"
             url = row["url"]
+            remark = row.get("remark", "")
+            remark_tag = f"<span class='tag'>[{remark}]</span>" if remark else ""
             html_lines.append(
-                f"<li>{ts_local} - {keyword} - {name} - <a href='{url}' target='_blank'>查看图片</a></li>"
+                f"<li>{remark_tag}{ts_local} - {keyword} - {name} - <a href='{url}' target='_blank'>查看图片</a></li>"
             )
         html_lines.append("</ul></div>")
 
