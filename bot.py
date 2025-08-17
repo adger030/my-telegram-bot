@@ -330,56 +330,6 @@ def has_user_checked_keyword_today_fixed(username, keyword):
 
     return False
 
-
-# ===========================
-# 处理补上班卡的逻辑
-# ===========================
-async def handle_makeup_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    补上班卡功能流程：
-    1. 判断日期（凌晨 0-6 点补卡算前一天）
-    2. 检查该日期是否已有正常上班卡
-    3. 没有则进入补卡流程：选择班次
-    """
-    msg = update.message
-    username = msg.from_user.username or f"user{msg.from_user.id}"
-    name = get_user_name(username)
-    now = datetime.now(BEIJING_TZ)
-
-    # 处理补卡参考日期（凌晨补卡算前一天）
-    if now.hour < 6:
-        ref_date = (now - timedelta(days=1)).date()
-    else:
-        ref_date = now.date()
-
-    # 🚩 检查该日期是否已有正常上班卡
-    start = datetime.combine(ref_date, datetime.min.time(), tzinfo=BEIJING_TZ)
-    end = start + timedelta(days=1)
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT shift FROM messages
-            WHERE username=%s AND keyword=%s AND timestamp >= %s AND timestamp < %s
-        """, (username, "#上班打卡", start, end))
-        rows = cur.fetchall()
-
-    # 如果已有记录，则不允许重复补卡
-    if rows:
-        await msg.reply_text(f"⚠️ {ref_date.strftime('%m月%d日')} 已有上班打卡记录，不能重复补卡。")
-        return
-
-    # ✅ 进入补卡流程：提示选择班次
-    keyboard = [[InlineKeyboardButton(v, callback_data=f"makeup_shift:{k}")] for k, v in get_shift_options().items()]
-    await msg.reply_text("请选择要补卡的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
-
-    # 记录补卡信息（日期将在后续回调中结合班次时间）
-    context.user_data["makeup_data"] = {
-        "username": username,
-        "name": name,
-        "date": ref_date
-    }
-    context.user_data.pop("awaiting_makeup", None)
-
 # ===========================
 # 处理补卡回调按钮（用户选择班次后执行）
 # ===========================
