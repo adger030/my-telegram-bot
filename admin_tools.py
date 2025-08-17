@@ -473,38 +473,45 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         shift_val = row.get("shift")
         ts = row.get("timestamp")
         keyword = row.get("keyword")
-
+    
         if not shift_val or pd.isna(ts):
             return ""
-
+    
         shift_text = str(shift_val).strip()
         shift_name = re.split(r'[（(]', shift_text)[0]
-
+    
         # 补卡
         if "补卡" in shift_text:
             return "补卡"
-
+    
         if shift_name in get_shift_times_short():
             start_time, end_time = get_shift_times_short()[shift_name]
             ts_time = ts.time()
-
-            # 迟到
+    
+            # 迟到判定
             if keyword == "#上班打卡" and ts_time > start_time:
                 return "迟到"
-
-            # 早退
+    
+            # 下班判定
             elif keyword == "#下班打卡":
                 if shift_name == "I班":
-                    # I班特殊规则：必须在凌晨0点左右下班，否则算早退
-                    if not (ts.hour == 0):
-                        if 15 <= ts.hour <= 23:
-                            return "早退"
+                    # I班逻辑
+                    if 0 <= ts.hour <= 1:
+                        return ""  # 正常
+                    elif 2 <= ts.hour:  
+                        return "签到异常"
+                    elif 15 <= ts.hour <= 23:
+                        return "早退"
+                    else:
+                        return "签到异常"
                 else:
+                    # 其他班次
                     if not (0 <= ts.hour <= 1):
                         if ts_time < end_time:
                             return "早退"
+    
         return ""
-
+  
     photo_df["remark"] = photo_df.apply(get_remark, axis=1)
 
     # HTML 头部（样式 + 搜索 + 折叠功能）
