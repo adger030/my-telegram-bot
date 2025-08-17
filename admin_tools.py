@@ -473,48 +473,50 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         shift_val = row.get("shift")
         ts = row.get("timestamp")
         keyword = row.get("keyword")
-
+    
         if not shift_val or pd.isna(ts):
             return ""
-
+    
         shift_text = str(shift_val).strip()
         shift_name = re.split(r'[（(]', shift_text)[0]
-
+    
         # 补卡
         if "补卡" in shift_text:
             return "补卡"
-
+    
         if shift_name in get_shift_times_short():
             start_time, end_time = get_shift_times_short()[shift_name]
             dt = ts  # datetime 类型
             ts_time = ts.time()
-
+    
             # ===== 上班卡 =====
             if keyword == "#上班打卡":
                 if ts_time > start_time:
                     return "迟到"
                 else:
                     return ""
-
+    
             # ===== 下班卡 =====
             elif keyword == "#下班打卡":
-                # 当天的开始、结束
                 shift_start_dt = dt.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
                 shift_end_dt = dt.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
-
-                # 如果跨天 → 下班时间 +1 天
+    
+                # 如果 end_time <= start_time → 跨天 → end_time +1 天
                 if shift_end_dt <= shift_start_dt:
                     shift_end_dt += timedelta(days=1)
-
+    
                 # 判定
-                if dt < shift_end_dt:
+                if shift_start_dt < dt < shift_end_dt:  
                     return "早退"
-                elif dt <= shift_end_dt + timedelta(hours=1):
+                elif shift_end_dt <= dt <= shift_end_dt + timedelta(hours=1):
                     return ""  # 正常
-                else:
+                elif dt > shift_end_dt + timedelta(hours=1):
                     return "签到异常"
-
+                else:
+                    return ""  # 其他情况当正常
+    
         return ""
+
 
     # 应用标签
     photo_df["remark"] = photo_df.apply(get_remark, axis=1)
