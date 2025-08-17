@@ -26,7 +26,7 @@ from upload_image import upload_image
 from cleaner import delete_last_month_data
 from db_pg import (
     init_db, save_message, get_user_logs, save_shift, get_user_name, 
-    set_user_name, get_db, transfer_user_data, set_reminder, get_active_reminders, disable_reminder
+    set_user_name, get_db, transfer_user_data
 )
 from admin_tools import (
     delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd,
@@ -463,187 +463,6 @@ async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await send_mylogs_page(update, context)
 
 # ===========================
-# 提醒功能（上下班提醒）
-# ===========================
-async def remind_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    username = update.effective_user.username or f"user{update.effective_user.id}"
-    # 查询当前提醒状态
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT active, shift_code FROM reminders WHERE username=%s", (username,))
-        row = cur.fetchone()
-
-    if row and row[0]:  # 已开启
-        shift_name = get_shift_options().get(row[1], "未知班次")
-        keyboard = [[InlineKeyboardButton("❌ 关闭提醒", callback_data="remind_disable")]]
-        text = f"你已开启每日提醒（班次：{shift_name}）"
-    else:  # 未开启
-        keyboard = [[InlineKeyboardButton("✅ 开启提醒", callback_data="remind_yes")]]
-        text = "是否开启明天的上班打卡提醒？"
-
-    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-
-async def remind_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    username = query.from_user.username or f"user{query.from_user.id}"
-    
-    if query.data == "remind_yes":
-        # 选择班次
-        keyboard = [[InlineKeyboardButton(v, callback_data=f"remind_shift:{k}")] for k, v in get_shift_options().items()]
-        await query.edit_message_text("请选择班次：", reply_markup=InlineKeyboardMarkup(keyboard))
-
-    elif query.data == "remind_disable":
-        disable_reminder(username)
-        await query.edit_message_text("🔕 已关闭每日上班打卡提醒。")
-
-
-async def remind_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    username = query.from_user.username or f"user{query.from_user.id}"
-    chat_id = query.message.chat_id
-    shift_code = query.data.split(":")[1]
-    shift_name = get_shift_options()[shift_code]
-    shift_short = shift_name.split("（")[0]
-    start_time, end_time = get_shift_times_short()[shift_short]
-
-    # 保存到数据库（带 chat_id）
-    set_reminder(username, chat_id, shift_code, True)
-
-    now = datetime.now(BEIJING_TZ)
-    
-    # ========== 上班提醒 ==========
-    work_target_time = now.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
-    if now >= work_target_time:
-        work_target_time += timedelta(days=1)
-    work_remind_time = work_target_time - timedelta(minutes=30)
-
-    scheduler.add_job(
-	    schedule_send_reminder,
-	    trigger="date",
-	    run_date=work_remind_time,
-	    args=[chat_id, shift_name],
-	    id=f"remind_on_{username}",   # ✅ 改成 username
-	    replace_existing=True
-	)
-
-    # ========== 下班提醒 ==========
-    off_target_time = now.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
-    if now >= off_target_time:
-        off_target_time += timedelta(days=1)
-    off_remind_time = off_target_time - timedelta(minutes=5)
-
-    scheduler.add_job(
-        schedule_send_off_reminder,
-        trigger="date",
-        run_date=off_remind_time,
-        args=[chat_id, shift_name],
-        id=f"remind_off_{username}",
-        replace_existing=True
-    )
-
-    await query.edit_message_text(f"✅ 已保存 {shift_name} 提醒，将在每天提前 30 分钟提醒上班，提前 5 分钟提醒下班。")
-
-
-async def send_reminder(chat_id, shift_name):
-    await app.bot.send_message(chat_id, f"⏰ 提醒：{shift_name} 上班打卡还有 30 分钟，请准备打卡。")
-
-
-async def send_off_work_reminder(chat_id, shift_name):
-    await app.bot.send_message(chat_id, f"⏰ 提醒：{shift_name} 下班打卡还有 5 分钟，请记得打卡。")
-
-
-async def remind_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    username = update.effective_user.username or f"user{update.effective_user.id}"
-    disable_reminder(username)
-    await update.message.reply_text("🔕 已关闭每日上班打卡提醒。")
-
-
-def schedule_daily_reminders():
-    active = get_active_reminders()
-    for username, shift_code in active:
-        shift_name = get_shift_options().get(shift_code)
-        if not shift_name:
-            continue
-        shift_short = shift_name.split("（")[0]
-        start_time, end_time = get_shift_times_short()[shift_short]
-        remind_time = datetime.now(BEIJING_TZ).replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0) + timedelta(days=1)
-        remind_time -= timedelta(minutes=30)
-        # 这里只演示结构，实际下班提醒同理
-
-
-def schedule_send_reminder(chat_id, shift_name):
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    if loop.is_running():
-        loop.create_task(send_reminder(chat_id, shift_name))
-    else:
-        loop.run_until_complete(send_reminder(chat_id, shift_name))
-
-
-def schedule_send_off_reminder(chat_id, shift_name):
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    if loop.is_running():
-        loop.create_task(send_off_work_reminder(chat_id, shift_name))
-    else:
-        loop.run_until_complete(send_off_work_reminder(chat_id, shift_name))
-
-
-def restore_reminder_jobs():
-    active_reminders = get_active_reminders()
-    for username, chat_id, shift_code in active_reminders:
-        shift_name = get_shift_options().get(shift_code)
-        if not shift_name:
-            continue
-        shift_short = shift_name.split("（")[0]
-        start_time, end_time = get_shift_times_short()[shift_short]
-        
-        now = datetime.now(BEIJING_TZ)
-        
-        # ========== 上班提醒 ==========
-        work_target_time = now.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
-        if now >= work_target_time:
-            work_target_time += timedelta(days=1)
-        work_remind_time = work_target_time - timedelta(minutes=30)
-
-        scheduler.add_job(
-            schedule_send_reminder,
-            trigger="date",
-            run_date=work_remind_time,
-            args=[chat_id, shift_name],
-            id=f"remind_on_{username}",
-            replace_existing=True
-        )
-
-        # ========== 下班提醒 ==========
-        off_target_time = now.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
-        if now >= off_target_time:
-            off_target_time += timedelta(days=1)
-        off_remind_time = off_target_time - timedelta(minutes=5)
-
-        scheduler.add_job(
-            schedule_send_off_reminder,
-            trigger="date",
-            run_date=off_remind_time,
-            args=[chat_id, shift_name],
-            id=f"remind_off_{username}",
-            replace_existing=True
-        )
-
-        print(f"[提醒恢复] {username} - {shift_name} - 上班:{work_remind_time} / 下班:{off_remind_time}")
-
-# ===========================
 # 单实例检查：防止重复启动 Bot
 # ===========================
 def check_existing_instance():
@@ -714,10 +533,10 @@ def main():
     app.add_handler(CommandHandler("delete_range", delete_range_cmd))    # /delete_range：删除指定时间范围的打卡记录（管理员）
     app.add_handler(CommandHandler("userlogs", userlogs_cmd))            # /userlogs @username：查看指定用户的考勤记录（管理员）
     # 新增提醒命令
-    app.add_handler(CommandHandler("remind_off", remind_off_cmd))
-    app.add_handler(CommandHandler("remind", remind_cmd))
+    #app.add_handler(CommandHandler("remind_off", remind_off_cmd))
+   # app.add_handler(CommandHandler("remind", remind_cmd))
     # app.add_handler(CallbackQueryHandler(remind_choice_callback, pattern=r"^remind_(yes|no)$"))
-    app.add_handler(CallbackQueryHandler(remind_shift_callback, pattern=r"^remind_shift:"))
+   # app.add_handler(CallbackQueryHandler(remind_shift_callback, pattern=r"^remind_shift:"))
     # ===========================
     # ✅ 注册消息处理器（监听非命令消息）
     # ===========================
