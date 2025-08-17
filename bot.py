@@ -168,7 +168,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ===========================
-# 处理带图片的打卡消息
+# 处理带图片的打卡消息（保留原功能，新增 I班限制）
 # ===========================
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -203,10 +203,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ================== 根据关键词处理 ==================
     if keyword == "#上班打卡":
+        # 原有：当天是否已打上班/补卡
         if has_user_checked_keyword_today_fixed(username, "#上班打卡"):
             await msg.reply_text("⚠️ 今天已经打过上班卡了。")
             return
 
+        # 🔒 新增限制（I班跨天）：凌晨 0–6 点禁止再次打上班卡（视为前一日已上班）
+        if 0 <= now.hour < 6:
+            await msg.reply_text("⚠️ 已经打过上班卡（I班跨天，凌晨归前一日），请勿重复。")
+            return
+
+        # 原有：立即保存上班卡，随后让用户选择班次
         save_message(username=username, name=name, content=image_url,
                      timestamp=now, keyword=keyword)
         keyboard = [[InlineKeyboardButton(v, callback_data=f"shift:{k}")]
@@ -214,6 +221,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("请选择今天的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif keyword == "#补卡":
+        # 原有：上班已有/补卡已有 的限制
         if has_user_checked_keyword_today_fixed(username, "#上班打卡"):
             await msg.reply_text("⚠️ 今天已有上班卡，不能再补卡。")
             return
@@ -221,7 +229,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text("⚠️ 今天已经补过卡了。")
             return
 
-        # 凌晨补卡算前一天
+        # 原有：凌晨补卡算前一天
         target_date = (now - timedelta(days=1)).date() if now.hour < 6 else now.date()
         context.user_data["makeup_data"] = {
             "username": username,
@@ -234,17 +242,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("请选择要补卡的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif keyword == "#下班打卡":
+        # 原有：当天是否已打过下班卡
         if has_user_checked_keyword_today_fixed(username, "#下班打卡"):
             await msg.reply_text("⚠️ 今天已经打过下班卡了。")
             return
 
-        # 没有上班卡/补卡就不能下班
+        # 原有：必须先有上班卡/补卡
         if not (has_user_checked_keyword_today_fixed(username, "#上班打卡") or
                 has_user_checked_keyword_today_fixed(username, "#补卡")):
             await msg.reply_text("❗ 今天还没有上班打卡，请先打卡或补卡。")
             return
 
-        # 找到最近的上班班次
+        # 原有：找到最近的上班班次
         logs = get_user_logs(username, now - timedelta(days=1), now)
         last_check_in, last_shift = None, None
         for ts, kw, shift in reversed(logs):
@@ -253,6 +262,20 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 last_shift = shift.split("（")[0] if shift else None
                 break
 
+        # 🔒 新增限制（仅 I班）：下班卡只能次日 0:00–2:00，且仅一次
+        if last_shift == "I班":
+            # 时间窗限制
+            if not (0 <= now.hour < 2):
+                await msg.reply_text("⚠️ I班下班卡只能在次日 0:00–2:00 打卡，已超时。")
+                return
+            # 次日 0–2 点重复限制：在当日 0:00 起若已有下班卡则拒绝
+            start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            logs_today = get_user_logs(username, start_of_today, now)
+            if any(kw2 == "#下班打卡" for _, kw2, _ in logs_today):
+                await msg.reply_text("⚠️ 今天已经打过下班卡了。")
+                return
+
+        # 原有：保存下班卡
         save_message(username=username, name=name, content=image_url,
                      timestamp=now, keyword=keyword, shift=last_shift)
         await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}")
