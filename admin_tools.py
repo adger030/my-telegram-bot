@@ -408,8 +408,9 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(file_path)
 
 
+
 # ===========================
-# 在线模式导出图片链接（美化 + 搜索筛选 + 日期折叠 + 标签）
+# 在线模式导出图片链接（美化 + 搜索筛选 + 日期折叠）
 # ===========================
 async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -466,64 +467,62 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 构建图片URL
     photo_df["url"] = photo_df["public_id"].apply(lambda pid: cloudinary.CloudinaryImage(pid).build_url())
 
-    # ==================================================
-    # 标签函数：迟到 / 早退 / 签到异常 / 补卡
-    # ==================================================
+    # ===========================
+    # 迟到 / 早退 / 正常 / 异常 标识
+    # ===========================
     def get_remark(row):
-        shift_val = row.get("shift")
+        shift_full = row.get("shift") or ""
+        shift_name = shift_full.split("（")[0]
         ts = row.get("timestamp")
-        keyword = row.get("keyword")
-    
-        if not shift_val or pd.isna(ts):
+        keyword = row.get("keyword", "")
+
+        if not shift_name or pd.isna(ts):
             return ""
-    
-        shift_text = str(shift_val).strip()
-        shift_name = re.split(r'[（(]', shift_text)[0]
-    
+
         # 补卡
-        if "补卡" in shift_text:
+        if "补卡" in shift_full:
             return "补卡"
-    
-        if shift_name in get_shift_times_short():
-            start_time, end_time = get_shift_times_short()[shift_name]
-            dt = ts  # datetime 类型
-            ts_time = ts.time()
-    
-            # ===== 上班卡 =====
-            if keyword == "#上班打卡":
-                if ts_time > start_time:
-                    return "迟到"
-                else:
-                    return ""
-    
-            # ===== 下班卡 =====
-            elif keyword == "#下班打卡":
-                shift_start_dt = dt.replace(hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0)
-                shift_end_dt = dt.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
-    
-                # 如果 end_time <= start_time → 跨天 → end_time +1 天
-                if shift_end_dt <= shift_start_dt:
-                    shift_end_dt += timedelta(days=1)
-    
-                # 判定
-                if shift_start_dt < dt < shift_end_dt:  
+
+        # 班次时间
+        if shift_name not in get_shift_times_short():
+            return ""
+        start_time, end_time = get_shift_times_short()[shift_name]
+        ts_time = ts.time()
+
+        # 上班逻辑：迟到
+        if keyword == "#上班打卡":
+            if ts_time > start_time:
+                return "迟到"
+            return ""
+
+        # 下班逻辑
+        if keyword == "#下班打卡":
+            down_ts = ts
+            # I班特殊逻辑（跨天）
+            if shift_name == "I班":
+                if down_ts.date() == row["timestamp"].date():  
+                    # 同一天就走 → 早退
                     return "早退"
-                elif shift_end_dt <= dt <= shift_end_dt + timedelta(hours=1):
-                    return ""  # 正常
-                elif dt > shift_end_dt + timedelta(hours=1):
-                    return "签到异常"
                 else:
-                    return ""  # 其他情况当正常
-    
+                    # 跨天
+                    if 0 <= down_ts.hour <= 1:
+                        return ""  # 正常
+                    elif down_ts.hour >= 2:
+                        return "签到异常"
+            else:
+                # 其他班次：比计划时间早 → 早退
+                if ts_time < end_time:
+                    return "早退"
+                # 超过 1 小时 → 签到异常
+                elif ts_time > (datetime.combine(date.today(), end_time) + timedelta(hours=1)).time():
+                    return "签到异常"
+            return ""
+
         return ""
 
-
-    # 应用标签
     photo_df["remark"] = photo_df.apply(get_remark, axis=1)
 
-    # ==================================================
     # HTML 头部（样式 + 搜索 + 折叠功能）
-    # ==================================================
     html_lines = [
         "<!DOCTYPE html>",
         "<html><head><meta charset='utf-8'><title>图片导出</title>",
@@ -541,7 +540,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "a { color: #007bff; text-decoration: none; }",
         "a:hover { text-decoration: underline; }",
         ".hidden { display: none; }",
-        ".remark { font-weight: bold; color: #d9534f; margin-right: 6px; }",
+        ".remark { color: red; font-weight: bold; margin-right: 5px; }",
         "</style>",
         "<script>",
         "function filterList() {",
@@ -569,9 +568,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<div class='search-box'><input type='text' id='searchInput' onkeyup='filterList()' placeholder='🔍 输入关键词、姓名或时间筛选...'></div>"
     ]
 
-    # ==================================================
     # 生成日期分组 HTML（默认收起）
-    # ==================================================
     for idx, (date_str, group) in enumerate(photo_df.groupby(photo_df["timestamp"].dt.strftime("%Y-%m-%d"))):
         list_id = f"list_{idx}"
         html_lines.append(f"<div class='date-block'>")
@@ -590,9 +587,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     html_lines.append("</body></html>")
 
-    # ==================================================
     # 保存 HTML
-    # ==================================================
     start_str = start.strftime("%Y-%m-%d")
     end_str = end.strftime("%Y-%m-%d")
     export_dir = os.path.join(DATA_DIR, "links")
@@ -611,4 +606,5 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(document=f, filename=os.path.basename(html_path))
 
     os.remove(html_path)
+
 
