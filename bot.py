@@ -30,7 +30,7 @@ from db_pg import (
 )
 from admin_tools import (
     delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd,
-    optimize_db, admin_makeup_cmd, export_cmd, export_images_cmd
+    admin_makeup_cmd, export_cmd, export_images_cmd
 )
 from shift_manager import (
     get_shift_options, get_shift_times, get_shift_times_short,
@@ -499,7 +499,6 @@ def main():
     app.add_handler(CommandHandler("export_images", export_images_cmd))  # /export_images：导出打卡截图 ZIP（管理员）
     app.add_handler(CommandHandler("admin_makeup", admin_makeup_cmd))    # /admin_makeup：管理员为员工补卡
     app.add_handler(CommandHandler("transfer", transfer_cmd))            # /transfer：用户数据迁移（改用户名时用）
-    app.add_handler(CommandHandler("optimize", optimize_db))             # /optimize：数据库优化（管理员）
     app.add_handler(CommandHandler("delete_range", delete_range_cmd))    # /delete_range：删除指定时间范围的打卡记录（管理员）
     app.add_handler(CommandHandler("userlogs", userlogs_cmd))            # /userlogs @username：查看指定用户的考勤记录（管理员）
 
