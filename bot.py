@@ -275,11 +275,11 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(new_text)
 
 # ===========================
-# 检查用户当天是否已经打过指定关键词的卡（修复版）
+# 检查用户当天是否已经打过指定关键词的卡（最终版）
 # ===========================
 def has_user_checked_keyword_today_fixed(username, keyword):
     """
-    检查用户当天是否已经打过某种卡（修复版）
+    检查用户当天是否已经打过某种卡
     规则：
       - 上班卡和补卡视为同一类，只能打一次
       - 下班卡只能打一次
@@ -287,13 +287,12 @@ def has_user_checked_keyword_today_fixed(username, keyword):
     """
     now = datetime.now(BEIJING_TZ)
 
-    # 特殊规则：凌晨 0-6 点算前一天
+    # 关键：凌晨跨天处理
     if keyword in ("#下班打卡", "#补卡") and now.hour < 6:
         ref_day = now - timedelta(days=1)
     else:
         ref_day = now
 
-    # 当天范围
     start = ref_day.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
 
@@ -302,21 +301,20 @@ def has_user_checked_keyword_today_fixed(username, keyword):
         cur.execute("""
             SELECT keyword, timestamp FROM messages
             WHERE username=%s
-            AND timestamp >= %s AND timestamp < %s
+              AND timestamp >= %s
+              AND timestamp < %s
+            ORDER BY timestamp ASC
         """, (username, start, end))
         rows = cur.fetchall()
 
-    has_up = False
-    has_down = False
+    has_up = False   # 记录是否已有上班/补卡
+    has_down = False # 记录是否已有下班
 
     for kw, ts in rows:
         ts_local = ts.astimezone(BEIJING_TZ)
 
-        # 忽略凌晨下班卡（算前一天）
-        if kw == "#下班打卡" and ts_local.hour < 6:
-            continue
-        # 忽略凌晨补卡（算前一天）
-        if kw == "#补卡" and ts_local.hour < 6:
+        # 🚫 凌晨 0-6 点的补卡/下班算前一天，忽略掉
+        if kw in ("#下班打卡", "#补卡") and ts_local.hour < 6:
             continue
 
         if kw in ("#上班打卡", "#补卡"):
@@ -326,11 +324,12 @@ def has_user_checked_keyword_today_fixed(username, keyword):
 
     # ---- 限制逻辑 ----
     if keyword in ("#上班打卡", "#补卡"):
-        return has_up  # 已有上班/补卡 → 禁止
+        return has_up   # 只要已有上班或补卡，就禁止
     if keyword == "#下班打卡":
-        return has_down  # 已有下班 → 禁止
+        return has_down # 只要已有下班，就禁止
 
     return False
+
 
 # ===========================
 # 处理补上班卡的逻辑
