@@ -129,7 +129,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             )
             missed_users = []
 
-            # 获取当天日期范围
             day_date = datetime.strptime(day, "%Y-%m-%d").date()
             day_start = datetime.combine(day_date, datetime.min.time())
             day_end = day_start + timedelta(days=1)
@@ -182,7 +181,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                                 if ts_time < end_time:
                                     group_df.at[idx, "remark"] = "早退"
 
-            # === 改造点：用户+时间排序 ===
+            # === 用户聚合 + 时间排序 ===
             group_df = group_df.sort_values(["name", "timestamp"], na_position="last")
             slim_df = group_df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
@@ -190,7 +189,17 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             slim_df["打卡时间"] = pd.to_datetime(slim_df["打卡时间"], errors="coerce").dt.tz_localize(None)
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
 
-            slim_df.to_excel(writer, sheet_name=day[:31], index=False)
+            # === 自定义写入：用户分块 + 空行分隔 ===
+            sheet_name = day[:31]
+            sheet = writer.book.create_sheet(sheet_name)
+            headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+            sheet.append(headers)
+
+            for user, user_df in slim_df.groupby("姓名"):
+                for _, row in user_df.iterrows():
+                    sheet.append(list(row))
+                sheet.append([None] * len(headers))  # 空行分隔
+
             sheet_written = True
 
         if not sheet_written:
@@ -225,6 +234,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         current_fill = next(user_fills)
 
         for row in sheet.iter_rows(min_row=2):
+            if all(cell.value is None for cell in row):  # 空行 → 跳过
+                continue
+
             name_val = row[0].value
             remark_val = str(row[4].value or "")
 
@@ -252,6 +264,8 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         if sheet.title == "统计":
             continue
         for row in sheet.iter_rows(min_row=2, values_only=True):
+            if row[0] is None:  # 跳过空行
+                continue
             name, _, _, _, remark = row
             if not name:
                 continue
@@ -331,4 +345,5 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
+
 
