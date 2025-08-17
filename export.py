@@ -117,7 +117,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     missed_days_count = {u: 0 for u in all_user_names}
 
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
-        sheet_written = False  # 防止空文件报错
+        sheet_written = False
 
         for day, group_df in df.groupby("date"):
             group_df = group_df.copy()
@@ -129,14 +129,12 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             )
             missed_users = []
 
-            # 获取当天起止时间
+            # 获取当天日期范围
             day_date = datetime.strptime(day, "%Y-%m-%d").date()
             day_start = datetime.combine(day_date, datetime.min.time())
             day_end = day_start + timedelta(days=1)
 
             for u in all_user_names:
-                if u in checked_users:
-                    continue
                 if u not in checked_users:
                     missed_users.append(u)
                     missed_days_count[u] += 1
@@ -163,7 +161,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 shift_text = str(shift_val).strip()
                 shift_name = re.split(r'[（(]', shift_text)[0]
 
-                # 补卡
                 if "补卡" in shift_text:
                     group_df.at[idx, "remark"] = "补卡"
                     continue
@@ -172,11 +169,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     start_time, end_time = get_shift_times_short()[shift_name]
                     ts_time = ts.time()
 
-                    # 迟到
                     if keyword == "#上班打卡" and ts_time > start_time:
                         group_df.at[idx, "remark"] = "迟到"
 
-                    # 早退
                     elif keyword == "#下班打卡":
                         if shift_name == "I班":
                             if not (ts.hour == 0):
@@ -187,22 +182,23 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                                 if ts_time < end_time:
                                     group_df.at[idx, "remark"] = "早退"
 
-            group_df = group_df.sort_values("timestamp", na_position="last")
+            # === 改造点：用户+时间排序 ===
+            group_df = group_df.sort_values(["name", "timestamp"], na_position="last")
             slim_df = group_df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
 
             slim_df["打卡时间"] = pd.to_datetime(slim_df["打卡时间"], errors="coerce").dt.tz_localize(None)
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
+
             slim_df.to_excel(writer, sheet_name=day[:31], index=False)
             sheet_written = True
 
-        # 防止无sheet时报错
         if not sheet_written:
             pd.DataFrame(columns=["姓名", "打卡时间", "关键词", "班次", "备注"]).to_excel(
                 writer, sheet_name="空表", index=False
             )
 
-    # ===== Excel 样式、统计表逻辑保留原样 =====
+    # ===== 样式处理 =====
     wb = load_workbook(excel_path)
     red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
     yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
@@ -215,11 +211,31 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         bottom=Side(style="thin", color="000000")
     )
 
+    from itertools import cycle
+    user_fills = cycle([
+        PatternFill(start_color="f9f9f9", end_color="f9f9f9", fill_type="solid"),
+        PatternFill(start_color="ffffff", end_color="ffffff", fill_type="solid"),
+    ])
+
     for sheet in wb.worksheets:
         if sheet.title == "统计":
             continue
+
+        current_user = None
+        current_fill = next(user_fills)
+
         for row in sheet.iter_rows(min_row=2):
+            name_val = row[0].value
             remark_val = str(row[4].value or "")
+
+            # 用户区块交替颜色
+            if name_val != current_user:
+                current_fill = next(user_fills)
+                current_user = name_val
+            for cell in row:
+                cell.fill = current_fill
+
+            # 特殊备注覆盖（迟到/早退/补卡/未打卡）
             if "迟到" in remark_val or "早退" in remark_val:
                 for cell in row:
                     cell.fill = red_fill
@@ -230,7 +246,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 for cell in row:
                     cell.fill = blue_fill_light
 
-    # ===== 生成统计表 =====
+    # ===== 统计表生成（保持原逻辑） =====
     stats = []
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -292,7 +308,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for col_idx in [6]:
             row[col_idx - 1].fill = blue_fill
 
-    # ===== 智能列宽 + 边框 =====
+    # ===== 列宽、边框 =====
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         for cell in sheet[1]:
