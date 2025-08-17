@@ -501,12 +501,10 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)  
     # ✅ 确保数据存储目录存在，用于导出文件、缓存等
 
-
-    scheduler.add_job(schedule_daily_reminders, CronTrigger(hour=0, minute=30))
     # ===========================
     # 定时任务：自动清理上个月的数据
     # ===========================
-    scheduler.add_job(delete_last_month_data, CronTrigger(day=15, hour=3))
+    scheduler.add_job(delete_last_month_data, CronTrigger(day=15, hour=1))
     # 每月15号凌晨3点，执行 delete_last_month_data 清理旧数据
     scheduler.start()
     restore_reminder_jobs()
@@ -532,11 +530,7 @@ def main():
     app.add_handler(CommandHandler("optimize", optimize_db))             # /optimize：数据库优化（管理员）
     app.add_handler(CommandHandler("delete_range", delete_range_cmd))    # /delete_range：删除指定时间范围的打卡记录（管理员）
     app.add_handler(CommandHandler("userlogs", userlogs_cmd))            # /userlogs @username：查看指定用户的考勤记录（管理员）
-    # 新增提醒命令
-    #app.add_handler(CommandHandler("remind_off", remind_off_cmd))
-   # app.add_handler(CommandHandler("remind", remind_cmd))
-    # app.add_handler(CallbackQueryHandler(remind_choice_callback, pattern=r"^remind_(yes|no)$"))
-   # app.add_handler(CallbackQueryHandler(remind_shift_callback, pattern=r"^remind_shift:"))
+
     # ===========================
     # ✅ 注册消息处理器（监听非命令消息）
     # ===========================
@@ -552,7 +546,6 @@ def main():
     app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:")) # 用户点击“选择补卡班次”按钮
     app.add_handler(CallbackQueryHandler(mylogs_page_callback, pattern=r"^mylogs_(prev|next)$"))     # 用户点击“我的打卡记录”翻页按钮
     app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^userlogs_(prev|next)$")) # 管理员查看“指定用户打卡记录”翻页按钮
-    app.add_handler(CallbackQueryHandler(remind_choice_callback, pattern=r"^remind_(yes|disable)$"))
 
     # ===========================
     # 启动 Bot
