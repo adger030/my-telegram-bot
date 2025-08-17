@@ -123,7 +123,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             group_df = group_df.copy()
             group_df["remark"] = ""
 
-            # 当天有上班卡的用户
             checked_users = set(
                 group_df.loc[group_df["keyword"] == "#上班打卡", "name"].unique()
             )
@@ -148,7 +147,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 })
                 group_df = pd.concat([group_df, missed_df], ignore_index=True)
 
-            # ===== 迟到 / 早退 / 补卡 =====
             for idx, row in group_df.iterrows():
                 shift_val = row["shift"]
                 keyword = row["keyword"]
@@ -181,7 +179,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                                 if ts_time < end_time:
                                     group_df.at[idx, "remark"] = "早退"
 
-            # === 用户聚合 + 时间排序 ===
             group_df = group_df.sort_values(["name", "timestamp"], na_position="last")
             slim_df = group_df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
@@ -189,7 +186,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             slim_df["打卡时间"] = pd.to_datetime(slim_df["打卡时间"], errors="coerce").dt.tz_localize(None)
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
 
-            # === 自定义写入：用户分块 + 空行分隔 ===
             sheet_name = day[:31]
             sheet = writer.book.create_sheet(sheet_name)
             headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
@@ -234,20 +230,18 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         current_fill = next(user_fills)
 
         for row in sheet.iter_rows(min_row=2):
-            if all(cell.value is None for cell in row):  # 空行 → 跳过
+            if all(cell.value is None for cell in row):
                 continue
 
             name_val = row[0].value
             remark_val = str(row[4].value or "")
 
-            # 用户区块交替颜色
             if name_val != current_user:
                 current_fill = next(user_fills)
                 current_user = name_val
             for cell in row:
                 cell.fill = current_fill
 
-            # 特殊备注覆盖（迟到/早退/补卡/未打卡）
             if "迟到" in remark_val or "早退" in remark_val:
                 for cell in row:
                     cell.fill = red_fill
@@ -258,13 +252,33 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 for cell in row:
                     cell.fill = blue_fill_light
 
-    # ===== 统计表生成（保持原逻辑） =====
+        # === 🚀 新增：合并姓名列 ===
+        name_col = 1
+        merge_start = None
+        prev_name = None
+        for row_idx in range(2, sheet.max_row + 1):
+            cell_val = sheet.cell(row=row_idx, column=name_col).value
+            if cell_val != prev_name:
+                if merge_start and row_idx - merge_start > 1:
+                    sheet.merge_cells(
+                        start_row=merge_start, start_column=name_col,
+                        end_row=row_idx - 1, end_column=name_col
+                    )
+                merge_start = row_idx
+                prev_name = cell_val
+        if merge_start and sheet.max_row - merge_start >= 1:
+            sheet.merge_cells(
+                start_row=merge_start, start_column=name_col,
+                end_row=sheet.max_row, end_column=name_col
+            )
+
+    # ===== 统计表生成（原逻辑保持不变） =====
     stats = []
     for sheet in wb.worksheets:
         if sheet.title == "统计":
             continue
         for row in sheet.iter_rows(min_row=2, values_only=True):
-            if row[0] is None:  # 跳过空行
+            if row[0] is None:
                 continue
             name, _, _, _, remark = row
             if not name:
@@ -322,7 +336,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for col_idx in [6]:
             row[col_idx - 1].fill = blue_fill
 
-    # ===== 列宽、边框 =====
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         for cell in sheet[1]:
