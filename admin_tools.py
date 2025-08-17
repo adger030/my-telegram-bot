@@ -237,28 +237,6 @@ async def transfer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ 迁移失败：{e}")
 
 # ===========================
-# 优化数据库索引命令，限制仅管理员可用
-# ===========================
-async def optimize_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.username not in ADMIN_USERNAMES:
-        await update.message.reply_text("❌ 你无权限执行此命令")
-        return
-
-    try:
-        from db_pg import engine  # 导入已有的数据库引擎
-        sql = """
-        CREATE INDEX IF NOT EXISTS messages_id_idx ON messages(id);  -- 创建索引以优化查询
-        CLUSTER messages USING messages_id_idx;  -- 根据索引对数据表进行物理重排（聚簇）
-        """
-        with engine.begin() as conn:
-            conn.execute(text(sql))  # 执行 SQL
-
-        await update.message.reply_text("✅ 数据表已按 id 进行优化")
-    except Exception as e:
-        await update.message.reply_text("⚠️ 执行失败，请稍后再试")
-        print("CLUSTER 执行失败：", e)
-
-# ===========================
 # 管理员补卡命令
 # ===========================
 async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
