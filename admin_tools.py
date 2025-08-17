@@ -488,20 +488,25 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             start_time, end_time = get_shift_times_short()[shift_name]
             ts_time = ts.time()
     
-            # 迟到判定
-            if keyword == "#上班打卡" and ts_time > start_time:
-                return "迟到"
+            # ========== 上班打卡 ==========
+            if keyword == "#上班打卡":
+                # 如果上班时间已过 → 迟到
+                if ts_time > start_time:
+                    return "迟到"
+                # 如果比上班时间早一点 → 正常（不算异常）
+                else:
+                    return ""
     
-            # 下班判定
+            # ========== 下班打卡 ==========
             elif keyword == "#下班打卡":
                 if shift_name == "I班":
-                    # I班逻辑
+                    # I班：次日 00:00 ~ 01:59 正常
                     if 0 <= ts.hour <= 1:
                         return ""  # 正常
-                    elif 2 <= ts.hour:  
-                        return "签到异常"
+                    # 当天 15:00 ~ 23:59 早退
                     elif 15 <= ts.hour <= 23:
                         return "早退"
+                    # 其他时间（比如 02:00 以后）异常
                     else:
                         return "签到异常"
                 else:
@@ -511,6 +516,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             return "早退"
     
         return ""
+
   
     photo_df["remark"] = photo_df.apply(get_remark, axis=1)
 
