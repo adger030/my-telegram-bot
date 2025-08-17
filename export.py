@@ -137,11 +137,10 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             for u in all_user_names:
                 if u in checked_users:
                     continue
-
                 if u not in checked_users:
                     missed_users.append(u)
                     missed_days_count[u] += 1
-                    
+
             if missed_users:
                 missed_df = pd.DataFrame({
                     "name": missed_users,
@@ -151,6 +150,25 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     "remark": "未打上班卡"
                 })
                 group_df = pd.concat([group_df, missed_df], ignore_index=True)
+
+            # ===== 缺下班卡 =====
+            checked_in_users = set(group_df.loc[group_df["keyword"] == "#上班打卡", "name"].unique())
+            checked_out_users = set(group_df.loc[group_df["keyword"] == "#下班打卡", "name"].unique())
+
+            missing_checkout_users = []
+            for u in checked_in_users:
+                if u not in checked_out_users:
+                    missing_checkout_users.append(u)
+
+            if missing_checkout_users:
+                missing_checkout_df = pd.DataFrame({
+                    "name": missing_checkout_users,
+                    "timestamp": pd.NaT,
+                    "keyword": None,
+                    "shift": None,
+                    "remark": "缺下班卡"
+                })
+                group_df = pd.concat([group_df, missing_checkout_df], ignore_index=True)
 
             # ===== 迟到 / 早退 / 补卡 =====
             for idx, row in group_df.iterrows():
@@ -230,6 +248,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             elif "未打上班卡" in remark_val:
                 for cell in row:
                     cell.fill = blue_fill_light
+            elif "缺下班卡" in remark_val:
+                for cell in row:
+                    cell.fill = blue_fill_light
 
     # ===== 生成统计表 =====
     stats = []
@@ -246,6 +267,8 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 status = "补卡"
             elif remark in ("迟到", "早退"):
                 status = "迟到/早退"
+            elif remark == "缺下班卡":
+                status = "缺下班卡"
             else:
                 status = "正常"
             stats.append({"姓名": name, "状态": status})
@@ -254,7 +277,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     if not stats_df.empty:
         summary_df = stats_df.groupby(["姓名", "状态"]).size().unstack(fill_value=0).reset_index()
     else:
-        summary_df = pd.DataFrame(columns=["姓名", "正常", "迟到/早退", "补卡"])
+        summary_df = pd.DataFrame(columns=["姓名", "正常", "迟到/早退", "补卡", "缺下班卡"])
 
     for user in all_user_names:
         if user not in summary_df["姓名"].values:
@@ -263,19 +286,19 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 pd.DataFrame([{"姓名": user}])
             ], ignore_index=True)
 
-    for col in ["正常", "迟到/早退", "补卡"]:
+    for col in ["正常", "迟到/早退", "补卡", "缺下班卡"]:
         if col not in summary_df.columns:
             summary_df[col] = 0
-    summary_df = summary_df.fillna(0).astype({"正常": int, "迟到/早退": int, "补卡": int})
+    summary_df = summary_df.fillna(0).astype({"正常": int, "迟到/早退": int, "补卡": int, "缺下班卡": int})
 
     summary_df["未打上班卡"] = summary_df["姓名"].map(missed_days_count)
-    summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"]
+    summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"] + summary_df["缺下班卡"]
 
-    summary_df = summary_df[["姓名", "正常", "未打上班卡", "迟到/早退", "补卡", "异常总数"]]
+    summary_df = summary_df[["姓名", "正常", "未打上班卡", "缺下班卡", "迟到/早退", "补卡", "异常总数"]]
     summary_df = summary_df.sort_values(by="正常", ascending=False)
 
     stats_sheet = wb.create_sheet("统计", 0)
-    headers = ["姓名", "正常打卡", "未打上班卡", "迟到/早退", "补卡", "异常总数"]
+    headers = ["姓名", "正常打卡", "未打上班卡", "缺下班卡", "迟到/早退", "补卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
@@ -290,7 +313,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         cell.alignment = center_align
 
     for row in stats_sheet.iter_rows(min_row=2):
-        for col_idx in [6]:
+        for col_idx in [7]:
             row[col_idx - 1].fill = blue_fill
 
     # ===== 智能列宽 + 边框 =====
