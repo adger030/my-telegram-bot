@@ -18,10 +18,8 @@ jobs:
       
       - name: 📦 执行 Railway 控制
         run: |
-          # 定义 GraphQL API
           API_URL="https://backboard.railway.app/graphql"
           
-          # 判断当前执行时间是关还是开
           if [ "$(date -u '+%H')" == "18" ]; then
             ACTION="STOP"
           else
@@ -30,14 +28,12 @@ jobs:
 
           echo "执行操作: $ACTION"
 
-          # GraphQL 查询
           if [ "$ACTION" == "STOP" ]; then
-            QUERY="mutation { serviceInstanceDelete(id: \"${{ secrets.RAILWAY_SERVICE_ID }}\") { id } }"
+            QUERY="mutation { serviceInstanceScale(id: \"${{ secrets.RAILWAY_SERVICE_INSTANCE_ID }}\", replicas: 0) { id replicas } }"
           else
-            QUERY="mutation { serviceInstanceCreate(input: { serviceId: \"${{ secrets.RAILWAY_SERVICE_ID }}\" }) { id } }"
+            QUERY="mutation { serviceInstanceScale(id: \"${{ secrets.RAILWAY_SERVICE_INSTANCE_ID }}\", replicas: 1) { id replicas } }"
           fi
 
-          # 调用 API
           RESPONSE=$(curl -s -X POST \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.RAILWAY_API_KEY }}" \
@@ -47,7 +43,6 @@ jobs:
           echo "📜 Railway API 返回:"
           echo "$RESPONSE"
 
-          # 检查错误
           if echo "$RESPONSE" | grep -q "errors"; then
             echo "❌ Railway API 调用失败"
             exit 1
