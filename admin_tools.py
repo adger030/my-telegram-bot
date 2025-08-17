@@ -16,7 +16,9 @@ from export import export_excel
 from shift_manager import get_shift_options, get_shift_times_short
 from logs_utils import build_and_send_logs, send_logs_page
 
-
+# ===========================
+# 管理员删除数据
+# ===========================
 # 提取 Cloudinary public_id
 def extract_cloudinary_public_id(url: str) -> str | None:
     """
@@ -148,8 +150,6 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🖼 Cloudinary 图片：{deleted_images}/{len(public_ids)} 张\n"
         f"📅 范围：{start_date} ~ {end_date}"
     )
-
-    
 
 # ===========================
 # 查看指定用户的考勤记录
@@ -372,8 +372,6 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔹 类型：{punch_type}\n"
         f"⏰ 时间：{punch_dt.strftime('%Y-%m-%d %H:%M')}"
     )
-
-
     
 # ===========================
 # 获取默认的月份范围
