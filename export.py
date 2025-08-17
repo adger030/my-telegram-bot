@@ -242,17 +242,18 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             for cell in row:
                 cell.fill = current_fill
 
+            # 🚀 修改：只对非“姓名列”染色
             if "迟到" in remark_val or "早退" in remark_val:
-                for cell in row:
+                for cell in row[1:]:
                     cell.fill = red_fill
             elif "补卡" in remark_val:
-                for cell in row:
+                for cell in row[1:]:
                     cell.fill = yellow_fill
             elif "未打上班卡" in remark_val:
-                for cell in row:
+                for cell in row[1:]:
                     cell.fill = blue_fill_light
 
-        # === 🚀 新增：合并姓名列 ===
+        # === 新增：合并姓名列 ===
         name_col = 1
         merge_start = None
         prev_name = None
@@ -272,7 +273,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-    # ===== 统计表生成（原逻辑保持不变） =====
+    # ===== 统计表生成（保持不变） =====
     stats = []
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -358,5 +359,3 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
-
-
