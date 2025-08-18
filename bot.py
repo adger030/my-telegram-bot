@@ -10,7 +10,7 @@ from collections import defaultdict
 # ===========================
 # 第三方库
 # ===========================
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ApplicationBuilder
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -102,6 +102,14 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     name = get_user_name(username)
     await send_welcome(update.message, name)
+	    # 🚀 常驻输入框按钮（只留一个）
+    keyboard = [["🗓 我的打卡记录"]]
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True,   # 按钮大小自适应
+        one_time_keyboard=False # False 表示常驻
+    )
+    await update.message.reply_text("请选择操作：", reply_markup=reply_markup)
  #   await update.message.reply_sticker(
  #       sticker="CAACAgUAAxkBAAIdqWibWBP7RZ-_Gx_0UznjeAHuiz2HAAKlBwACsCjwVqRGdbv4kuN-NgQ"  # 贴纸 file_id
  #   )
@@ -114,6 +122,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = msg.from_user.username or f"user{msg.from_user.id}"
     text = msg.text.strip()
 
+	 # 🚩 如果点击了「📊 我的打卡记录」
+    if text == "🗓 我的打卡记录":
+        await mylogs_cmd(update, context)
+        return
+		
     # 🚩 如果用户还没登记姓名
     if username in WAITING_NAME:
         if len(text) < 2:
