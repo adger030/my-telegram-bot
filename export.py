@@ -214,7 +214,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         if not sheet_written:
             pd.DataFrame(columns=["姓名", "打卡时间", "关键词", "班次", "备注"]).to_excel(writer, sheet_name="空表", index=False)
 
-    # ======================== 样式处理（保持原逻辑） ========================
+    # ======================== 样式处理 ========================
     wb = load_workbook(excel_path)
     red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
     yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
@@ -276,7 +276,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-    # ======================== 统计表（按打卡次数计算正常） ========================
+    # ======================== 统计表（按打卡次数） ========================
     stats = []
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -303,7 +303,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     else:
         summary_df = pd.DataFrame(columns=["姓名", "正常", "迟到/早退", "补卡"])
 
-    # 补全所有用户
     for user in all_user_names:
         if user not in summary_df["姓名"].values:
             summary_df = pd.concat([summary_df, pd.DataFrame([{"姓名": user}])], ignore_index=True)
@@ -311,6 +310,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     for col in ["正常", "迟到/早退", "补卡"]:
         if col not in summary_df.columns:
             summary_df[col] = 0
+
     summary_df = summary_df.fillna(0).astype({"正常": int, "迟到/早退": int, "补卡": int})
     summary_df["未打上班卡"] = summary_df["姓名"].map(missed_days_count)
     summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"]
@@ -349,4 +349,5 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
+
 
