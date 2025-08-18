@@ -276,10 +276,10 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-    # ======================== 统计表（基于详情表） ========================
+# ======================== 统计表（优化后逻辑） ========================
+# 按用户+日期统计
     stats = {u: {"正常": 0, "未打上班卡": 0, "未打下班卡": 0, "迟到/早退": 0, "补卡": 0} for u in all_user_names}
-
-    # 遍历每个用户，根据详情表累加上班卡、下班卡和异常
+    
     for sheet in wb.worksheets:
         if sheet.title == "统计":
             continue
@@ -287,7 +287,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         if df_sheet.empty or len(df_sheet.columns) < 5:
             continue
         df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
-
+    
         # 手动补齐姓名
         last_name = None
         for i in range(len(df_sheet)):
@@ -295,58 +295,61 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 last_name = df_sheet.at[i, "姓名"]
             elif last_name:
                 df_sheet.at[i, "姓名"] = last_name
-
-        # 提取日期
-        df_sheet["日期"] = df_sheet["打卡时间"].apply(lambda x: x[:10] if x else None)
-
-        for user in all_user_names:
-            user_df = df_sheet[df_sheet["姓名"] == user]
-            if user_df.empty:
+    
+        # 将时间列转为日期
+        df_sheet["日期"] = df_sheet["打卡时间"].apply(lambda x: x.split(" ")[0] if x else None)
+    
+        # 按用户+日期分组统计
+        for (name, date), group in df_sheet.groupby(["姓名", "日期"]):
+            if not name or name not in stats:
                 continue
-
-            for day, day_df in user_df.groupby("日期"):
-                keywords = set(day_df["关键词"].dropna())
-                remarks = "".join(str(x) for x in day_df["备注"].dropna())
-
-                if "#上班打卡" in keywords:
-                    stats[user]["正常"] += 1
-                else:
-                    stats[user]["未打上班卡"] += 1
-
-                if "#下班打卡" in keywords:
-                    stats[user]["正常"] += 1
-                else:
-                    stats[user]["未打下班卡"] += 1
-
-                if "迟到" in remarks or "早退" in remarks:
-                    stats[user]["迟到/早退"] += 1
-                if "补卡" in remarks:
-                    stats[user]["补卡"] += 1
-
-    # 写入统计表
+            keywords = set(group["关键词"].dropna())
+            remarks = "".join(str(x) for x in group["备注"].dropna())
+    
+            has_up = "#上班打卡" in keywords
+            has_down = "#下班打卡" in keywords
+    
+            # 一天正常打卡
+            if has_up:
+                stats[name]["正常"] += 1
+            else:
+                stats[name]["未打上班卡"] += 1
+    
+            if has_down:
+                stats[name]["正常"] += 1
+            else:
+                stats[name]["未打下班卡"] += 1
+    
+            # 补卡/迟到/早退单独统计
+            if "补卡" in remarks:
+                stats[name]["补卡"] += 1
+            if "迟到" in remarks or "早退" in remarks:
+                stats[name]["迟到/早退"] += 1
+    
+    # 转 DataFrame
     summary_df = pd.DataFrame([
         {"姓名": u, **v, "异常总数": v["未打上班卡"] + v["未打下班卡"] + v["迟到/早退"] + v["补卡"]}
         for u, v in stats.items()
     ])
     summary_df = summary_df[["姓名", "正常", "未打上班卡", "未打下班卡", "迟到/早退", "补卡", "异常总数"]]
     summary_df = summary_df.sort_values(by="正常", ascending=False)
-
+    
+    # 写入 Excel
     stats_sheet = wb.create_sheet("统计", 0)
     headers = ["姓名", "正常打卡", "未打上班卡", "未打下班卡", "迟到/早退", "补卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
-
-    # 样式
     stats_sheet.freeze_panes = "A2"
     header_font = Font(bold=True)
-    center_align = Alignment(horizontal="center", vertical="center")
+    center_align = Alignment(horizontal="center")
     blue_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
     for cell in stats_sheet[1]:
         cell.font = header_font
         cell.alignment = center_align
     for row in stats_sheet.iter_rows(min_row=2):
         row[6].fill = blue_fill  # 异常总数列高亮
+
 
     # ======================== 列宽/边框 ========================
     for sheet in wb.worksheets:
