@@ -75,7 +75,7 @@ async def send_welcome(update_or_msg, name):
         "1️⃣ 向机器人发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
         "2️⃣ 上班打卡需要选择你的班次，提示打卡成功完成打卡；\n"
         "3️⃣ 若忘记上班打卡，请发送“#补卡”并附带IP截图（无法补下班卡）；\n"
-	    "4️⃣ 输入指令/mylogs或从Menu选择，可以查看本月打卡详情记录；\n\n"
+	    "4️⃣ 点击‘我的打卡记录’，可以查看本月打卡详情记录；\n\n"
         "IP截图必须包含以下信息\n"
         "① 设备编码：本机序列号\n"
         "② 实时IP：指定网站内显示的IP\n"
@@ -109,7 +109,6 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resize_keyboard=True,   # 按钮大小自适应
         one_time_keyboard=False # False 表示常驻
     )
-    await update.message.reply_text("请选择操作：", reply_markup=reply_markup)
  #   await update.message.reply_sticker(
  #       sticker="CAACAgUAAxkBAAIdqWibWBP7RZ-_Gx_0UznjeAHuiz2HAAKlBwACsCjwVqRGdbv4kuN-NgQ"  # 贴纸 file_id
  #   )
