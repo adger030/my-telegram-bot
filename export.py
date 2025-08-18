@@ -84,7 +84,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
     if df.empty:
         logging.warning("⚠️ 指定日期内没有数据")
-        # 空数据保底写一个空 sheet 避免 openpyxl 报错
         export_dir = os.path.join(DATA_DIR, f"excel_{start_datetime:%Y-%m-%d}_{end_datetime - pd.Timedelta(seconds=1):%Y-%m-%d}")
         os.makedirs(export_dir, exist_ok=True)
         excel_path = os.path.join(export_dir, f"打卡记录_{start_datetime:%Y-%m-%d}_{end_datetime - pd.Timedelta(seconds=1):%Y-%m-%d}.xlsx")
@@ -99,7 +98,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         except AttributeError:
             pass
 
-    # ======================== 日期列 ========================
     df["date"] = df["timestamp"].dt.strftime("%Y-%m-%d")
     start_str = start_datetime.strftime("%Y-%m-%d")
     end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
@@ -124,13 +122,19 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
     missed_days_count = {u: 0 for u in all_user_names}
 
+    # 过滤掉当天 sheet 的 I班凌晨下班卡
+    i_shift_mask = (df["keyword"] == "#下班打卡") & (df["shift"].notna()) & (df["shift"].astype(str).str.startswith("I班")) & (df["timestamp"].dt.hour < 6)
+    cross_df = df[i_shift_mask].copy()
+    df = df[~i_shift_mask]  # 当天 sheet 不显示
+    cross_df["remark"] = cross_df.get("remark", "") + "（次日）"
+    cross_df["date"] = (cross_df["timestamp"] - pd.Timedelta(days=1)).dt.strftime("%Y-%m-%d")
+    df = pd.concat([df, cross_df], ignore_index=True)
+
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         sheet_written = False
 
         for day, group_df in df.groupby("date"):
             group_df = group_df.copy()
-
-            # 🟢 确保 remark 列存在
             if "remark" not in group_df.columns:
                 group_df["remark"] = ""
 
@@ -156,25 +160,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 })
                 group_df = pd.concat([group_df, missed_df], ignore_index=True)
 
-            # ======================== I班跨天逻辑 ========================
-            next_day = day_date + timedelta(days=1)
-            cross_df = df[
-                (df["date"] == next_day.strftime("%Y-%m-%d")) &
-                (df["keyword"] == "#下班打卡") &
-                (df["shift"].notna()) &
-                (df["shift"].astype(str).str.startswith("I班")) &
-                (df["timestamp"].dt.hour < 6)
-            ].copy()
-
-            if not cross_df.empty:
-                if "remark" not in cross_df.columns:
-                    cross_df["remark"] = ""
-                # 标记为次日
-                cross_df["remark"] = cross_df["remark"].astype(str) + "（次日）"
-                # 只保留前一天 sheet，不再显示当天
-                cross_df["date"] = day
-                group_df = pd.concat([group_df, cross_df], ignore_index=True)
-
             # ======================== 迟到/早退/补卡 ========================
             for idx, row in group_df.iterrows():
                 shift_val = row["shift"]
@@ -197,7 +182,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
                     if keyword == "#上班打卡" and ts_time > start_time:
                         group_df.at[idx, "remark"] = "迟到"
-
                     elif keyword == "#下班打卡":
                         if shift_name == "I班":
                             if not (ts.hour == 0):
@@ -208,15 +192,11 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                                 if ts_time < end_time:
                                     group_df.at[idx, "remark"] = "早退"
 
-            # 按姓名 + 时间排序，保持 datetime 对象
             group_df = group_df.sort_values(["name", "timestamp"], na_position="last")
             slim_df = group_df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
 
-            # 写入 Excel 时格式化时间
-            slim_df["打卡时间"] = slim_df["打卡时间"].apply(
-                lambda x: x.strftime("%H:%M:%S") if pd.notna(x) else ""
-            )
+            slim_df["打卡时间"] = slim_df["打卡时间"].apply(lambda x: x.strftime("%H:%M:%S") if pd.notna(x) else "")
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
 
             sheet_name = day[:31]
@@ -227,14 +207,12 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             for user, user_df in slim_df.groupby("姓名"):
                 for _, row in user_df.iterrows():
                     sheet.append(list(row))
-                sheet.append([None] * len(headers))  # 空行分隔
+                sheet.append([None] * len(headers))
 
             sheet_written = True
 
         if not sheet_written:
-            pd.DataFrame(columns=["姓名", "打卡时间", "关键词", "班次", "备注"]).to_excel(
-                writer, sheet_name="空表", index=False
-            )
+            pd.DataFrame(columns=["姓名", "打卡时间", "关键词", "班次", "备注"]).to_excel(writer, sheet_name="空表", index=False)
 
     # ======================== 样式处理（保持原逻辑） ========================
     wb = load_workbook(excel_path)
