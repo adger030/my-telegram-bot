@@ -436,28 +436,6 @@ async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await send_logs_page(update, context, key="mylogs")
 
 # ===========================
-# 分页按钮回调（边界保护）
-# ===========================
-async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if "mylogs_pages" not in context.user_data:
-        await query.edit_message_text("⚠️ 会话已过期，请重新使用 /mylogs")
-        return
-
-    pages_info = context.user_data["mylogs_pages"]
-    total_pages = len(pages_info["pages"])
-
-    # ✅ 页码安全调整
-    if query.data == "mylogs_prev" and pages_info["page_index"] > 0:
-        pages_info["page_index"] -= 1
-    elif query.data == "mylogs_next" and pages_info["page_index"] < total_pages - 1:
-        pages_info["page_index"] += 1
-
-    await send_mylogs_page(update, context)
-
-# ===========================
 # 单实例检查：防止重复启动 Bot
 # ===========================
 def check_existing_instance():
