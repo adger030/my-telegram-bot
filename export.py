@@ -276,7 +276,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-    # ======================== 统计表（按打卡次数） ========================
+# ======================== 统计表（按打卡次数） ========================
     stats = []
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -284,42 +284,47 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for row in sheet.iter_rows(min_row=2, values_only=True):
             if row[0] is None:
                 continue
-            name, ts_str, keyword, shift, remark = row
+            name, _, keyword, _, remark = row
             if not name:
                 continue
-
-            if keyword in ("#上班打卡", "#下班打卡") and remark == "":
-                stats.append({"姓名": name, "类型": "正常"})
-            elif remark == "补卡" or ("补卡" in str(remark)):
-                stats.append({"姓名": name, "类型": "补卡"})
-            elif remark in ("迟到", "早退") or ("迟到" in str(remark)) or ("早退" in str(remark)):
-                stats.append({"姓名": name, "类型": "迟到/早退"})
-            elif remark == "未打上班卡":
-                stats.append({"姓名": name, "类型": "未打上班卡"})
-            elif remark == "未打下班卡":
-                stats.append({"姓名": name, "类型": "未打下班卡"})
-
+    
+            remark_str = str(remark or "")
+            # 判断每条记录类型
+            if keyword in ("#上班打卡", "#下班打卡") and all(x not in remark_str for x in ("迟到", "早退", "补卡", "未打上班卡", "未打下班卡")):
+                status = "正常"
+            elif "未打上班卡" in remark_str:
+                status = "未打上班卡"
+            elif "未打下班卡" in remark_str:
+                status = "未打下班卡"
+            elif "补卡" in remark_str:
+                status = "补卡"
+            elif "迟到" in remark_str or "早退" in remark_str:
+                status = "迟到/早退"
+            else:
+                status = "正常"
+            stats.append({"姓名": name, "状态": status})
+    
     stats_df = pd.DataFrame(stats)
-
     if not stats_df.empty:
-        summary_df = stats_df.groupby(["姓名", "类型"]).size().unstack(fill_value=0).reset_index()
+        summary_df = stats_df.groupby(["姓名", "状态"]).size().unstack(fill_value=0).reset_index()
     else:
         summary_df = pd.DataFrame(columns=["姓名", "正常", "未打上班卡", "未打下班卡", "迟到/早退", "补卡"])
-
-    for col in ["正常", "未打上班卡", "未打下班卡", "迟到/早退", "补卡"]:
-        if col not in summary_df.columns:
-            summary_df[col] = 0
-
-    # 确保所有用户都有记录
+    
+    # 补齐所有用户
     for user in all_user_names:
         if user not in summary_df["姓名"].values:
             summary_df = pd.concat([summary_df, pd.DataFrame([{"姓名": user}])], ignore_index=True)
-
+    
+    # 确保列存在
+    for col in ["正常", "未打上班卡", "未打下班卡", "迟到/早退", "补卡"]:
+        if col not in summary_df.columns:
+            summary_df[col] = 0
+    
+    summary_df = summary_df.fillna(0).astype({"正常": int, "未打上班卡": int, "未打下班卡": int, "迟到/早退": int, "补卡": int})
     summary_df["异常总数"] = summary_df["未打上班卡"] + summary_df["未打下班卡"] + summary_df["迟到/早退"] + summary_df["补卡"]
-    summary_df = summary_df.fillna(0).astype({"正常": int, "未打上班卡": int, "未打下班卡": int, "迟到/早退": int, "补卡": int, "异常总数": int})
     summary_df = summary_df[["姓名", "正常", "未打上班卡", "未打下班卡", "迟到/早退", "补卡", "异常总数"]]
     summary_df = summary_df.sort_values(by="正常", ascending=False)
-
+    
     # 写入统计表
     stats_sheet = wb.create_sheet("统计", 0)
     headers = ["姓名", "正常打卡", "未打上班卡", "未打下班卡", "迟到/早退", "补卡", "异常总数"]
