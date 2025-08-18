@@ -169,19 +169,11 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             if not cross_df.empty:
                 if "remark" not in cross_df.columns:
                     cross_df["remark"] = ""
-                # 时间格式化两位数，并在备注加 (次日)
-                cross_df["timestamp"] = cross_df["timestamp"].dt.strftime("%H:%M:%S")
+                # 标记为次日
                 cross_df["remark"] = cross_df["remark"].astype(str) + "（次日）"
-                # 添加到前一天的 group_df
+                # 只保留前一天 sheet，不再显示当天
+                cross_df["date"] = day
                 group_df = pd.concat([group_df, cross_df], ignore_index=True)
-
-            # 删除当天 sheet 的 I班凌晨下班卡，避免重复显示
-            df = df[~(
-                (df["date"] == next_day.strftime("%Y-%m-%d")) &
-                (df["keyword"] == "#下班打卡") &
-                (df["shift"].astype(str).str.startswith("I班")) &
-                (df["timestamp"].dt.hour < 6)
-            )]
 
             # ======================== 迟到/早退/补卡 ========================
             for idx, row in group_df.iterrows():
@@ -201,31 +193,30 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
                 if shift_name in get_shift_times_short():
                     start_time, end_time = get_shift_times_short()[shift_name]
-                    # ts 为字符串时，需要先转时间
-                    if isinstance(ts, str):
-                        ts_time = datetime.strptime(ts, "%H:%M:%S").time()
-                    else:
-                        ts_time = ts.time()
+                    ts_time = ts.time()
 
                     if keyword == "#上班打卡" and ts_time > start_time:
                         group_df.at[idx, "remark"] = "迟到"
 
                     elif keyword == "#下班打卡":
                         if shift_name == "I班":
-                            if not (ts_time.hour == 0):
-                                if 15 <= ts_time.hour <= 23:
+                            if not (ts.hour == 0):
+                                if 15 <= ts.hour <= 23:
                                     group_df.at[idx, "remark"] = "早退"
                         else:
-                            if not (0 <= ts_time.hour <= 1):
+                            if not (0 <= ts.hour <= 1):
                                 if ts_time < end_time:
                                     group_df.at[idx, "remark"] = "早退"
 
+            # 按姓名 + 时间排序，保持 datetime 对象
             group_df = group_df.sort_values(["name", "timestamp"], na_position="last")
             slim_df = group_df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
 
-            # ======================== 时间两位数格式（其他卡） ========================
-            slim_df["打卡时间"] = pd.to_datetime(slim_df["打卡时间"], errors="coerce").dt.strftime("%H:%M:%S")
+            # 写入 Excel 时格式化时间
+            slim_df["打卡时间"] = slim_df["打卡时间"].apply(
+                lambda x: x.strftime("%H:%M:%S") if pd.notna(x) else ""
+            )
             slim_df["班次"] = slim_df["班次"].apply(format_shift)
 
             sheet_name = day[:31]
