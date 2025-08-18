@@ -97,7 +97,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             f"打卡记录_{start_datetime:%Y-%m-%d}_{end_datetime - pd.Timedelta(seconds=1):%Y-%m-%d}.xlsx"
         )
         with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
-            pd.DataFrame(columns=["姓名", "打卡时间", "关键词", "班次", "备注"]).to_excel(writer, sheet_name="空表", index=False)
+            pd.DataFrame(columns=["姓名", "打卡时间", "关键词", "班次", "备注"]).to_excel(
+                writer, sheet_name="空表", index=False
+            )
         return excel_path
 
     # ================= 时间处理 =================
@@ -158,9 +160,11 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 user_df = group_df[group_df["name"] == user]
 
                 if user_df.empty:
-                    # 🔹 休息
+                    # 🔹 当天完全没有记录，写“休息”
                     sheet.append([user, "", "", "", "（休息）"])
                     continue
+
+                start_row = sheet.max_row + 1  # 记录姓名开始行
 
                 # 上班记录
                 up_row = user_df[user_df["keyword"] == "#上班打卡"].sort_values("timestamp").head(1)
@@ -182,12 +186,18 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 else:
                     sheet.append([user, "", "#下班打卡", "", "未打下班卡"])
 
+                end_row = sheet.max_row  # 姓名结束行
+
+                # 🔹 合并姓名列（如果是两行以上）
+                if end_row > start_row:
+                    sheet.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=1)
+
     # ================= 样式处理 =================
     wb = load_workbook(excel_path)
-    red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")      # 迟到/早退
-    yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")   # 补卡
+    red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")        # 迟到/早退
+    yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")     # 补卡
     blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid") # 未打卡
-    green_fill = PatternFill(start_color="c8ffc8", end_color="c8ffc8", fill_type="solid")    # 休息
+    green_fill = PatternFill(start_color="c8ffc8", end_color="c8ffc8", fill_type="solid")      # 休息
     thin_border = Border(
         left=Side(style="thin", color="000000"),
         right=Side(style="thin", color="000000"),
@@ -215,7 +225,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 cell.border = thin_border
                 cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    # ================= 统计表（保持之前逻辑） =================
+    # ================= 统计表 =================
     stats = {u: {"正常": 0, "未打上班卡": 0, "未打下班卡": 0, "迟到/早退": 0, "补卡": 0} for u in all_user_names}
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -227,9 +237,11 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
         for _, row in df_sheet.iterrows():
             name, kw, remark = row["姓名"], row["关键词"], str(row["备注"] or "")
-            if not name or name not in stats: continue
+            if not name or name not in stats:
+                continue
 
-            if "休息" in remark: continue
+            if "休息" in remark:
+                continue
             if "补卡" in remark:
                 stats[name]["补卡"] += 1
             elif "迟到" in remark or "早退" in remark:
@@ -253,6 +265,20 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
+
+    # ================= 自动列宽 + 居中 + 边框 =================
+    for sheet in wb.worksheets:
+        sheet.freeze_panes = "A2"
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        for col in sheet.columns:
+            col_letter = col[0].column_letter
+            max_length = max((19 if isinstance(cell.value, datetime) else len(str(cell.value or "")) for cell in col))
+            for cell in col:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = thin_border
+            sheet.column_dimensions[col_letter].width = min(max_length + 8, 30)
 
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
