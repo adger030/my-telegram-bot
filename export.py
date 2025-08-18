@@ -277,8 +277,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             )
 
 # ======================== 统计表（优化后逻辑） ========================
-# 按用户+日期统计（基于明细表真实打卡，而不是自动累加未打卡）
-    stats = {u: {"正常": 0, "未打上班卡": 0, "未打下班卡": 0, "迟到/早退": 0, "补卡": 0} for u in all_user_names}
+    stats = {u: {"正常": 0, "迟到/早退": 0, "补卡": 0} for u in all_user_names}
     
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -288,7 +287,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             continue
         df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
     
-        # 补全姓名列
+        # 手动补齐姓名
         last_name = None
         for i in range(len(df_sheet)):
             if pd.notna(df_sheet.at[i, "姓名"]):
@@ -296,62 +295,43 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             elif last_name:
                 df_sheet.at[i, "姓名"] = last_name
     
-        # 将时间列转为日期
-        df_sheet["日期"] = df_sheet["打卡时间"].apply(lambda x: None if not x else str(x).split(" ")[0])
-    
-        # 按用户+日期分组统计
-        for (name, date), group in df_sheet.groupby(["姓名", "日期"]):
+        # 按用户统计
+        for name, group in df_sheet.groupby("姓名"):
             if not name or name not in stats:
                 continue
-            keywords = set(group["关键词"].dropna())
+            # 正常次数：每条上班或下班打卡 +1
+            stats[name]["正常"] += group["关键词"].isin(["#上班打卡", "#下班打卡"]).sum()
+    
             remarks = "".join(str(x) for x in group["备注"].dropna())
-    
-            has_up = "#上班打卡" in keywords
-            has_down = "#下班打卡" in keywords
-    
-            # 正常打卡统计
-            if has_up:
-                stats[name]["正常"] += 1
-            if has_down:
-                stats[name]["正常"] += 1
-    
-            # 没有打上班/下班卡的标记
-            if not has_up:
-                stats[name]["未打上班卡"] += 1
-            if not has_down:
-                stats[name]["未打下班卡"] += 1
-    
-            # 补卡/迟到/早退单独统计
             if "补卡" in remarks:
-                stats[name]["补卡"] += 1
+                stats[name]["补卡"] += remarks.count("补卡")
             if "迟到" in remarks or "早退" in remarks:
-                stats[name]["迟到/早退"] += 1
+                stats[name]["迟到/早退"] += remarks.count("迟到") + remarks.count("早退")
     
-    # 转 DataFrame 输出
+    # 转 DataFrame
     summary_df = pd.DataFrame([
-        {"姓名": u, **v, "异常总数": v["未打上班卡"] + v["未打下班卡"] + v["迟到/早退"] + v["补卡"]}
+        {"姓名": u, **v, "异常总数": v["迟到/早退"] + v["补卡"]}
         for u, v in stats.items()
     ])
-    summary_df = summary_df[["姓名", "正常", "未打上班卡", "未打下班卡", "迟到/早退", "补卡", "异常总数"]]
+    summary_df = summary_df[["姓名", "正常", "迟到/早退", "补卡", "异常总数"]]
     summary_df = summary_df.sort_values(by="正常", ascending=False)
     
     # 写入 Excel
     stats_sheet = wb.create_sheet("统计", 0)
-    headers = ["姓名", "正常打卡", "未打上班卡", "未打下班卡", "迟到/早退", "补卡", "异常总数"]
+    headers = ["姓名", "正常", "迟到/早退", "补卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
-    
     stats_sheet.freeze_panes = "A2"
     header_font = Font(bold=True)
     center_align = Alignment(horizontal="center")
     blue_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
-    
     for cell in stats_sheet[1]:
         cell.font = header_font
         cell.alignment = center_align
     for row in stats_sheet.iter_rows(min_row=2):
-        row[6].fill = blue_fill  # 异常总数列高亮
+        row[4].fill = blue_fill  # 异常总数列高亮
+
 
 
 
