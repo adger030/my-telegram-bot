@@ -88,13 +88,6 @@ async def send_welcome(update_or_msg, name):
         photo="https://i.postimg.cc/3xRMBbT4/photo-2025-07-28-15-55-19.jpg",
         caption="#上班打卡"
     )
-    keyboard = [["🗓 我的打卡记录"]]
-    reply_markup = ReplyKeyboardMarkup(
-        keyboard,
-        resize_keyboard=True,   # 按钮大小自适应
-        one_time_keyboard=False # False 表示常驻
-    )
-    await update.message.reply_text("举个🌰，如上👆", reply_markup=reply_markup)
 
 # ===========================
 # /start 命令：首次提示输入姓名，否则直接发送欢迎说明
@@ -109,7 +102,13 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = get_user_name(username)
     await send_welcome(update.message, name)
 	    # 🚀 常驻输入框按钮（只留一个）
-
+    keyboard = [["🗓 我的打卡记录"]]
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True,   # 按钮大小自适应
+        one_time_keyboard=False # False 表示常驻
+    )
+    await update.message.reply_text("举个🌰，如上👆", reply_markup=reply_markup)
  #   await update.message.reply_sticker(
  #       sticker="CAACAgUAAxkBAAIdqWibWBP7RZ-_Gx_0UznjeAHuiz2HAAKlBwACsCjwVqRGdbv4kuN-NgQ"  # 贴纸 file_id
  #   )
