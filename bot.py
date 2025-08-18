@@ -101,7 +101,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("👤 第一次打卡前请输入你的工作名（大写英文）：")
         return
     name = get_user_name(username)
-   # await send_welcome(update.message, name)
+    await send_welcome(update.message, name)
 	    # 🚀 常驻输入框按钮（只留一个）
     keyboard = [["🗓 我的打卡记录"]]
     reply_markup = ReplyKeyboardMarkup(
