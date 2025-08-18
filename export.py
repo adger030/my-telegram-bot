@@ -276,7 +276,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-    # ======================== 统计表 ========================
+    # ======================== 统计表（按打卡次数计算正常） ========================
     stats = []
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -303,6 +303,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     else:
         summary_df = pd.DataFrame(columns=["姓名", "正常", "迟到/早退", "补卡"])
 
+    # 补全所有用户
     for user in all_user_names:
         if user not in summary_df["姓名"].values:
             summary_df = pd.concat([summary_df, pd.DataFrame([{"姓名": user}])], ignore_index=True)
@@ -348,3 +349,4 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
+
