@@ -109,7 +109,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resize_keyboard=True,   # 按钮大小自适应
         one_time_keyboard=False # False 表示常驻
     )
-	await update.message.reply_text(reply_markup=reply_markup)
+    await update.message.reply_text(reply_markup=reply_markup)
  #   await update.message.reply_sticker(
  #       sticker="CAACAgUAAxkBAAIdqWibWBP7RZ-_Gx_0UznjeAHuiz2HAAKlBwACsCjwVqRGdbv4kuN-NgQ"  # 贴纸 file_id
  #   )
