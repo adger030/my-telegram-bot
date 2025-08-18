@@ -196,23 +196,6 @@ async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     await send_logs_page(update, context, key="userlogs")
     
-# ===========================
-# 分页按钮回调
-# ===========================
-async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if "userlogs_pages" not in context.user_data:
-        await query.edit_message_text("⚠️ 会话已过期，请重新使用 /userlogs")
-        return
-
-    if query.data == "userlogs_prev":
-        context.user_data["userlogs_pages"]["page_index"] -= 1
-    elif query.data == "userlogs_next":
-        context.user_data["userlogs_pages"]["page_index"] += 1
-
-    await send_userlogs_page(update, context)
 
 # ===========================
 # 用户数据迁移命令：/transfer <userA> <userB>
