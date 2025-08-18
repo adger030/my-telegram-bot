@@ -147,6 +147,20 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 })
                 group_df = pd.concat([group_df, missed_df], ignore_index=True)
 
+            # 🚀 新增：I班跨天逻辑（把次日凌晨的下班卡放到当天）
+            next_day = day_date + timedelta(days=1)
+            cross_df = df[
+                (df["date"] == next_day.strftime("%Y-%m-%d")) &
+                (df["keyword"] == "#下班打卡") &
+                (df["shift"].notna()) &
+                (df["shift"].astype(str).str.startswith("I班")) &
+                (df["timestamp"].dt.hour < 4)
+            ].copy()
+            if not cross_df.empty:
+                cross_df["remark"] = cross_df["remark"].astype(str) + "（次日）"
+                group_df = pd.concat([group_df, cross_df], ignore_index=True)
+
+            # ===== 迟到/早退/补卡判定（保持原逻辑） =====
             for idx, row in group_df.iterrows():
                 shift_val = row["shift"]
                 keyword = row["keyword"]
@@ -203,7 +217,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 writer, sheet_name="空表", index=False
             )
 
-    # ===== 样式处理 =====
+    # ===== 样式处理（保持原逻辑） =====
     wb = load_workbook(excel_path)
     red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
     yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
@@ -253,7 +267,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 for cell in row[1:]:
                     cell.fill = blue_fill_light
 
-        # === 新增：合并姓名列 ===
+        # === 合并姓名列 ===
         name_col = 1
         merge_start = None
         prev_name = None
@@ -273,7 +287,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-    # ===== 统计表生成（保持不变） =====
+    # ===== 统计表生成（保持原逻辑） =====
     stats = []
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -359,3 +373,4 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
+
