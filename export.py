@@ -12,6 +12,7 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from shift_manager import get_shift_times_short
 from sqlalchemy import create_engine
 from db_pg import get_conn 
+from collections import defaultdict
 
 
 # ===========================
