@@ -282,11 +282,13 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for sheet in wb.worksheets:
             if sheet.title == "统计":
                 continue
-    
+
             df_sheet = pd.DataFrame(sheet.values)
-            if df_sheet.empty or len(df_sheet.columns) < 5:
+            if df_sheet.empty:
                 continue
+            df_sheet = df_sheet.iloc[1:]  # 跳过表头行
             df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+
     
             # 手动补齐姓名（避免 fillna(method='ffill') 的 FutureWarning）
             last_name = None
