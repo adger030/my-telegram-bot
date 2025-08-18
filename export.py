@@ -252,7 +252,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             elif "补卡" in remark_val:
                 for cell in row[1:]:
                     cell.fill = yellow_fill
-            elif "未打上班卡" in remark_val:
+            elif "未打上班卡" in remark_val or "未打下班卡" in remark_val:
                 for cell in row[1:]:
                     cell.fill = blue_fill_light
 
@@ -284,41 +284,45 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for row in sheet.iter_rows(min_row=2, values_only=True):
             if row[0] is None:
                 continue
-            name, _, _, _, remark = row
+            name, ts_str, keyword, shift, remark = row
             if not name:
                 continue
-            if remark == "未打上班卡":
-                continue
-            elif remark == "补卡":
-                status = "补卡"
-            elif remark in ("迟到", "早退"):
-                status = "迟到/早退"
-            else:
-                status = "正常"
-            stats.append({"姓名": name, "状态": status})
+
+            if keyword in ("#上班打卡", "#下班打卡") and remark == "":
+                stats.append({"姓名": name, "类型": "正常"})
+            elif remark == "补卡" or ("补卡" in str(remark)):
+                stats.append({"姓名": name, "类型": "补卡"})
+            elif remark in ("迟到", "早退") or ("迟到" in str(remark)) or ("早退" in str(remark)):
+                stats.append({"姓名": name, "类型": "迟到/早退"})
+            elif remark == "未打上班卡":
+                stats.append({"姓名": name, "类型": "未打上班卡"})
+            elif remark == "未打下班卡":
+                stats.append({"姓名": name, "类型": "未打下班卡"})
 
     stats_df = pd.DataFrame(stats)
-    if not stats_df.empty:
-        summary_df = stats_df.groupby(["姓名", "状态"]).size().unstack(fill_value=0).reset_index()
-    else:
-        summary_df = pd.DataFrame(columns=["姓名", "正常", "迟到/早退", "补卡"])
 
+    if not stats_df.empty:
+        summary_df = stats_df.groupby(["姓名", "类型"]).size().unstack(fill_value=0).reset_index()
+    else:
+        summary_df = pd.DataFrame(columns=["姓名", "正常", "未打上班卡", "未打下班卡", "迟到/早退", "补卡"])
+
+    for col in ["正常", "未打上班卡", "未打下班卡", "迟到/早退", "补卡"]:
+        if col not in summary_df.columns:
+            summary_df[col] = 0
+
+    # 确保所有用户都有记录
     for user in all_user_names:
         if user not in summary_df["姓名"].values:
             summary_df = pd.concat([summary_df, pd.DataFrame([{"姓名": user}])], ignore_index=True)
 
-    for col in ["正常", "迟到/早退", "补卡"]:
-        if col not in summary_df.columns:
-            summary_df[col] = 0
-
-    summary_df = summary_df.fillna(0).astype({"正常": int, "迟到/早退": int, "补卡": int})
-    summary_df["未打上班卡"] = summary_df["姓名"].map(missed_days_count)
-    summary_df["异常总数"] = summary_df["迟到/早退"] + summary_df["补卡"]
-    summary_df = summary_df[["姓名", "正常", "未打上班卡", "迟到/早退", "补卡", "异常总数"]]
+    summary_df["异常总数"] = summary_df["未打上班卡"] + summary_df["未打下班卡"] + summary_df["迟到/早退"] + summary_df["补卡"]
+    summary_df = summary_df.fillna(0).astype({"正常": int, "未打上班卡": int, "未打下班卡": int, "迟到/早退": int, "补卡": int, "异常总数": int})
+    summary_df = summary_df[["姓名", "正常", "未打上班卡", "未打下班卡", "迟到/早退", "补卡", "异常总数"]]
     summary_df = summary_df.sort_values(by="正常", ascending=False)
 
+    # 写入统计表
     stats_sheet = wb.create_sheet("统计", 0)
-    headers = ["姓名", "正常打卡", "未打上班卡", "迟到/早退", "补卡", "异常总数"]
+    headers = ["姓名", "正常打卡", "未打上班卡", "未打下班卡", "迟到/早退", "补卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
@@ -330,7 +334,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         cell.font = header_font
         cell.alignment = center_align
     for row in stats_sheet.iter_rows(min_row=2):
-        row[5].fill = blue_fill  # 异常总数列高亮
+        row[6].fill = blue_fill  # 异常总数列高亮
 
     # ======================== 列宽/边框 ========================
     for sheet in wb.worksheets:
@@ -349,5 +353,4 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
-
 
