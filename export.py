@@ -276,30 +276,38 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-# ======================== 统计表（按打卡次数） ========================
+    # ======================== 统计表（按班次完成情况） ========================
     stats = {u: {"正常": 0, "未打上班卡": 0, "未打下班卡": 0, "迟到/早退": 0, "补卡": 0} for u in all_user_names}
-    
+
     for sheet in wb.worksheets:
         if sheet.title == "统计":
             continue
-        for row in sheet.iter_rows(min_row=2, values_only=True):
-            if row[0] is None:
-                continue
-            name, _, keyword, _, remark = row
+        df_sheet = pd.DataFrame(sheet.values)
+        if df_sheet.empty or len(df_sheet.columns) < 5:
+            continue
+        df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+
+        # 按姓名+班次分组
+        for (name, shift), group in df_sheet.groupby(["姓名", "班次"]):
             if not name or name not in stats:
                 continue
-            remark_str = str(remark or "")
-            if "补卡" in remark_str:
+            keywords = set(group["关键词"].dropna())
+            remarks = "".join(str(x) for x in group["备注"].dropna())
+
+            if "补卡" in remarks:
                 stats[name]["补卡"] += 1
-            elif "迟到" in remark_str or "早退" in remark_str:
+            elif "迟到" in remarks or "早退" in remarks:
                 stats[name]["迟到/早退"] += 1
-            elif "未打上班卡" in remark_str:
-                stats[name]["未打上班卡"] += 1
-            elif "未打下班卡" in remark_str:
-                stats[name]["未打下班卡"] += 1
-            elif keyword in ("#上班打卡", "#下班打卡"):
-                stats[name]["正常"] += 1
-    
+            else:
+                has_up = "#上班打卡" in keywords
+                has_down = "#下班打卡" in keywords
+                if has_up and has_down:
+                    stats[name]["正常"] += 2   # 一个班次完成计 2 次正常
+                elif has_up and not has_down:
+                    stats[name]["未打下班卡"] += 1
+                elif not has_up and has_down:
+                    stats[name]["未打上班卡"] += 1
+
     # 转 DataFrame
     summary_df = pd.DataFrame([
         {"姓名": u, **v, "异常总数": v["未打上班卡"] + v["未打下班卡"] + v["迟到/早退"] + v["补卡"]}
@@ -307,7 +315,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     ])
     summary_df = summary_df[["姓名", "正常", "未打上班卡", "未打下班卡", "迟到/早退", "补卡", "异常总数"]]
     summary_df = summary_df.sort_values(by="正常", ascending=False)
-    
+
     # 写入 Excel
     stats_sheet = wb.create_sheet("统计", 0)
     headers = ["姓名", "正常打卡", "未打上班卡", "未打下班卡", "迟到/早退", "补卡", "异常总数"]
@@ -342,4 +350,3 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
-
