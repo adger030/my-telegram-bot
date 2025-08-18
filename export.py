@@ -276,53 +276,73 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-    # ======================== 统计表（修改后逻辑） ========================
+    # ======================== 统计表（新逻辑） ========================
     stats = {u: {"正常": 0, "未打上班卡": 0, "未打下班卡": 0, "迟到/早退": 0, "补卡": 0} for u in all_user_names}
 
-    for sheet in wb.worksheets:
-        if sheet.title == "统计":
+    for name in all_user_names:
+        user_logs = df[df["name"] == name].sort_values("timestamp")
+        if user_logs.empty:
             continue
-        df_sheet = pd.DataFrame(sheet.values)
-        if df_sheet.empty or len(df_sheet.columns) < 5:
-            continue
-        df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
 
-        # 手动补齐姓名（替代 fillna(method="ffill")）
-        last_name = None
-        for i in range(len(df_sheet)):
-            if pd.notna(df_sheet.at[i, "姓名"]):
-                last_name = df_sheet.at[i, "姓名"]
-            elif last_name:
-                df_sheet.at[i, "姓名"] = last_name
+        daily_map = defaultdict(dict)
+        for _, row in user_logs.iterrows():
+            ts, kw, shift = row["timestamp"], row["keyword"], row["shift"]
+            day = ts.date()
+            if kw == "#下班打卡" and ts.hour < 6:
+                day = (ts - timedelta(days=1)).date()
+            if shift and "（补卡）" in str(shift):
+                day = ts.date()
 
-        # 按姓名+班次分组
-        for (name, shift), group in df_sheet.groupby(["姓名", "班次"]):
-            if not name or name not in stats:
-                continue
-            keywords = set(group["关键词"].dropna())
-            remarks = "".join(str(x) for x in group["备注"].dropna())
+            if kw == "#上班打卡":
+                daily_map[day]["shift"] = shift
+                daily_map[day]["#上班打卡"] = ts
+                if shift and "（补卡）" in str(shift):
+                    daily_map[day]["补卡标记"] = True
+            elif kw == "#下班打卡":
+                daily_map[day]["#下班打卡"] = ts
+                if "shift" not in daily_map[day]:
+                    daily_map[day]["shift"] = shift or "未选择班次"
 
-            # 补卡
-            if "补卡" in remarks:
+        # === 统计逻辑 ===
+        for day, kw_map in daily_map.items():
+            shift_full = kw_map.get("shift", "未选择班次")
+            shift_name = str(shift_full).split("（")[0]
+            is_makeup = str(shift_full).endswith("（补卡）") or "补卡标记" in kw_map
+
+            has_up = "#上班打卡" in kw_map
+            has_down = "#下班打卡" in kw_map
+
+            if is_makeup:
                 stats[name]["补卡"] += 1
-            # 迟到/早退
-            if "迟到" in remarks or "早退" in remarks:
-                stats[name]["迟到/早退"] += 1
 
-            has_up = "#上班打卡" in keywords
-            has_down = "#下班打卡" in keywords
-
-            # ✅ 只要有记录就 +1
+            # 上班统计
             if has_up:
-                stats[name]["正常"] += 1
-            if has_down:
-                stats[name]["正常"] += 1
-
-            # 异常情况
-            if has_up and not has_down:
-                stats[name]["未打下班卡"] += 1
-            elif has_down and not has_up:
+                if shift_name in get_shift_times_short():
+                    start_time, _ = get_shift_times_short()[shift_name]
+                    if kw_map["#上班打卡"].time() > start_time and not is_makeup:
+                        stats[name]["迟到/早退"] += 1
+                    else:
+                        stats[name]["正常"] += 1
+                else:
+                    stats[name]["正常"] += 1
+            elif not is_makeup:
                 stats[name]["未打上班卡"] += 1
+
+            # 下班统计
+            if has_down:
+                if shift_name in get_shift_times_short():
+                    _, end_time = get_shift_times_short()[shift_name]
+                    down_ts = kw_map["#下班打卡"]
+                    if shift_name == "I班" and down_ts.date() == day:
+                        stats[name]["迟到/早退"] += 1
+                    elif shift_name != "I班" and down_ts.time() < end_time:
+                        stats[name]["迟到/早退"] += 1
+                    else:
+                        stats[name]["正常"] += 1
+                else:
+                    stats[name]["正常"] += 1
+            elif not is_makeup:
+                stats[name]["未打下班卡"] += 1
 
     # 转 DataFrame
     summary_df = pd.DataFrame([
