@@ -276,7 +276,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-    # ======================== 统计表（按班次完成情况+补齐姓名） ========================
+    # ======================== 统计表（修改后逻辑） ========================
     stats = {u: {"正常": 0, "未打上班卡": 0, "未打下班卡": 0, "迟到/早退": 0, "补卡": 0} for u in all_user_names}
 
     for sheet in wb.worksheets:
@@ -286,7 +286,14 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         if df_sheet.empty or len(df_sheet.columns) < 5:
             continue
         df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
-        df_sheet["姓名"] = df_sheet["姓名"].fillna(method="ffill")  # 填充下班卡姓名
+
+        # 手动补齐姓名（替代 fillna(method="ffill")）
+        last_name = None
+        for i in range(len(df_sheet)):
+            if pd.notna(df_sheet.at[i, "姓名"]):
+                last_name = df_sheet.at[i, "姓名"]
+            elif last_name:
+                df_sheet.at[i, "姓名"] = last_name
 
         # 按姓名+班次分组
         for (name, shift), group in df_sheet.groupby(["姓名", "班次"]):
@@ -295,21 +302,27 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             keywords = set(group["关键词"].dropna())
             remarks = "".join(str(x) for x in group["备注"].dropna())
 
+            # 补卡
             if "补卡" in remarks:
                 stats[name]["补卡"] += 1
-            elif "迟到" in remarks or "早退" in remarks:
+            # 迟到/早退
+            if "迟到" in remarks or "早退" in remarks:
                 stats[name]["迟到/早退"] += 1
-            else:
-                has_up = "#上班打卡" in keywords
-                has_down = "#下班打卡" in keywords
-                if has_up and has_down:
-                    stats[name]["正常"] += 2   # 上下班都有
-                elif has_up and not has_down:
-                    stats[name]["正常"] += 1
-                    stats[name]["未打下班卡"] += 1
-                elif not has_up and has_down:
-                    stats[name]["正常"] += 1
-                    stats[name]["未打上班卡"] += 1
+
+            has_up = "#上班打卡" in keywords
+            has_down = "#下班打卡" in keywords
+
+            # ✅ 只要有记录就 +1
+            if has_up:
+                stats[name]["正常"] += 1
+            if has_down:
+                stats[name]["正常"] += 1
+
+            # 异常情况
+            if has_up and not has_down:
+                stats[name]["未打下班卡"] += 1
+            elif has_down and not has_up:
+                stats[name]["未打上班卡"] += 1
 
     # 转 DataFrame
     summary_df = pd.DataFrame([
@@ -335,7 +348,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     for row in stats_sheet.iter_rows(min_row=2):
         row[6].fill = blue_fill  # 异常总数列高亮
 
-
     # ======================== 列宽/边框 ========================
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
@@ -352,3 +364,4 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
+    return excel_path
