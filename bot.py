@@ -81,7 +81,6 @@ async def send_welcome(update_or_msg, name):
         "② 实时IP：指定网站内显示的IP\n"
         "③ 本地时间：电脑任务栏时间（需含月、日、时、分）\n\n"
         "<a href='https://www.ipaddress.my'>点击这里查看你的IP地址</a>\n\n"
-        "举个🌰，如下👇"
     )
     await update_or_msg.reply_text(welcome_text, parse_mode="HTML")
     await asyncio.sleep(1)
@@ -109,7 +108,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resize_keyboard=True,   # 按钮大小自适应
         one_time_keyboard=False # False 表示常驻
     )
-	await update.message.reply_text(".", reply_markup=reply_markup)
+	await update.message.reply_text("举个🌰，如上👆", reply_markup=reply_markup)
  #   await update.message.reply_sticker(
  #       sticker="CAACAgUAAxkBAAIdqWibWBP7RZ-_Gx_0UznjeAHuiz2HAAKlBwACsCjwVqRGdbv4kuN-NgQ"  # 贴纸 file_id
  #   )
