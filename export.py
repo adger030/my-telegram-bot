@@ -351,4 +351,4 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             sheet.column_dimensions[col_letter].width = min(max_length + 8, 30)
 
     wb.save(excel_path)
-    logging.info(f"✅ Excel 导出完成
+    logging.info(f"✅ Excel 导出完成: {excel_path}")
