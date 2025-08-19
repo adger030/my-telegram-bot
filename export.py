@@ -312,29 +312,31 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     
         df_sheet["上班正常"] = up_normal
         df_sheet["下班正常"] = down_normal
-    
+
         # 分组统计
         for name, g in df_sheet.groupby("姓名"):
             if not name or name not in stats:
                 continue
-    
+
+            # 统计补卡、迟到、早退（依然看备注）
             stats[name]["补卡"] += int(g["备注"].str.count("补卡").sum())
             stats[name]["迟到/早退"] += int(g["备注"].str.count("迟到").sum() + g["备注"].str.count("早退").sum())
-    
+
+            # 按日期+班次分组
             for (_, day, shift), gds in g.groupby(["姓名", "日期", "班次"]):
                 has_up = gds["关键词"].eq("#上班打卡").any()
                 has_down = gds["关键词"].eq("#下班打卡").any()
-    
+
                 has_up_ok = gds["上班正常"].any()
                 has_down_ok = gds["下班正常"].any()
-    
-                # 1. 正常统计
-                if has_up_ok and has_down_ok:
-                    stats[name]["正常"] += 2
-                elif has_up_ok or has_down_ok:
+
+                # 1. 正常统计（上班、下班分别算一次）
+                if has_up_ok:
                     stats[name]["正常"] += 1
-    
-                # 2. 检查未打下班卡
+                if has_down_ok:
+                    stats[name]["正常"] += 1
+
+                # 2. 未打下班卡（只要有上班打卡但没下班打卡）
                 if has_up and not has_down:
                     stats[name]["未打下班卡"] += 1
     
