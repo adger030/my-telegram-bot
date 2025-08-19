@@ -156,7 +156,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     "timestamp": pd.NaT,
                     "keyword": None,
                     "shift": None,
-                    "remark": "未打上班卡"
+                    "remark": "休息/缺勤"
                 })
                 group_df = pd.concat([group_df, missed_df], ignore_index=True)
 
@@ -252,7 +252,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             elif "补卡" in remark_val:
                 for cell in row[1:]:
                     cell.fill = yellow_fill
-            elif "未打上班卡" in remark_val or "未打下班卡" in remark_val:
+            elif "休息/缺勤" in remark_val:
                 for cell in row[1:]:
                     cell.fill = blue_fill_light
 
