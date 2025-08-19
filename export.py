@@ -367,9 +367,12 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         row[-1].fill = highlight_fill  # 异常总数高亮
 
 
-    # ======================== 列宽/边框 ========================
+    # ======================== 列宽/边框 + 自动筛选 ========================
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
+        # ✅ 自动筛选加在这里
+        sheet.auto_filter.ref = sheet.dimensions  
+
         for cell in sheet[1]:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -384,3 +387,4 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
+
