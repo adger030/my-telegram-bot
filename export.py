@@ -276,8 +276,8 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-# ======================== 统计表（最终终版） ========================
-    stats = {u: {"正常": 0, "迟到/早退": 0, "补卡": 0} for u in all_user_names}
+# ======================== 统计表（终极版） ========================
+    stats = {u: {"正常": 0, "迟到/早退": 0, "补卡": 0, "未打下班卡": 0} for u in all_user_names}
     
     for sheet in wb.worksheets:
         if sheet.title == "统计":
@@ -300,16 +300,15 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         df_sheet["关键词"] = df_sheet["关键词"].astype(str)
         df_sheet["班次"] = df_sheet["班次"].astype(str).fillna("未分配")
         df_sheet["打卡时间"] = pd.to_datetime(df_sheet["打卡时间"], errors="coerce")
-        df_sheet = df_sheet.dropna(subset=["打卡时间"])
-        df_sheet["日期"] = df_sheet["打卡时间"].dt.date
+        df_sheet["日期"] = df_sheet["打卡时间"].dt.date.fillna(method="ffill")  # 补齐日期
     
-        # 标记“正常的上/下班卡”（排除补卡/迟到/早退）
+        # 标记“正常的上/下班卡”（排除补卡/迟到/早退/未打下班卡）
         is_up = df_sheet["关键词"].eq("#上班打卡")
         is_down = df_sheet["关键词"].eq("#下班打卡")
     
         rmk = df_sheet["备注"]
         up_normal = is_up & ~rmk.str.contains("补卡|迟到", regex=True)
-        down_normal = is_down & ~rmk.str.contains("补卡|早退", regex=True)
+        down_normal = is_down & ~rmk.str.contains("补卡|早退|未打下班卡", regex=True)
     
         df_sheet["上班正常"] = up_normal
         df_sheet["下班正常"] = down_normal
@@ -322,6 +321,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             # 统计异常
             stats[name]["补卡"] += int(g["备注"].str.count("补卡").sum())
             stats[name]["迟到/早退"] += int(g["备注"].str.count("迟到").sum() + g["备注"].str.count("早退").sum())
+            stats[name]["未打下班卡"] += int(g["备注"].str.count("未打下班卡").sum())
     
             # 成对统计“正常”
             for (_, day, shift), gds in g.groupby(["姓名", "日期", "班次"]):
@@ -336,14 +336,19 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     
     # 转 DataFrame
     summary_df = pd.DataFrame([
-        {"姓名": u, **v, "异常总数": v["迟到/早退"] + v["补卡"]}
+        {
+            "姓名": u,
+            **v,
+            "异常总数": v["迟到/早退"] + v["补卡"] + v["未打下班卡"]
+        }
         for u, v in stats.items()
     ])
-    summary_df = summary_df[["姓名", "正常", "迟到/早退", "补卡", "异常总数"]].sort_values(by="正常", ascending=False)
+    summary_df = summary_df[["姓名", "正常", "迟到/早退", "补卡", "未打下班卡", "异常总数"]] \
+        .sort_values(by="正常", ascending=False)
     
     # 写入 Excel
     stats_sheet = wb.create_sheet("统计", 0)
-    headers = ["姓名", "正常", "迟到/早退", "补卡", "异常总数"]
+    headers = ["姓名", "正常", "迟到/早退", "补卡", "未打下班卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
@@ -358,7 +363,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         cell.font = header_font
         cell.alignment = center_align
     for row in stats_sheet.iter_rows(min_row=2):
-        row[4].fill = blue_fill  # 异常总数列高亮
+        row[-1].fill = blue_fill  # 异常总数列高亮
 
 
     # ======================== 列宽/边框 ========================
