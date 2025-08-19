@@ -276,7 +276,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-# ======================== 统计表（终极版） ========================
+# ======================== 统计表（终极修正版） ========================
     stats = {u: {"正常": 0, "迟到/早退": 0, "补卡": 0, "未打下班卡": 0} for u in all_user_names}
     
     for sheet in wb.worksheets:
@@ -287,7 +287,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             continue
         df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
     
-        # 手动补齐姓名
+        # 补齐姓名
         last_name = None
         for i in range(len(df_sheet)):
             if pd.notna(df_sheet.at[i, "姓名"]):
@@ -300,9 +300,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         df_sheet["关键词"] = df_sheet["关键词"].astype(str)
         df_sheet["班次"] = df_sheet["班次"].astype(str).fillna("未分配")
         df_sheet["打卡时间"] = pd.to_datetime(df_sheet["打卡时间"], errors="coerce")
-        df_sheet["日期"] = df_sheet["打卡时间"].dt.date.fillna(method="ffill")  # 补齐日期
+        df_sheet["日期"] = df_sheet["打卡时间"].dt.date.fillna(method="ffill")
     
-        # 标记“正常的上/下班卡”（排除补卡/迟到/早退/未打下班卡）
+        # 标记正常上下班
         is_up = df_sheet["关键词"].eq("#上班打卡")
         is_down = df_sheet["关键词"].eq("#下班打卡")
     
@@ -318,23 +318,21 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             if not name or name not in stats:
                 continue
     
-            # 统计异常
             stats[name]["补卡"] += int(g["备注"].str.count("补卡").sum())
             stats[name]["迟到/早退"] += int(g["备注"].str.count("迟到").sum() + g["备注"].str.count("早退").sum())
             stats[name]["未打下班卡"] += int(g["备注"].str.count("未打下班卡").sum())
     
-            # 成对统计“正常”
             for (_, day, shift), gds in g.groupby(["姓名", "日期", "班次"]):
                 has_up_ok = gds["上班正常"].any()
                 has_down_ok = gds["下班正常"].any()
     
                 if has_up_ok and has_down_ok:
-                    stats[name]["正常"] += 2   # 上下班齐全，加 2
+                    stats[name]["正常"] += 2
                 elif has_up_ok or has_down_ok:
-                    stats[name]["正常"] += 1   # 只有上班 或 只有下班，加 1
+                    stats[name]["正常"] += 1
                 # 全部异常 -> 不算
     
-    # 转 DataFrame
+    # 转换为 DataFrame
     summary_df = pd.DataFrame([
         {
             "姓名": u,
@@ -347,23 +345,26 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         .sort_values(by="正常", ascending=False)
     
     # 写入 Excel
+    if "统计" in [s.title for s in wb.worksheets]:
+        del wb["统计"]  # 防止多次执行重复创建
+    
     stats_sheet = wb.create_sheet("统计", 0)
     headers = ["姓名", "正常", "迟到/早退", "补卡", "未打下班卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
     
+    # 样式美化
     stats_sheet.freeze_panes = "A2"
     header_font = Font(bold=True)
     center_align = Alignment(horizontal="center")
-    blue_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
+    highlight_fill = PatternFill(start_color="FFF8B0", end_color="FFF8B0", fill_type="solid")
     
-    # 样式
     for cell in stats_sheet[1]:
         cell.font = header_font
         cell.alignment = center_align
     for row in stats_sheet.iter_rows(min_row=2):
-        row[-1].fill = blue_fill  # 异常总数列高亮
+        row[-1].fill = highlight_fill  # 异常总数高亮
 
 
     # ======================== 列宽/边框 ========================
