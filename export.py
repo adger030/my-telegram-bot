@@ -276,7 +276,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-# ======================== 统计表（最终版） ========================
+# ======================== 统计表（最终终版） ========================
     stats = {u: {"正常": 0, "迟到/早退": 0, "补卡": 0} for u in all_user_names}
     
     for sheet in wb.worksheets:
@@ -330,9 +330,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     
                 if has_up_ok and has_down_ok:
                     stats[name]["正常"] += 2   # 上下班齐全，加 2
-                elif has_up_ok:
-                    stats[name]["正常"] += 1   # 只有上班，加 1
-                # 只有下班 或 全部异常 -> 不算
+                elif has_up_ok or has_down_ok:
+                    stats[name]["正常"] += 1   # 只有上班 或 只有下班，加 1
+                # 全部异常 -> 不算
     
     # 转 DataFrame
     summary_df = pd.DataFrame([
