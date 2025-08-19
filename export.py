@@ -276,7 +276,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-# ======================== 统计表（终极修正版） ========================
+# ======================== 统计表（修正版：未打下班卡逻辑） ========================
     stats = {u: {"正常": 0, "迟到/早退": 0, "补卡": 0, "未打下班卡": 0} for u in all_user_names}
     
     for sheet in wb.worksheets:
@@ -295,42 +295,48 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             elif last_name:
                 df_sheet.at[i, "姓名"] = last_name
     
-        # 规范类型
+        # 规范化
         df_sheet["备注"] = df_sheet["备注"].astype(str).fillna("")
         df_sheet["关键词"] = df_sheet["关键词"].astype(str)
         df_sheet["班次"] = df_sheet["班次"].astype(str).fillna("未分配")
         df_sheet["打卡时间"] = pd.to_datetime(df_sheet["打卡时间"], errors="coerce")
         df_sheet["日期"] = df_sheet["打卡时间"].dt.date.fillna(method="ffill")
     
-        # 标记正常上下班
+        # 标记上下班
         is_up = df_sheet["关键词"].eq("#上班打卡")
         is_down = df_sheet["关键词"].eq("#下班打卡")
     
         rmk = df_sheet["备注"]
         up_normal = is_up & ~rmk.str.contains("补卡|迟到", regex=True)
-        down_normal = is_down & ~rmk.str.contains("补卡|早退|未打下班卡", regex=True)
+        down_normal = is_down & ~rmk.str.contains("补卡|早退", regex=True)
     
         df_sheet["上班正常"] = up_normal
         df_sheet["下班正常"] = down_normal
     
-        # 逐人累加
+        # 分组统计
         for name, g in df_sheet.groupby("姓名"):
             if not name or name not in stats:
                 continue
     
             stats[name]["补卡"] += int(g["备注"].str.count("补卡").sum())
             stats[name]["迟到/早退"] += int(g["备注"].str.count("迟到").sum() + g["备注"].str.count("早退").sum())
-            stats[name]["未打下班卡"] += int(g["备注"].str.count("未打下班卡").sum())
     
             for (_, day, shift), gds in g.groupby(["姓名", "日期", "班次"]):
+                has_up = gds["关键词"].eq("#上班打卡").any()
+                has_down = gds["关键词"].eq("#下班打卡").any()
+    
                 has_up_ok = gds["上班正常"].any()
                 has_down_ok = gds["下班正常"].any()
     
+                # 1. 正常统计
                 if has_up_ok and has_down_ok:
                     stats[name]["正常"] += 2
                 elif has_up_ok or has_down_ok:
                     stats[name]["正常"] += 1
-                # 全部异常 -> 不算
+    
+                # 2. 检查未打下班卡
+                if has_up and not has_down:
+                    stats[name]["未打下班卡"] += 1
     
     # 转换为 DataFrame
     summary_df = pd.DataFrame([
