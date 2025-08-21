@@ -276,11 +276,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-        # ========================
-        # 统计表（终极修正版）
-        # ========================
-    stats = {u: {"正常": 0, "迟到/早退": 0, "补卡": 0, "未打下班卡": 0} for u in all_user_names}
-
+# ======================== 统计表（终极修正版） ========================
+    stats = {u: {"正常": 0, "休息/缺勤": 0, "迟到/早退": 0, "补卡": 0, "未打下班卡": 0} for u in all_user_names}
+    
     for sheet in wb.worksheets:
         if sheet.title == "统计":
             continue
@@ -288,7 +286,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         if df_sheet.empty or len(df_sheet.columns) < 5:
             continue
         df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
-
+    
         # 补齐姓名
         last_name = None
         for i in range(len(df_sheet)):
@@ -296,41 +294,42 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 last_name = df_sheet.at[i, "姓名"]
             elif last_name:
                 df_sheet.at[i, "姓名"] = last_name
-
+    
         # 格式化
         df_sheet["备注"] = df_sheet["备注"].astype(str).fillna("")
         df_sheet["关键词"] = df_sheet["关键词"].astype(str)
         df_sheet["班次"] = df_sheet["班次"].astype(str).fillna("未分配")
         df_sheet["打卡时间"] = pd.to_datetime(df_sheet["打卡时间"], errors="coerce")
         df_sheet["日期"] = df_sheet["打卡时间"].dt.date.fillna(method="ffill")
-
+    
         # 标记上下班
         is_up = df_sheet["关键词"].eq("#上班打卡")
         is_down = df_sheet["关键词"].eq("#下班打卡")
-
+    
         rmk = df_sheet["备注"]
         up_normal = is_up & ~rmk.str.contains("补卡|迟到", regex=True)
         down_normal = is_down & ~rmk.str.contains("补卡|早退", regex=True)
-
+    
         df_sheet["上班正常"] = up_normal
         df_sheet["下班正常"] = down_normal
-
+    
         # 分组统计
         for name, g in df_sheet.groupby("姓名"):
             if not name or name not in stats:
                 continue
-
+    
             stats[name]["补卡"] += int(g["备注"].str.count("补卡").sum())
             stats[name]["迟到/早退"] += int(g["备注"].str.count("迟到").sum() +
                                          g["备注"].str.count("早退").sum())
-
+            stats[name]["休息/缺勤"] += int(g["备注"].str.count("休息/缺勤").sum())
+    
             for (_, day, shift), gds in g.groupby(["姓名", "日期", "班次"]):
                 has_up = gds["关键词"].eq("#上班打卡").any()
                 has_down = gds["关键词"].eq("#下班打卡").any()
-
+    
                 has_up_ok = gds["上班正常"].any()
                 has_down_ok = gds["下班正常"].any()
-
+    
                 # 1. 正常
                 if has_up_ok and has_down_ok:
                     stats[name]["正常"] += 2
@@ -340,7 +339,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                         stats[name]["未打下班卡"] += 1
                 elif has_down_ok:
                     stats[name]["正常"] += 1
-
+    
     # 转换为 DataFrame
     summary_df = pd.DataFrame([
         {
@@ -350,15 +349,15 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         }
         for u, v in stats.items()
     ])
-    summary_df = summary_df[["姓名", "正常", "迟到/早退", "补卡", "未打下班卡", "异常总数"]] \
+    summary_df = summary_df[["姓名", "正常", "休息/缺勤", "迟到/早退", "补卡", "未打下班卡", "异常总数"]] \
         .sort_values(by="正常", ascending=False)
-
+    
     # 写入 Excel
     if "统计" in [s.title for s in wb.worksheets]:
         del wb["统计"]
-
+    
     stats_sheet = wb.create_sheet("统计", 0)
-    headers = ["姓名", "正常", "迟到/早退", "补卡", "未打下班卡", "异常总数"]
+    headers = ["姓名", "正常", "休息/缺勤", "迟到/早退", "补卡", "未打下班卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
@@ -377,11 +376,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     for row in stats_sheet.iter_rows(min_row=2):
         row[-1].fill = highlight_fill  # 高亮异常总数
 
-
     # ======================== 列宽/边框 + 自动筛选 ========================
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
-        # ✅ 自动筛选加在这里
         sheet.auto_filter.ref = sheet.dimensions  
 
         for cell in sheet[1]:
