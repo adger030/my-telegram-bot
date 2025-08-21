@@ -382,7 +382,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         # 如果休息/缺勤 > 3，则标淡红色（第 3 列）
         try:
             rest_days = int(row[2].value or 0)  # 第 3 列是休息/缺勤
-            if rest_days > 3:
+            if rest_days > 4:
                 row[2].fill = light_red_fill
         except ValueError:
             pass
