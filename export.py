@@ -373,20 +373,22 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     for cell in stats_sheet[1]:
         cell.font = header_font
         cell.alignment = center_align
+
     light_red_fill = PatternFill(start_color="FFD6D6", end_color="FFD6D6", fill_type="solid")
-
+    
     for row in stats_sheet.iter_rows(min_row=2):
-        # 高亮异常总数列
-        row[-1].fill = highlight_fill  
-
-        # 如果休息/缺勤 > 3，则标淡红色（第 3 列）
         try:
-            rest_days = int(row[2].value or 0)  # 第 3 列是休息/缺勤
+            # 如果休息/缺勤 > 4，则标淡红色（第 3 列）
+            rest_days = int(row[2].value or 0)
             if rest_days > 4:
                 row[2].fill = light_red_fill
+    
+            # 如果异常总数 > 2，则标淡红色（最后一列）
+            abnormal_total = int(row[-1].value or 0)
+            if abnormal_total > 2:
+                row[-1].fill = light_red_fill
         except ValueError:
             pass
-
 
     # ======================== 说明文字 ========================
     desc_text = (
