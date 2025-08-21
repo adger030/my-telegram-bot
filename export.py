@@ -377,17 +377,19 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         row[-1].fill = highlight_fill  # 高亮异常总数
 
     # ======================== 说明文字 ========================
-    desc_rows = [
-        "正常：上班打卡和下班打卡记录次数",
-        "休息/缺勤：没有打卡记录的天数",
-        "异常总数：迟到/早退+补卡+未打下班卡",
-    ]
+    desc_text = (
+        "正常：上班打卡和下班打卡记录次数\n"
+        "休息/缺勤：没有打卡记录的天数\n"
+        "异常总数：迟到/早退+补卡+未打下班卡"
+    )
 
     start_row = summary_df.shape[0] + 3  # 表格最后一行 + 空一行
-    for i, text in enumerate(desc_rows, start=start_row):
-        stats_sheet.merge_cells(start_row=i, start_column=1, end_row=i, end_column=7)
-        cell = stats_sheet.cell(row=i, column=1, value=text)
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+    end_row = start_row + 2  # 三行高度
+
+    # 合并三行七列
+    stats_sheet.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=7)
+    cell = stats_sheet.cell(row=start_row, column=1, value=desc_text)
+    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     # ======================== 列宽/边框 + 自动筛选 ========================
     for sheet in wb.worksheets:
