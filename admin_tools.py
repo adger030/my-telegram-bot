@@ -347,6 +347,15 @@ def get_default_month_range():
     return start, end
     
 # ===========================
+# 获取本月 1 日 至 今日 的范围
+# ===========================
+def get_month_to_today_range():
+    now = datetime.now(BEIJING_TZ)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return start, end
+
+# ===========================
 # 导出 Excel 命令：/export [YYYY-MM-DD YYYY-MM-DD]
 # ===========================
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -365,8 +374,8 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ 日期格式错误，请使用 /export YYYY-MM-DD YYYY-MM-DD")
             return
     else:
-        # ✅ 无参数则默认导出本月
-        start, end = get_default_month_range()
+        # ✅ 无参数则默认导出本月1日至今日
+        start, end = get_month_to_today_range()
 
     status_msg = await update.message.reply_text("⏳ 正在导出 Excel，请稍等...")
     file_path = export_excel(start, end)  # 调用导出函数，返回文件路径或云端 URL
@@ -408,7 +417,7 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ 日期格式错误，请使用 /export_images YYYY-MM-DD YYYY-MM-DD")
             return
     else:
-        start, end = get_default_month_range()
+        start, end = get_month_to_today_range()
 
     status_msg = await update.message.reply_text("⏳ 正在生成图片链接列表，请稍等...")
 
