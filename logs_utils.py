@@ -178,7 +178,7 @@ async def send_logs_page(update, context, key="mylogs"):
         weekday_map = ["周一","周二","周三","周四","周五","周六","周日"]
         weekday_str = weekday_map[day.weekday()]
     
-        reply += f"{idx}. {day.strftime('%m月%d日')}（{weekday_str}） - {shift_name}\n"
+        reply += f"{idx}. {day.strftime('%m月%d日')} - {weekday_str} - {shift_name}\n"
     
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M')}{'（补卡）' if is_makeup else ''}{'（迟到）' if has_late else ''}\n"
