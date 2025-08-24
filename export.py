@@ -133,7 +133,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         sheet_written = False
 
-        for day, group_df in df.groupby("date"):
+        for day, group_df in sorted(df.groupby("date"), key=lambda x: x[0], reverse=True):
             group_df = group_df.copy()
             if "remark" not in group_df.columns:
                 group_df["remark"] = ""
