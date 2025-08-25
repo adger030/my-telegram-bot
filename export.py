@@ -434,7 +434,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
 
-# ========== 单用户考勤导出 ==========
+
 def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
     if df.empty:
@@ -446,6 +446,15 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     if df.empty:
         logging.warning(f"⚠️ {user_name} 在指定日期没有考勤记录")
         return None
+
+    # ======================== 时间处理 ========================
+    if pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        try:
+            df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+        except AttributeError:
+            pass
+
+    df["日期"] = df["timestamp"].dt.strftime("%Y-%m-%d")
 
     def format_shift(shift):
         if pd.isna(shift):
@@ -459,48 +468,115 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
             return f"{shift_text}（{start.strftime('%H:%M')}-{end.strftime('%H:%M')}）"
         return shift_text
 
-    # 处理列
-    df["日期"] = df["timestamp"].dt.strftime("%Y-%m-%d")
-    df["打卡时间"] = df["timestamp"].dt.strftime("%H:%M:%S")
-    df["班次"] = df["shift"].apply(format_shift)
+    # ======================== remark 标注逻辑（和 export_excel 保持一致） ========================
+    if "remark" not in df.columns:
+        df["remark"] = ""
 
-    # 备注列保持原始 remark
-    df["备注"] = df.get("remark", "").fillna("")
+    for idx, row in df.iterrows():
+        shift_val = row["shift"]
+        keyword = row["keyword"]
+        ts = row["timestamp"]
 
-    slim_df = df[["日期", "name", "打卡时间", "keyword", "班次", "备注"]].copy()
-    slim_df.columns = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
+        if not shift_val or pd.isna(ts):
+            continue
 
-    # 排序：日期 ↓, 时间 ↑
-    slim_df = slim_df.sort_values(["日期", "打卡时间"], ascending=[False, True])
+        shift_text = str(shift_val).strip()
+        shift_name = re.split(r'[（(]', shift_text)[0]
 
-    # ========= 生成 Excel =========
+        if "补卡" in shift_text:
+            df.at[idx, "remark"] = "补卡"
+            continue
+
+        if shift_name in get_shift_times_short():
+            start_time, end_time = get_shift_times_short()[shift_name]
+            ts_time = ts.time()
+
+            if keyword == "#上班打卡" and ts_time > start_time:
+                df.at[idx, "remark"] = "迟到"
+            elif keyword == "#下班打卡":
+                if shift_name == "I班":
+                    if not (ts.hour == 0):
+                        if 15 <= ts.hour <= 23:
+                            df.at[idx, "remark"] = "早退"
+                else:
+                    if not (0 <= ts.hour <= 1):
+                        if ts_time < end_time:
+                            df.at[idx, "remark"] = "早退"
+
+    # ======================== 整理数据表 ========================
+    slim_df = df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
+    slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+
+    slim_df["打卡时间"] = slim_df["打卡时间"].apply(lambda x: x.strftime("%Y-%m-%d %H:%M:%S") if pd.notna(x) else "")
+    slim_df["班次"] = slim_df["班次"].apply(format_shift)
+
+    # ======================== 生成 Excel ========================
+    start_str = start_datetime.strftime("%Y-%m-%d")
+    end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
+    export_dir = os.path.join(DATA_DIR, f"user_excel_{start_str}_{end_str}")
+    os.makedirs(export_dir, exist_ok=True)
+    file_path = os.path.join(export_dir, f"{user_name}_考勤详情.xlsx")
+
     wb = Workbook()
     ws = wb.active
     ws.title = f"{user_name}考勤详情"
 
-    # 表头
-    headers = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
-    for c_idx, value in enumerate(headers, 1):
-        ws.cell(row=1, column=c_idx, value=value).font = Font(bold=True)
+    headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+    ws.append(headers)
 
-    # 写入数据
-    for r_idx, row in enumerate(slim_df.values.tolist(), 2):
-        for c_idx, value in enumerate(row, 1):
-            ws.cell(row=r_idx, column=c_idx, value=value)
+    for _, row in slim_df.iterrows():
+        ws.append(list(row))
 
-    # 设置列宽
+    # ======================== 样式处理（与 export_excel 一致） ========================
+    red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
+    yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
+    blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin", color="000000"),
+        right=Side(style="thin", color="000000"),
+        top=Side(style="thin", color="000000"),
+        bottom=Side(style="thin", color="000000")
+    )
+
+    # 交替行底色
+    from itertools import cycle
+    user_fills = cycle([
+        PatternFill(start_color="f9f9f9", end_color="f9f9f9", fill_type="solid"),
+        PatternFill(start_color="ffffff", end_color="ffffff", fill_type="solid"),
+    ])
+
+    current_fill = next(user_fills)
+    for row in ws.iter_rows(min_row=2):
+        if all(cell.value is None for cell in row):
+            continue
+        current_fill = next(user_fills)
+        for cell in row:
+            cell.fill = current_fill
+        remark_val = str(row[4].value or "")
+        if "迟到" in remark_val or "早退" in remark_val:
+            for cell in row[1:]:
+                cell.fill = red_fill
+        elif "补卡" in remark_val:
+            for cell in row[1:]:
+                cell.fill = yellow_fill
+        elif "休息/缺勤" in remark_val:
+            for cell in row[1:]:
+                cell.fill = blue_fill_light
+
+    # 表头样式 & 列宽
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
     for col in ws.columns:
         col_letter = col[0].column_letter
         max_length = max(len(str(cell.value or "")) for cell in col)
+        for cell in col:
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = thin_border
         ws.column_dimensions[col_letter].width = min(max_length + 6, 30)
 
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
-
-    # ========= 保存 =========
-    export_dir = os.path.join(DATA_DIR, f"user_excel_{start_datetime:%Y-%m-%d}_{end_datetime:%Y-%m-%d}")
-    os.makedirs(export_dir, exist_ok=True)
-    file_path = os.path.join(export_dir, f"{user_name}_考勤详情.xlsx")
 
     wb.save(file_path)
     logging.info(f"✅ 已导出用户 {user_name} 的考勤详情：{file_path}")
