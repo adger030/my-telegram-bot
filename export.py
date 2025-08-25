@@ -468,7 +468,7 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
             return f"{shift_text}（{start.strftime('%H:%M')}-{end.strftime('%H:%M')}）"
         return shift_text
 
-    # ======================== remark 标注逻辑（和 export_excel 保持一致） ========================
+    # ======================== remark 标注逻辑 ========================
     if "remark" not in df.columns:
         df["remark"] = ""
 
@@ -504,8 +504,8 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
                             df.at[idx, "remark"] = "早退"
 
     # ======================== 整理数据表 ========================
-    slim_df = df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
-    slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+    slim_df = df[["日期", "name", "timestamp", "keyword", "shift", "remark"]].copy()
+    slim_df.columns = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
 
     slim_df["打卡时间"] = slim_df["打卡时间"].apply(lambda x: x.strftime("%Y-%m-%d %H:%M:%S") if pd.notna(x) else "")
     slim_df["班次"] = slim_df["班次"].apply(format_shift)
@@ -521,13 +521,21 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     ws = wb.active
     ws.title = f"{user_name}考勤详情"
 
-    headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+    headers = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
     ws.append(headers)
 
-    for _, row in slim_df.iterrows():
-        ws.append(list(row))
+    # 按日期分组写入
+    grouped = slim_df.groupby("日期")
+    for date, group in grouped:
+        start_row = ws.max_row + 1
+        for _, row in group.iterrows():
+            ws.append(list(row))
+        end_row = ws.max_row
+        # 合并日期列单元格
+        if end_row > start_row:
+            ws.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=1)
 
-    # ======================== 样式处理（与 export_excel 一致） ========================
+    # ======================== 样式处理 ========================
     red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
     yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
     blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")
@@ -538,41 +546,34 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         bottom=Side(style="thin", color="000000")
     )
 
-    # 交替行底色
-    from itertools import cycle
-    user_fills = cycle([
-        PatternFill(start_color="f9f9f9", end_color="f9f9f9", fill_type="solid"),
-        PatternFill(start_color="ffffff", end_color="ffffff", fill_type="solid"),
-    ])
-
-    current_fill = next(user_fills)
-    for row in ws.iter_rows(min_row=2):
-        if all(cell.value is None for cell in row):
-            continue
-        current_fill = next(user_fills)
-        for cell in row:
-            cell.fill = current_fill
-        remark_val = str(row[4].value or "")
-        if "迟到" in remark_val or "早退" in remark_val:
-            for cell in row[1:]:
-                cell.fill = red_fill
-        elif "补卡" in remark_val:
-            for cell in row[1:]:
-                cell.fill = yellow_fill
-        elif "休息/缺勤" in remark_val:
-            for cell in row[1:]:
-                cell.fill = blue_fill_light
-
-    # 表头样式 & 列宽
+    # 表头样式
     for cell in ws[1]:
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # 行样式 + 高亮
+    for row in ws.iter_rows(min_row=2):
+        if all(cell.value is None for cell in row):
+            continue
+        for cell in row:
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = thin_border
+
+        remark_val = str(row[5].value or "")
+        if "迟到" in remark_val or "早退" in remark_val:
+            for cell in row:
+                cell.fill = red_fill
+        elif "补卡" in remark_val:
+            for cell in row:
+                cell.fill = yellow_fill
+        elif "休息/缺勤" in remark_val:
+            for cell in row:
+                cell.fill = blue_fill_light
+
+    # 列宽自适应
     for col in ws.columns:
         col_letter = col[0].column_letter
         max_length = max(len(str(cell.value or "")) for cell in col)
-        for cell in col:
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = thin_border
         ws.column_dimensions[col_letter].width = min(max_length + 6, 30)
 
     ws.freeze_panes = "A2"
