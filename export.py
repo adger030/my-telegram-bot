@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from config import DATA_DIR, DATABASE_URL, BEIJING_TZ
 import cloudinary
 import cloudinary.uploader
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from shift_manager import get_shift_times_short
 from sqlalchemy import create_engine
