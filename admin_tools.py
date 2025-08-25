@@ -432,7 +432,13 @@ async def exportuser_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_datetime = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         end_datetime = today.replace(hour=23, minute=59, second=59, microsecond=0)
 
-    await update.message.reply_text(f"⏳ 正在导出 {user_name} 的考勤数据，请稍候...")
+    status_msg = await update.message.reply_text(f"⏳ 正在导出 {user_name} 的考勤数据，请稍候...")
+
+    # 删除状态提示消息
+    try:
+        await status_msg.delete()
+    except:
+        pass
 
     # 调用导出函数
     file_path = export_user_excel(user_name, start_datetime, end_datetime)
