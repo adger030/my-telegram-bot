@@ -434,3 +434,61 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
 
+# ========== 单用户考勤导出 ==========
+def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: datetime):
+    df = _fetch_data(start_datetime, end_datetime)
+    if df.empty:
+        logging.warning(f"⚠️ 指定日期内没有 {user_name} 的数据")
+        return None
+
+    # 只筛选该用户
+    df = df[df["name"] == user_name]
+    if df.empty:
+        logging.warning(f"⚠️ {user_name} 在指定日期没有考勤记录")
+        return None
+
+    # 处理列
+    df["日期"] = df["timestamp"].dt.strftime("%Y-%m-%d")
+    df["打卡时间"] = df["timestamp"].dt.strftime("%H:%M:%S")
+    df["班次"] = df["shift"].apply(format_shift)
+    df["备注"] = df["remark"].fillna("")
+
+    # 精简列
+    slim_df = df[["日期", "name", "打卡时间", "keyword", "班次", "备注"]].copy()
+    slim_df.columns = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
+
+    # 排序：日期 ↓, 时间 ↑
+    slim_df = slim_df.sort_values(["日期", "打卡时间"], ascending=[False, True])
+
+    # ========= 生成 Excel =========
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"{user_name}考勤详情"
+
+    # 表头
+    headers = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
+    for c_idx, value in enumerate(headers, 1):
+        ws.cell(row=1, column=c_idx, value=value).font = Font(bold=True)
+
+    # 写入数据
+    for r_idx, row in enumerate(slim_df.values.tolist(), 2):
+        for c_idx, value in enumerate(row, 1):
+            ws.cell(row=r_idx, column=c_idx, value=value)
+
+    # 设置列宽
+    for col in ws.columns:
+        col_letter = col[0].column_letter
+        max_length = max(len(str(cell.value or "")) for cell in col)
+        ws.column_dimensions[col_letter].width = min(max_length + 6, 30)
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+
+    # 导出路径
+    export_dir = os.path.join(DATA_DIR, f"user_excel_{start_datetime:%Y-%m-%d}_{end_datetime:%Y-%m-%d}")
+    os.makedirs(export_dir, exist_ok=True)
+    file_path = os.path.join(export_dir, f"{user_name}_考勤详情.xlsx")
+
+    wb.save(file_path)
+    logging.info(f"✅ 已导出用户 {user_name} 的考勤详情：{file_path}")
+    return file_path
