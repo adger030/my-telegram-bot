@@ -464,10 +464,8 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     df["打卡时间"] = df["timestamp"].dt.strftime("%H:%M:%S")
     df["班次"] = df["shift"].apply(format_shift)
 
-    if "remark" in df.columns:
-        df["备注"] = df["remark"].fillna("")
-    else:
-        df["备注"] = ""
+    # 备注列保持原始 remark
+    df["备注"] = df.get("remark", "").fillna("")
 
     slim_df = df[["日期", "name", "打卡时间", "keyword", "班次", "备注"]].copy()
     slim_df.columns = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
@@ -498,43 +496,6 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
 
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
-
-    # ========= ✅ 添加统计表 =========
-    stats = {"正常": 0, "休息/缺勤": 0, "迟到/早退": 0, "补卡": 0, "未打下班卡": 0}
-    for _, row in slim_df.iterrows():
-        if "补卡" in str(row["关键词"]):
-            stats["补卡"] += 1
-        if "迟到" in str(row["备注"]) or "早退" in str(row["备注"]):
-            stats["迟到/早退"] += 1
-        if "未打下班卡" in str(row["备注"]):
-            stats["未打下班卡"] += 1
-        if row["关键词"] in ["#上班打卡", "#下班打卡"]:
-            stats["正常"] += 1
-
-    # 假设缺勤：导出区间内的天数 - 有打卡的天数
-    total_days = (end_datetime.date() - start_datetime.date()).days + 1
-    actual_days = slim_df["日期"].nunique()
-    stats["休息/缺勤"] = total_days - actual_days
-
-    # 写入统计表
-    start_row = slim_df.shape[0] + 3
-    ws.cell(row=start_row, column=1, value="统计表").font = Font(bold=True)
-
-    for idx, (key, value) in enumerate(stats.items(), 1):
-        ws.cell(row=start_row + idx, column=1, value=key)
-        ws.cell(row=start_row + idx, column=2, value=value)
-
-    # ========= ✅ 添加说明文字 =========
-    desc_text = (
-        "正常：上班打卡和下班打卡记录次数；\n"
-        "休息/缺勤：没有打卡记录的天数；\n"
-        "异常总数：迟到/早退 + 补卡 + 未打下班卡；"
-    )
-    desc_row = start_row + len(stats) + 2
-    ws.merge_cells(start_row=desc_row, start_column=1, end_row=desc_row + 2, end_column=6)
-    cell = ws.cell(row=desc_row, column=1, value=desc_text)
-    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    cell.font = Font(bold=True)
 
     # ========= 保存 =========
     export_dir = os.path.join(DATA_DIR, f"user_excel_{start_datetime:%Y-%m-%d}_{end_datetime:%Y-%m-%d}")
