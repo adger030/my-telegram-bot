@@ -446,7 +446,19 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     if df.empty:
         logging.warning(f"⚠️ {user_name} 在指定日期没有考勤记录")
         return None
-
+        
+    def format_shift(shift):
+        if pd.isna(shift):
+            return shift
+        shift_text = str(shift)
+        if re.search(r'（\d{2}:\d{2}-\d{2}:\d{2}）', shift_text):
+            return shift_text
+        shift_name = shift_text.split("（")[0]
+        if shift_name in get_shift_times_short():
+            start, end = get_shift_times_short()[shift_name]
+            return f"{shift_text}（{start.strftime('%H:%M')}-{end.strftime('%H:%M')}）"
+        return shift_text
+        
     # 处理列
     df["日期"] = df["timestamp"].dt.strftime("%Y-%m-%d")
     df["打卡时间"] = df["timestamp"].dt.strftime("%H:%M:%S")
