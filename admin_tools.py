@@ -400,6 +400,45 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(file_path)
 
 # ===========================
+# /exportuser 指令
+# ===========================
+async def exportuser_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ 无权限，仅管理员可导出用户考勤。")
+        return
+
+    if len(context.args) < 3:
+        await update.message.reply_text("⚠️ 用法：/exportuser 姓名 起始日期 结束日期\n📌 例：/exportuser 张三 2025-08-01 2025-08-25")
+        return
+
+    # 解析参数
+    user_name = context.args[0]
+    try:
+        start_datetime = datetime.strptime(context.args[1], "%Y-%m-%d")
+        end_datetime = datetime.strptime(context.args[2], "%Y-%m-%d")
+        # 结束时间 +1 天，确保包含最后一天
+        end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
+    except ValueError:
+        await update.message.reply_text("❗ 日期格式错误，请用 YYYY-MM-DD 格式")
+        return
+
+    await update.message.reply_text(f"⏳ 正在导出 {user_name} 的考勤数据，请稍候...")
+
+    # 调用导出函数
+    file_path = export_user_excel(user_name, start_datetime, end_datetime)
+    if not file_path:
+        await update.message.reply_text(f"📭 {user_name} 在指定时间内没有打卡数据。")
+        return
+
+    # 发送文件
+    try:
+        with open(file_path, "rb") as f:
+            await update.message.reply_document(f, filename=f"{user_name}_考勤详情.xlsx")
+    except Exception as e:
+        await update.message.reply_text(f"❌ 导出失败：{e}")
+        
+# ===========================
 # 在线模式导出图片链接（美化 + 搜索筛选 + 日期折叠）
 # ===========================
 async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
