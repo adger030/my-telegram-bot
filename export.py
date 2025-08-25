@@ -463,11 +463,17 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     df["日期"] = df["timestamp"].dt.strftime("%Y-%m-%d")
     df["打卡时间"] = df["timestamp"].dt.strftime("%H:%M:%S")
     df["班次"] = df["shift"].apply(format_shift)
-    df["备注"] = df["remark"].fillna("")
+
+    # ✅ 兼容没有 remark 的情况
+    if "remark" in df.columns:
+        df["备注"] = df["remark"].fillna("")
+    else:
+        df["备注"] = ""
 
     # 精简列
     slim_df = df[["日期", "name", "打卡时间", "keyword", "班次", "备注"]].copy()
     slim_df.columns = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
+
 
     # 排序：日期 ↓, 时间 ↑
     slim_df = slim_df.sort_values(["日期", "打卡时间"], ascending=[False, True])
