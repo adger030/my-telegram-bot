@@ -392,18 +392,27 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
     # ======================== 说明文字 ========================
     desc_text = (
-        "正常：上班打卡和下班打卡记录次数；  \n"
-        "休息/缺勤：没有打卡记录的天数；  \n"
-        "异常总数：迟到/早退+补卡+未打下班卡；"
+        "【正常：上班打卡和下班打卡记录次数】\n"
+        "【休息/缺勤：没有打卡记录的天数】\n"
+        "【异常总数：迟到/早退+补卡+未打下班卡】"
     )
-
+    
     start_row = summary_df.shape[0] + 3  # 表格最后一行 + 空一行
     end_row = start_row + 2  # 三行高度
-
+    
     # 合并三行七列
     stats_sheet.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=7)
     cell = stats_sheet.cell(row=start_row, column=1, value=desc_text)
+    
+    # 居中对齐 + 自动换行
     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    
+    # 标准黄色底色
+    yellow_fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+    cell.fill = yellow_fill
+    
+    # 加粗字体（黑色）
+    cell.font = Font(bold=True, color="000000")
 
     # ======================== 列宽/边框 + 自动筛选 ========================
     for sheet in wb.worksheets:
