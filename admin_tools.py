@@ -408,20 +408,29 @@ async def exportuser_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ 无权限，仅管理员可导出用户考勤。")
         return
 
-    if len(context.args) < 3:
-        await update.message.reply_text("⚠️ 用法：/exportuser 姓名 起始日期 结束日期\n📌 例：/exportuser 张三 2025-08-01 2025-08-25")
+    if len(context.args) not in (1, 3):
+        await update.message.reply_text(
+            "⚠️ 用法：\n"
+            "/exportuser 姓名 起始日期 结束日期\n"
+            "📌 例：/exportuser 张三 2025-08-01 2025-08-25\n"
+            "👉 只输入姓名时，默认导出本月 1 日到今天"
+        )
         return
 
     # 解析参数
     user_name = context.args[0]
-    try:
-        start_datetime = datetime.strptime(context.args[1], "%Y-%m-%d")
-        end_datetime = datetime.strptime(context.args[2], "%Y-%m-%d")
-        # 结束时间 +1 天，确保包含最后一天
-        end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
-    except ValueError:
-        await update.message.reply_text("❗ 日期格式错误，请用 YYYY-MM-DD 格式")
-        return
+    if len(context.args) == 3:
+        try:
+            start_datetime = datetime.strptime(context.args[1], "%Y-%m-%d")
+            end_datetime = datetime.strptime(context.args[2], "%Y-%m-%d")
+            end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
+        except ValueError:
+            await update.message.reply_text("❗ 日期格式错误，请用 YYYY-MM-DD 格式")
+            return
+    else:
+        today = datetime.today()
+        start_datetime = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end_datetime = today.replace(hour=23, minute=59, second=59, microsecond=0)
 
     await update.message.reply_text(f"⏳ 正在导出 {user_name} 的考勤数据，请稍候...")
 
@@ -437,6 +446,7 @@ async def exportuser_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_document(f, filename=f"{user_name}_考勤详情.xlsx")
     except Exception as e:
         await update.message.reply_text(f"❌ 导出失败：{e}")
+
         
 # ===========================
 # 在线模式导出图片链接（美化 + 搜索筛选 + 日期折叠）
