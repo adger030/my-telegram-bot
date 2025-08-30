@@ -537,7 +537,7 @@ def main():
     app.add_handler(CommandHandler("userlogs", userlogs_cmd))            # /userlogs @username：查看指定用户的考勤记录（管理员）
     app.add_handler(CommandHandler("exportuser", exportuser_cmd)) # /exportuser 张三 2025-08-01 2025-08-25
     app.add_handler(CommandHandler("lastmonth", lastmonth_cmd))
-	app.add_handler(CommandHandler("userlogs_lastmonth", userlogs_lastmonth_cmd))
+    app.add_handler(CommandHandler("userlogs_lastmonth", userlogs_lastmonth_cmd))
 
     # ===========================
     # ✅ 注册消息处理器（监听非命令消息）
