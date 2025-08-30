@@ -408,6 +408,28 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text(f"✅ 补卡成功！班次：{shift_name}")
     context.user_data.pop("makeup_data", None)
 
+# ===========================
+# /lastmonth 命令
+# ===========================
+async def lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tg_user = update.effective_user
+    username = tg_user.username
+    fallback_username = f"user{tg_user.id}"
+
+    now = datetime.now(BEIJING_TZ)
+    year, month = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
+
+    start = datetime(year, month, 1, tzinfo=BEIJING_TZ)
+    if month == 12:
+        end = datetime(year + 1, 1, 1, tzinfo=BEIJING_TZ)
+    else:
+        end = datetime(year, month + 1, 1, tzinfo=BEIJING_TZ)
+
+    logs = get_user_logs(username, start, end) if username else None
+    if not logs:
+        logs = get_user_logs(fallback_username, start, end)
+
+    await build_and_send_logs(update, context, logs, "上月打卡", key="lastmonth")
 
 # ===========================
 # /mylogs 命令
@@ -514,6 +536,7 @@ def main():
     app.add_handler(CommandHandler("delete_range", delete_range_cmd))    # /delete_range：删除指定时间范围的打卡记录（管理员）
     app.add_handler(CommandHandler("userlogs", userlogs_cmd))            # /userlogs @username：查看指定用户的考勤记录（管理员）
     app.add_handler(CommandHandler("exportuser", exportuser_cmd)) # /exportuser 张三 2025-08-01 2025-08-25
+    app.add_handler(CommandHandler("lastmonth", lastmonth_cmd))
 
     # ===========================
     # ✅ 注册消息处理器（监听非命令消息）
