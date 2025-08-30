@@ -145,9 +145,13 @@ async def send_logs_page(update, context, key="mylogs"):
     current_page_days = pages[page_index]
     if key == "mylogs":
         reply = f"🗓️ 本月打卡情况（第 {page_index+1}/{len(pages)} 页）：\n\n"
+    elif key == "lastmonth":
+        reply = f"🗓️ 上月打卡情况（第 {page_index+1}/{len(pages)} 页）：\n\n"
+    elif key == "userlogs_lastmonth":
+        reply = f"🗓️ {target_name} 上月打卡记录（第 {page_index+1}/{len(pages)} 页）：\n\n"
     else:
         reply = f"🗓️ {target_name} 本月打卡记录（第 {page_index+1}/{len(pages)} 页）：\n\n"
-
+        
     for idx, day in enumerate(current_page_days, start=1 + page_index * LOGS_PER_PAGE):
         kw_map = daily_map[day]
         # ✅ 修复：避免 shift=None
