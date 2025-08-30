@@ -11,7 +11,7 @@ from config import BEIJING_TZ, LOGS_PER_PAGE
 # ===========================
 async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
     if not logs:
-        await update.message.reply_text(f"📭 {target_name} 本月暂无打卡记录。")
+        await update.message.reply_text(f"📭 {target_name} 暂无打卡记录。")
         return
 
     # 转换时区 & 排序
