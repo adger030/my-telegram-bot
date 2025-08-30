@@ -150,6 +150,32 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🖼 Cloudinary 图片：{deleted_images}/{len(public_ids)} 张\n"
         f"📅 范围：{start_date} ~ {end_date}"
     )
+    
+# ===========================
+# /userlogs_lastmonth 命令
+# ===========================
+async def userlogs_lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ 权限不足")
+        return
+
+    if not context.args:
+        await update.message.reply_text("用法：/userlogs_lastmonth 用户名")
+        return
+
+    target_name = context.args[0]
+
+    now = datetime.now(BEIJING_TZ)
+    year, month = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
+
+    start = datetime(year, month, 1, tzinfo=BEIJING_TZ)
+    if month == 12:
+        end = datetime(year + 1, 1, 1, tzinfo=BEIJING_TZ)
+    else:
+        end = datetime(year, month + 1, 1, tzinfo=BEIJING_TZ)
+
+    logs = get_user_logs(target_name, start, end)
+    await build_and_send_logs(update, context, logs, target_name, key="userlogs_lastmonth")
 
 # ===========================
 # 查看指定用户的考勤记录
