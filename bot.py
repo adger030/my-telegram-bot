@@ -273,10 +273,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 last_shift = shift.split("（")[0] if shift else None
                 break
 
-        # 🔒 新增限制（仅 I班）：下班卡只能次日 0:00–2:00，且仅一次
+        # 🔒 新增限制（仅 I班）：下班卡只能次日 0:00–1:00，且仅一次
         if last_shift == "I班":
             # 时间窗限制
-            if not (0 <= now.hour < 2):
+            if not (0 <= now.hour < 1):
                 await msg.reply_text("⚠️ I班下班卡已超时。")
                 return
             # 次日 0–2 点重复限制：在当日 0:00 起若已有下班卡则拒绝
