@@ -383,9 +383,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             if rest_days > 4:
                 row[2].fill = light_red_fill
     
-            # 如果异常总数 > 3，则标淡红色（最后一列）
+            # 如果异常总数 > 2，则标淡红色（最后一列）
             abnormal_total = int(row[-1].value or 0)
-            if abnormal_total > 3:
+            if abnormal_total > 2:
                 row[-1].fill = light_red_fill
         except ValueError:
             pass
