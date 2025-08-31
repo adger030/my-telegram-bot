@@ -316,14 +316,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 		# 原有：保存下班卡
         save_message(username=username, name=name, content=image_url,timestamp=now, keyword=keyword, shift=last_shift)
-		
-  	    # 原有提示
-        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}")
 
    	    # 追加一个“仅按钮”的消息（无文字）
         buttons = [[InlineKeyboardButton("🗓 查看打卡记录", callback_data="mylogs_open")]]
         markup = InlineKeyboardMarkup(buttons)
-        await msg.reply_text("\u200b", reply_markup=markup)
+        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}", reply_markup=markup)
 
 
 
