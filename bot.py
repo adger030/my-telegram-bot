@@ -326,8 +326,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("👉 点击下方按钮查看本月打卡记录：", reply_markup=markup)
 
 
-
-
 # ===========================
 # 选择上班班次回调
 # ===========================
@@ -341,15 +339,14 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_shift(username, shift_name)  # 保存班次
 
-    # ✅ 保留原来的提示，不覆盖
+    # ✅ 覆盖原消息（删除选择班次按钮），只保留打卡成功提示
+    await query.edit_message_text(f"✅ 上班打卡成功！班次：{shift_name}")
+
+    # ✅ 另发一条消息，附带“查看打卡记录”按钮
     buttons = [[InlineKeyboardButton("🗓 查看打卡记录", callback_data="mylogs_open")]]
     markup = InlineKeyboardMarkup(buttons)
-
-    await query.message.reply_text(
-        f"✅ 上班打卡成功！班次：{shift_name}",
-        reply_markup=markup
-    )
-
+    await query.message.reply_text("👉 点击下方按钮查看本月打卡记录：", reply_markup=markup)
+	
 # ===========================
 # 检查用户当天是否已经打过指定关键词的卡（最终版）
 # ===========================
