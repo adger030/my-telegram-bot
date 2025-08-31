@@ -321,9 +321,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}")
 
    		 # 追加一个按钮
-        buttons = [[InlineKeyboardButton("🗓 打卡记录", callback_data="mylogs_open")]]
+        buttons = [[InlineKeyboardButton("🗓 查看打卡记录", callback_data="mylogs_open")]]
         markup = InlineKeyboardMarkup(buttons)
-        await msg.reply_text("⬇️ 点击下方按钮查看 ⬇️ ", reply_markup=markup)
+        await msg.reply_text(" ", reply_markup=markup)
 
 # ===========================
 # 选择上班班次回调
