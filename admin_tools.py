@@ -193,14 +193,29 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_username = raw_input.startswith("@")
     target_key = raw_input.lstrip("@") if is_username else raw_input
 
-    start, end = get_default_month_range()
+    # ========= 跨月范围 =========
+    now = datetime.now(BEIJING_TZ)
+
+    # 本月第一天
+    first_day_this = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # 上个月最后一天
+    last_day_prev = first_day_this - timedelta(days=1)
+
+    # 下个月第一天
+    first_day_next = (first_day_this + timedelta(days=32)).replace(day=1)
+
+    # 查询范围：上月最后一天 14:00 → 下月第一天 01:00
+    start = last_day_prev.replace(hour=14, minute=0, second=0, microsecond=0)
+    end = first_day_next.replace(hour=1, minute=0, second=0, microsecond=0)
+    # ===========================
 
     if is_username:
         logs = get_user_logs(target_key, start, end)
     else:
         logs = get_user_logs_by_name(target_key, start, end)
 
-    await build_and_send_logs(update, context, logs, target_key, key="userlogs")
+    await build_and_send_logs(update, context, logs, target_key, key=f"userlogs:{target_key}")
 
 
 # ===========================
