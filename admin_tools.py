@@ -160,22 +160,36 @@ async def userlogs_lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     if not context.args:
-        await update.message.reply_text("用法：/userlogs_lastmonth 用户名")
+        await update.message.reply_text("用法：/userlogs_lastmonth @用户名 或 中文姓名")
         return
 
-    target_name = context.args[0]
+    raw_input = context.args[0]
+    is_username = raw_input.startswith("@")
+    target_key = raw_input.lstrip("@") if is_username else raw_input
 
     now = datetime.now(BEIJING_TZ)
-    year, month = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
-
-    start = datetime(year, month, 1, tzinfo=BEIJING_TZ)
-    if month == 12:
-        end = datetime(year + 1, 1, 1, tzinfo=BEIJING_TZ)
+    # 计算上个月的年月
+    if now.month == 1:
+        year, month = now.year - 1, 12
     else:
-        end = datetime(year, month + 1, 1, tzinfo=BEIJING_TZ)
+        year, month = now.year, now.month - 1
 
-    logs = get_user_logs(target_name, start, end)
-    await build_and_send_logs(update, context, logs, target_name, key="userlogs_lastmonth")
+    # 上个月第一天
+    first_day_prev = datetime(year, month, 1, tzinfo=BEIJING_TZ)
+    # 本月第一天
+    first_day_this = datetime(now.year, now.month, 1, tzinfo=BEIJING_TZ)
+
+    # 查询范围：上个月 1号 00:00 → 本月 1号 01:00
+    start = first_day_prev.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = first_day_this.replace(hour=1, minute=0, second=0, microsecond=0)
+
+    if is_username:
+        logs = get_user_logs(target_key, start, end)
+    else:
+        logs = get_user_logs_by_name(target_key, start, end)
+
+    await build_and_send_logs(update, context, logs, f"{target_key} 上月打卡", key=f"userlogs_lastmonth:{target_key}")
+
 
 # ===========================
 # 查看指定用户的考勤记录
