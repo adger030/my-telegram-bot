@@ -485,22 +485,26 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===========================
 # 发送分页内容
-# ===========================
-async def mylogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===========================	
+async def logs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    if "mylogs_pages" not in context.user_data:
-        await query.edit_message_text("⚠️ 会话已过期，请重新使用 /mylogs")
+
+    # 从 callback_data 提取 key
+    key = "mylogs" if query.data.startswith("mylogs") else "lastmonth"
+
+    if f"{key}_pages" not in context.user_data:
+        await query.edit_message_text(f"⚠️ 会话已过期，请重新使用 /{key}")
         return
 
-    pages_info = context.user_data["mylogs_pages"]
+    pages_info = context.user_data[f"{key}_pages"]
     total_pages = len(pages_info["pages"])
-    if query.data == "mylogs_prev" and pages_info["page_index"] > 0:
+    if query.data.endswith("prev") and pages_info["page_index"] > 0:
         pages_info["page_index"] -= 1
-    elif query.data == "mylogs_next" and pages_info["page_index"] < total_pages - 1:
+    elif query.data.endswith("next") and pages_info["page_index"] < total_pages - 1:
         pages_info["page_index"] += 1
 
-    await send_logs_page(update, context, key="mylogs")
+    await send_logs_page(update, context, key=key)
 
 # ===========================
 # 单实例检查：防止重复启动 Bot
@@ -585,7 +589,7 @@ def main():
     # ===========================
     app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))               # 用户点击“选择上班班次”按钮
     app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:")) # 用户点击“选择补卡班次”按钮
-    app.add_handler(CallbackQueryHandler(mylogs_page_callback, pattern=r"^mylogs_(prev|next)$"))     # 用户点击“我的打卡记录”翻页按钮
+    app.add_handler(CallbackQueryHandler(logs_page_callback, pattern="^(mylogs|lastmonth)_(prev|next)$")) # 用户点击“我的打卡记录”翻页按钮
     app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^userlogs_(prev|next)$")) # 管理员查看“指定用户打卡记录”翻页按钮
     app.add_handler(CallbackQueryHandler(mylogs_cmd, pattern="^mylogs_open$"))
 
