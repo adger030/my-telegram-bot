@@ -315,13 +315,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
 		# 原有：保存下班卡
-		save_message(username=username, name=name, content=image_url,
-		             timestamp=now, keyword=keyword, shift=last_shift)
+        save_message(username=username, name=name, content=image_url,timestamp=now, keyword=keyword, shift=last_shift)
 		
 		# ✅ 下班打卡成功提示 + 打卡记录按钮
-		keyboard = [[InlineKeyboardButton("🗓 我的打卡记录", callback_data="mylogs_open")]]
-		reply_markup = InlineKeyboardMarkup(keyboard)
-		await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}", reply_markup=reply_markup)
+        keyboard = [[InlineKeyboardButton("🗓 我的打卡记录", callback_data="mylogs_open")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}", reply_markup=reply_markup)
 
 
 
