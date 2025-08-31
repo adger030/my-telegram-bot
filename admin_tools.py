@@ -193,22 +193,23 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_username = raw_input.startswith("@")
     target_key = raw_input.lstrip("@") if is_username else raw_input
 
-    # ========= 跨月范围 =========
     now = datetime.now(BEIJING_TZ)
 
-    # 本月第一天
-    first_day_this = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # ===== 查询范围 =====
+    # 本月第一天 01:00
+    first_day_this = now.replace(day=1, hour=1, minute=0, second=0, microsecond=0)
 
-    # 上个月最后一天
-    last_day_prev = first_day_this - timedelta(days=1)
+    # 下个月第一天 01:00
+    first_day_next = (first_day_this + timedelta(days=32)).replace(day=1, hour=1, minute=0, second=0, microsecond=0)
 
-    # 下个月第一天
-    first_day_next = (first_day_this + timedelta(days=32)).replace(day=1)
+    # 上个月第一天 01:00
+    first_day_prev = (first_day_this - timedelta(days=1)).replace(day=1, hour=1, minute=0, second=0, microsecond=0)
 
-    # 查询范围：上月最后一天 14:00 → 下月第一天 01:00
-    start = last_day_prev.replace(hour=14, minute=0, second=0, microsecond=0)
-    end = first_day_next.replace(hour=1, minute=0, second=0, microsecond=0)
-    # ===========================
+    # 默认查「本月」：1 日 01:00 → 下月 1 日 01:00
+    start = first_day_this
+    end = first_day_next
+    # 如果你以后要扩展 `/userlogs last`，就用 start = first_day_prev, end = first_day_this
+    # ===================
 
     if is_username:
         logs = get_user_logs(target_key, start, end)
