@@ -333,9 +333,14 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_shift(username, shift_name)  # 保存班次
 
+    # ✅ 返回成功提示 + 打卡记录按钮
     new_text = f"✅ 上班打卡成功！班次：{shift_name}"
+    keyboard = [[InlineKeyboardButton("🗓 我的打卡记录", callback_data="mylogs_open")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # 编辑原消息 + 添加按钮
     if query.message.text != new_text:
-        await query.edit_message_text(new_text)
+        await query.edit_message_text(new_text, reply_markup=reply_markup)
 
 # ===========================
 # 检查用户当天是否已经打过指定关键词的卡（最终版）
@@ -583,6 +588,7 @@ def main():
     app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:")) # 用户点击“选择补卡班次”按钮
     app.add_handler(CallbackQueryHandler(mylogs_page_callback, pattern=r"^mylogs_(prev|next)$"))     # 用户点击“我的打卡记录”翻页按钮
     app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^userlogs_(prev|next)$")) # 管理员查看“指定用户打卡记录”翻页按钮
+	app.add_handler(CallbackQueryHandler(mylogs_cmd, pattern="^mylogs_open$"))
 
     # ===========================
     # 启动 Bot
