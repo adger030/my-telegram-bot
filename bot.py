@@ -102,8 +102,17 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     name = get_user_name(username)
     await send_welcome(update.message, name)
-	    # 🚀 常驻输入框按钮（只留一个）
-    keyboard = [["🗓 我的打卡记录"]]
+
+    # 🚀 动态按钮逻辑
+    today = datetime.now(BEIJING_TZ)
+    day = today.day
+    _, last_day = calendar.monthrange(today.year, today.month)
+
+    if 1 <= day <= 7:
+        keyboard = [["🗓 本月记录", "🗓 上月记录"]]
+    else:
+        keyboard = [["🗓 本月记录"]]
+
     reply_markup = ReplyKeyboardMarkup(
         keyboard,
         resize_keyboard=True,   # 按钮大小自适应
@@ -122,9 +131,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = msg.from_user.username or f"user{msg.from_user.id}"
     text = msg.text.strip()
 
-	 # 🚩 如果点击了「📊 我的打卡记录」
-    if text == "🗓 我的打卡记录":
+
+    # 🚩 如果点击了按钮
+    if text == "🗓 本月记录":
         await mylogs_cmd(update, context)
+        return
+    elif text == "🗓 上月记录":
+        await lastmonth_cmd(update, context)
         return
 		
     # 🚩 如果用户还没登记姓名
