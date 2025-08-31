@@ -450,19 +450,28 @@ async def lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     fallback_username = f"user{tg_user.id}"
 
     now = datetime.now(BEIJING_TZ)
+    # 计算上个月的年月
     year, month = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
 
-    start = datetime(year, month, 1, tzinfo=BEIJING_TZ)
+    # 上个月最后一天
     if month == 12:
-        end = datetime(year + 1, 1, 1, tzinfo=BEIJING_TZ)
+        first_day_this = datetime(year + 1, 1, 1, tzinfo=BEIJING_TZ)
     else:
-        end = datetime(year, month + 1, 1, tzinfo=BEIJING_TZ)
+        first_day_this = datetime(year, month + 1, 1, tzinfo=BEIJING_TZ)
+    last_day_prev = first_day_this - timedelta(days=1)
+
+    # 查询范围：上月最后一天 14:00 → 下月第一天 01:00
+    start = last_day_prev.replace(hour=14, minute=0, second=0, microsecond=0)
+    end = first_day_this.replace(hour=1, minute=0, second=0, microsecond=0) + timedelta(days=32)
+    end = end.replace(day=1)  # 下个月第一天
+    end = end.replace(hour=1, minute=0, second=0, microsecond=0)
 
     logs = get_user_logs(username, start, end) if username else None
     if not logs:
         logs = get_user_logs(fallback_username, start, end)
 
     await build_and_send_logs(update, context, logs, "上月打卡", key="lastmonth")
+
 
 # ===========================
 # /mylogs 命令
@@ -473,8 +482,18 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     fallback_username = f"user{tg_user.id}"
 
     now = datetime.now(BEIJING_TZ)
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    end = (start + timedelta(days=32)).replace(day=1)
+    # 本月第一天
+    first_day_this = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # 上个月最后一天
+    last_day_prev = first_day_this - timedelta(days=1)
+
+    # 下个月第一天
+    first_day_next = (first_day_this + timedelta(days=32)).replace(day=1)
+
+    # 查询范围：上月最后一天 14:00 → 下月第一天 01:00
+    start = last_day_prev.replace(hour=14, minute=0, second=0, microsecond=0)
+    end = first_day_next.replace(hour=1, minute=0, second=0, microsecond=0)
 
     logs = get_user_logs(username, start, end) if username else None
     if not logs:
