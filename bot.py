@@ -278,7 +278,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text("❗ 今天还没有上班打卡，请先打卡或补卡。")
             return
 
-        # 原有：找到最近的上班班次
+        # 找到最近的上班/补卡记录
         logs = get_user_logs(username, now - timedelta(days=1), now)
         last_check_in, last_shift = None, None
         for ts, kw, shift in reversed(logs):
@@ -287,23 +287,37 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 last_shift = shift.split("（")[0] if shift else None
                 break
 
-        # 🔒 新增限制（仅 I班）：下班卡只能次日 0:00–1:00，且仅一次
-        if last_shift == "I班":
-            # 时间窗限制
-            if not (0 <= now.hour < 1):
-                await msg.reply_text("⚠️ I班下班卡已超时。")
-                return
-            # 次日 0–2 点重复限制：在当日 0:00 起若已有下班卡则拒绝
-            start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            logs_today = get_user_logs(username, start_of_today, now)
-            if any(kw2 == "#下班打卡" for _, kw2, _ in logs_today):
-                await msg.reply_text("⚠️ 今天已经打过下班卡了。")
-                return
+        if not last_shift or last_shift not in get_shift_times_short():
+            await msg.reply_text("⚠️ 未找到有效的班次，无法下班打卡。")
+            return
 
-        # 原有：保存下班卡
+        # 获取该班次的下班时间
+        _, end_time = get_shift_times_short()[last_shift]
+        shift_end_today = now.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
+
+        # 如果班次跨天（如 I班 15:00-00:00），需要把结束时间加一天
+        if end_time < get_shift_times_short()[last_shift][0]:
+            shift_end_today += timedelta(days=1)
+
+        # 允许的打卡时间窗口：下班后 1 小时
+        latest_allowed = shift_end_today + timedelta(hours=1)
+
+        if now > latest_allowed:
+            await msg.reply_text("⚠️ 已超过班次结束 1 小时，下班打卡无效。")
+            return
+
+        # 当日重复限制：防止同一天多次下班卡
+        start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        logs_today = get_user_logs(username, start_of_today, now)
+        if any(kw2 == "#下班打卡" for _, kw2, _ in logs_today):
+            await msg.reply_text("⚠️ 今天已经打过下班卡了。")
+            return
+
+        # ✅ 保存下班卡
         save_message(username=username, name=name, content=image_url,
                      timestamp=now, keyword=keyword, shift=last_shift)
-        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}")
+        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift}")
+
 
 # ===========================
 # 选择上班班次回调
