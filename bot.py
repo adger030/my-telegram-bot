@@ -482,13 +482,13 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     now = datetime.now(BEIJING_TZ)
 
-    # 本月第一天 00:00
-    first_day_this = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # 本月第一天 01:00
+    first_day_this = now.replace(day=1, hour=1, minute=0, second=0, microsecond=0)
 
     # 下个月第一天 01:00（留 1 小时用于跨天下班卡）
     first_day_next = (first_day_this + timedelta(days=32)).replace(day=1, hour=1, minute=0, second=0, microsecond=0)
 
-    # 查询范围：本月 1日 00:00 → 下月 1日 01:00
+    # 查询范围：本月 1日 01:00 → 下月 1日 01:00
     start = first_day_this
     end = first_day_next
 
