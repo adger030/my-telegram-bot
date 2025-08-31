@@ -451,21 +451,30 @@ async def lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     now = datetime.now(BEIJING_TZ)
     # 计算上个月的年月
-    year, month = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
+    if now.month == 1:
+        year, month = now.year - 1, 12
+    else:
+        year, month = now.year, now.month - 1
+
+    # 上个月第一天
+    first_day_prev = datetime(year, month, 1, tzinfo=BEIJING_TZ)
+
+    # 本月第一天
+    first_day_this = datetime(now.year, now.month, 1, tzinfo=BEIJING_TZ)
 
     # 上个月最后一天
-    if month == 12:
-        first_day_this = datetime(year + 1, 1, 1, tzinfo=BEIJING_TZ)
-    else:
-        first_day_this = datetime(year, month + 1, 1, tzinfo=BEIJING_TZ)
     last_day_prev = first_day_this - timedelta(days=1)
 
-    # 查询范围：上月最后一天 14:00 → 下月第一天 01:00
+    # ========= 查询范围 =========
+    # 从上个月最后一天 14:00
     start = last_day_prev.replace(hour=14, minute=0, second=0, microsecond=0)
-    end = first_day_this.replace(hour=1, minute=0, second=0, microsecond=0) + timedelta(days=32)
-    end = end.replace(day=1)  # 下个月第一天
-    end = end.replace(hour=1, minute=0, second=0, microsecond=0)
 
+    # 到本月第一天 → 下个月第一天 01:00
+    first_day_next = (first_day_this + timedelta(days=32)).replace(day=1)
+    end = first_day_next.replace(hour=1, minute=0, second=0, microsecond=0)
+    # ===========================
+
+    # 拉取日志
     logs = get_user_logs(username, start, end) if username else None
     if not logs:
         logs = get_user_logs(fallback_username, start, end)
