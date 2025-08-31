@@ -67,18 +67,17 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
     total_complete = total_abnormal = total_makeup = 0
     for day in all_days:
         kw_map = daily_map[day]
-        # ✅ 修复：避免 shift=None
         shift_full = str(kw_map.get("shift") or "未选择班次")
         is_makeup = shift_full.endswith("（补卡）") or "补卡标记" in kw_map
         shift_name = shift_full.split("（")[0]
 
         has_up = "#上班打卡" in kw_map
         has_down = "#下班打卡" in kw_map
-                
+
         if is_makeup:
             total_makeup += 1
             if has_up:
-                pass  # 🔹 上班补卡的情况，不再进入正常/异常统计
+                pass  # 上班补卡的情况，不再进入正常/异常统计
         else:
             # ===== 上班统计 =====
             if has_up:
@@ -91,7 +90,9 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
                 else:
                     total_complete += 1
             else:
-                total_abnormal += 1  # 缺卡
+                # 🚩 优化：只有下班卡，没有上班卡 → 不算异常
+                if not has_down:
+                    total_abnormal += 1  # 真正缺卡才算异常
 
         # ===== 下班统计 =====
         if has_down:
@@ -107,8 +108,8 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
             else:
                 total_complete += 1
         else:
-            if not is_makeup:
-                total_abnormal += 1  # 缺卡
+            if not is_makeup and has_up:
+                total_abnormal += 1  # 有上班卡但没下班卡，才算异常
 
     # ===========================
     # 分页
