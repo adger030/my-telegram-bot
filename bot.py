@@ -323,7 +323,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
    	    # 追加一个“仅按钮”的消息（无文字）
         buttons = [[InlineKeyboardButton("🗓 查看打卡记录", callback_data="mylogs_open")]]
         markup = InlineKeyboardMarkup(buttons)
-        await msg.reply_text(" ", reply_markup=markup)
+        await msg.reply_text("\u200b", reply_markup=markup)
 
 
 
