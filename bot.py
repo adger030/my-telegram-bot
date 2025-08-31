@@ -481,24 +481,23 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     fallback_username = f"user{tg_user.id}"
 
     now = datetime.now(BEIJING_TZ)
-    # 本月第一天
+
+    # 本月第一天 00:00
     first_day_this = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-    # 上个月最后一天
-    last_day_prev = first_day_this - timedelta(days=1)
+    # 下个月第一天 01:00（留 1 小时用于跨天下班卡）
+    first_day_next = (first_day_this + timedelta(days=32)).replace(day=1, hour=1, minute=0, second=0, microsecond=0)
 
-    # 下个月第一天
-    first_day_next = (first_day_this + timedelta(days=32)).replace(day=1)
-
-    # 查询范围：上月最后一天 14:00 → 下月第一天 01:00
-    start = last_day_prev.replace(hour=14, minute=0, second=0, microsecond=0)
-    end = first_day_next.replace(hour=1, minute=0, second=0, microsecond=0)
+    # 查询范围：本月 1日 00:00 → 下月 1日 01:00
+    start = first_day_this
+    end = first_day_next
 
     logs = get_user_logs(username, start, end) if username else None
     if not logs:
         logs = get_user_logs(fallback_username, start, end)
 
     await build_and_send_logs(update, context, logs, "本月打卡", key="mylogs")
+
 
 
 # ===========================
