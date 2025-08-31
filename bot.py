@@ -316,11 +316,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 		# 原有：保存下班卡
         save_message(username=username, name=name, content=image_url,timestamp=now, keyword=keyword, shift=last_shift)
-		
-		# ✅ 下班打卡成功提示 + 打卡记录按钮
-        keyboard = [[InlineKeyboardButton("🗓 我的打卡记录", callback_data="mylogs_open")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}", reply_markup=reply_markup)
+
+    	# 原有提示
+        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}")
+
+   		 # 追加一个按钮
+        buttons = [[InlineKeyboardButton("🗓 查看打卡记录", callback_data="mylogs_open")]]
+        markup = InlineKeyboardMarkup(buttons)
+        await msg.reply_text("👉 点击下方按钮查看本月打卡记录：", reply_markup=markup)
+
 
 
 
@@ -337,14 +341,14 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_shift(username, shift_name)  # 保存班次
 
-    # ✅ 返回成功提示 + 打卡记录按钮
-    new_text = f"✅ 上班打卡成功！班次：{shift_name}"
-    keyboard = [[InlineKeyboardButton("🗓 我的打卡记录", callback_data="mylogs_open")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # ✅ 保留原来的提示，不覆盖
+    buttons = [[InlineKeyboardButton("🗓 查看打卡记录", callback_data="mylogs_open")]]
+    markup = InlineKeyboardMarkup(buttons)
 
-    # 编辑原消息 + 添加按钮
-    if query.message.text != new_text:
-        await query.edit_message_text(new_text, reply_markup=reply_markup)
+    await query.message.reply_text(
+        f"✅ 上班打卡成功！班次：{shift_name}",
+        reply_markup=markup
+    )
 
 # ===========================
 # 检查用户当天是否已经打过指定关键词的卡（最终版）
