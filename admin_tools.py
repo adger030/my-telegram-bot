@@ -150,7 +150,8 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🖼 Cloudinary 图片：{deleted_images}/{len(public_ids)} 张\n"
         f"📅 范围：{start_date} ~ {end_date}"
     )
-    
+
+
 # ===========================
 # /userlogs_lastmonth 命令
 # ===========================
@@ -160,7 +161,7 @@ async def userlogs_lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     if not context.args:
-        await update.message.reply_text("⚠️ 用法：/userlogs_lastmonth @用户名 或 中文姓名")
+        await update.message.reply_text("用法：/userlogs_lastmonth @用户名 或 中文姓名")
         return
 
     raw_input = context.args[0]
@@ -168,35 +169,34 @@ async def userlogs_lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_T
     target_key = raw_input.lstrip("@") if is_username else raw_input
 
     now = datetime.now(BEIJING_TZ)
-    # 上个月年月
+    # 计算上个月的年月
     if now.month == 1:
         year, month = now.year - 1, 12
     else:
         year, month = now.year, now.month - 1
 
-    # 上个月第一天、本月第一天
+    # 上个月第一天
     first_day_prev = datetime(year, month, 1, tzinfo=BEIJING_TZ)
+    # 本月第一天
     first_day_this = datetime(now.year, now.month, 1, tzinfo=BEIJING_TZ)
 
     # 查询范围：上个月 1号 00:00 → 本月 1号 01:00
     start = first_day_prev.replace(hour=0, minute=0, second=0, microsecond=0)
     end = first_day_this.replace(hour=1, minute=0, second=0, microsecond=0)
 
-    # 获取日志
-    logs = get_user_logs(target_key, start, end) if is_username else get_user_logs_by_name(target_key, start, end)
+    if is_username:
+        logs = get_user_logs(target_key, start, end)
+    else:
+        logs = get_user_logs_by_name(target_key, start, end)
 
-    # ✅ 保存 key
-    await build_and_send_logs(
-        update,
-        context,
-        logs,
-        f"{target_key} 上月打卡",
-        key=f"userlogs_lastmonth:{target_key}"
-    )
+    # ✅ 统一 key（不要拼接用户名）
+    await build_and_send_logs(update, context, logs,
+                              f"{target_key} 上月打卡",
+                              key="userlogs_lastmonth")
 
 
 # ===========================
-# /userlogs 命令（本月）
+# 查看指定用户的考勤记录
 # ===========================
 async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -204,7 +204,7 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not context.args:
-        await update.message.reply_text("⚠️ 用法：/userlogs @用户名 或 中文姓名")
+        await update.message.reply_text("⚠️ 用法：/userlogs @用户名 或 /userlogs 中文姓名")
         return
 
     raw_input = context.args[0]
@@ -214,53 +214,47 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now(BEIJING_TZ)
 
     # ===== 查询范围 =====
-    # 本月第一天 01:00
     first_day_this = now.replace(day=1, hour=1, minute=0, second=0, microsecond=0)
-    # 下个月第一天 01:00
     first_day_next = (first_day_this + timedelta(days=32)).replace(day=1, hour=1, minute=0, second=0, microsecond=0)
 
     start = first_day_this
     end = first_day_next
+    # ===================
 
-    # 获取日志
-    logs = get_user_logs(target_key, start, end) if is_username else get_user_logs_by_name(target_key, start, end)
+    if is_username:
+        logs = get_user_logs(target_key, start, end)
+    else:
+        logs = get_user_logs_by_name(target_key, start, end)
 
-    # ✅ 保存 key
-    await build_and_send_logs(
-        update,
-        context,
-        logs,
-        f"{target_key} 本月打卡",
-        key=f"userlogs:{target_key}"
-    )
+    # ✅ 统一 key
+    await build_and_send_logs(update, context, logs,
+                              target_key,
+                              key="userlogs")
+
 
 # ===========================
-# 翻页回调（支持 userlogs 和 userlogs_lastmonth）
+# 翻页回调（统一支持 userlogs / userlogs_lastmonth）
 # ===========================
 async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    # 从 callback_data 提取 key
-    if query.data.startswith("userlogs_lastmonth"):
-        key = "userlogs_lastmonth"
-    else:
-        key = "userlogs"
+    # 拿 prefix：userlogs 或 userlogs_lastmonth
+    prefix = query.data.split("_")[0]
 
-    if f"{key}_pages" not in context.user_data:
-        await query.edit_message_text(f"⚠️ 会话已过期，请重新使用 /{key}")
+    pages_info = context.user_data.get(f"{prefix}_pages")
+    if not pages_info:
+        await query.edit_message_text("⚠️ 会话已过期，请重新使用 /userlogs 或 /userlogs_lastmonth")
         return
 
-    pages_info = context.user_data[f"{key}_pages"]
     total_pages = len(pages_info["pages"])
-    if query.data.endswith("prev") and pages_info["page_index"] > 0:
+    if query.data.endswith("_prev") and pages_info["page_index"] > 0:
         pages_info["page_index"] -= 1
-    elif query.data.endswith("next") and pages_info["page_index"] < total_pages - 1:
+    elif query.data.endswith("_next") and pages_info["page_index"] < total_pages - 1:
         pages_info["page_index"] += 1
 
-    await send_logs_page(update, context, key=key)
-
-
+    # ✅ 传 prefix 作为 key
+    await send_logs_page(update, context, key=prefix)
 
 
 
