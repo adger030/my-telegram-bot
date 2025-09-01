@@ -503,7 +503,20 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
                         if ts_time < end_time:
                             df.at[idx, "remark"] = "早退"
 
-    # ======================== 构建完整日期范围 ========================
+    # ======================== 处理 I 班跨日下班卡 ========================
+    i_shift_mask = (
+        (df["keyword"] == "#下班打卡") &
+        (df["shift"].notna()) &
+        (df["shift"].astype(str).str.startswith("I班")) &
+        (df["timestamp"].dt.hour < 6)
+    )
+    cross_df = df[i_shift_mask].copy()
+    df = df[~i_shift_mask]
+    cross_df["remark"] = cross_df.get("remark", "") + "（次日）"
+    cross_df["日期"] = (cross_df["timestamp"] - pd.Timedelta(days=1)).dt.strftime("%Y-%m-%d")
+    df = pd.concat([df, cross_df], ignore_index=True)
+
+    # ======================== 补齐休息/缺勤 ========================
     all_dates = pd.date_range(start_datetime.date(), (end_datetime - timedelta(seconds=1)).date(), freq="D")
     existing_dates = set(df["日期"].unique())
     missing_dates = [d.strftime("%Y-%m-%d") for d in all_dates if d.strftime("%Y-%m-%d") not in existing_dates]
@@ -519,44 +532,37 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         })
         df = pd.concat([df, missed_df], ignore_index=True)
 
-    # ======================== 按 日期 + 班次 归类 ========================
-    final_rows = []
-    for (day, shift), g in df.groupby(["日期", "shift"], dropna=False):
-        g = g.sort_values("timestamp")
-
+    # ======================== 补齐未打下班卡 ========================
+    unclosed_rows = []
+    for day, g in df.groupby("日期"):
         has_up = g["keyword"].eq("#上班打卡").any()
         has_down = g["keyword"].eq("#下班打卡").any()
-
-        for _, r in g.iterrows():
-            final_rows.append([
-                day,
-                r["name"],
-                r["timestamp"].strftime("%Y-%m-%d %H:%M:%S") if pd.notna(r["timestamp"]) else "",
-                r["keyword"],
-                format_shift(r["shift"]),
-                r["remark"]
-            ])
-
-        # 补「未打下班卡」
         if has_up and not has_down:
-            final_rows.append([
-                day,
-                user_name,
-                "",
-                "#下班打卡",
-                format_shift(shift),
-                "未打下班卡"
-            ])
+            unclosed_rows.append({
+                "日期": day,
+                "name": user_name,
+                "timestamp": pd.NaT,
+                "keyword": "#下班打卡",
+                "shift": None,
+                "remark": "未打下班卡"
+            })
+    if unclosed_rows:
+        df = pd.concat([df, pd.DataFrame(unclosed_rows)], ignore_index=True)
 
-    # 如果某天完全没有任何记录（shift 也 NaN），会在上面 missed_df 中补「休息/缺勤」
+    # ======================== 整理数据表 ========================
+    slim_df = df[["日期", "name", "timestamp", "keyword", "shift", "remark"]].copy()
+    slim_df.columns = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
 
-    # ======================== 生成 DataFrame ========================
-    slim_df = pd.DataFrame(final_rows, columns=["日期", "姓名", "打卡时间", "关键词", "班次", "备注"])
-    slim_df = slim_df.sort_values(["日期", "班次", "打卡时间"])
+    slim_df["打卡时间"] = slim_df["打卡时间"].apply(lambda x: x.strftime("%H:%M:%S") if pd.notna(x) else "")
+    slim_df["班次"] = slim_df["班次"].apply(format_shift)
+
+    keyword_order = {"#上班打卡": 0, "#下班打卡": 1, None: 2}
+    slim_df["kw_order"] = slim_df["关键词"].map(keyword_order).fillna(9)
+    slim_df = slim_df.sort_values(["日期", "姓名", "班次", "kw_order", "打卡时间"]).drop(columns=["kw_order"])
 
     # ======================== 导出 Excel ========================
     start_str = start_datetime.strftime("%Y-%m-%d")
-    end_str = (end_datetime - timedelta(seconds=1)).strftime("%Y-%m-%d")
+    end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
     export_dir = os.path.join(DATA_DIR, f"user_excel_{start_str}_{end_str}")
     os.makedirs(export_dir, exist_ok=True)
     file_path = os.path.join(export_dir, f"{user_name}_考勤详情.xlsx")
@@ -575,7 +581,7 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
     yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
     blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")
-    purple_fill = PatternFill(start_color="e6ccff", end_color="e6ccff", fill_type="solid")  # 未打下班卡
+    purple_fill = PatternFill(start_color="e6ccff", end_color="e6ccff", fill_type="solid")
     thin_border = Border(
         left=Side(style="thin", color="000000"),
         right=Side(style="thin", color="000000"),
