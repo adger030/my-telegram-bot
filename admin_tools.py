@@ -188,7 +188,10 @@ async def userlogs_lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_T
     else:
         logs = get_user_logs_by_name(target_key, start, end)
 
-    await build_and_send_logs(update, context, logs, f"{target_key} 上月打卡", key=f"userlogs_lastmonth:{target_key}")
+    # ✅ 保存 key，供分页时使用
+    await build_and_send_logs(update, context, logs,
+                              f"{target_key} 上月打卡",
+                              key=f"userlogs_lastmonth:{target_key}")
 
 
 # ===========================
@@ -216,13 +219,10 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 下个月第一天 01:00
     first_day_next = (first_day_this + timedelta(days=32)).replace(day=1, hour=1, minute=0, second=0, microsecond=0)
 
-    # 上个月第一天 01:00
-    first_day_prev = (first_day_this - timedelta(days=1)).replace(day=1, hour=1, minute=0, second=0, microsecond=0)
-
     # 默认查「本月」：1 日 01:00 → 下月 1 日 01:00
     start = first_day_this
     end = first_day_next
-    # 如果你以后要扩展 `/userlogs last`，就用 start = first_day_prev, end = first_day_this
+    # 如果以后扩展 last，可以用 start = first_day_prev, end = first_day_this
     # ===================
 
     if is_username:
@@ -230,7 +230,10 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         logs = get_user_logs_by_name(target_key, start, end)
 
-    await build_and_send_logs(update, context, logs, target_key, key=f"userlogs:{target_key}")
+    # ✅ 保存 key，供分页时使用
+    await build_and_send_logs(update, context, logs,
+                              target_key,
+                              key=f"userlogs:{target_key}")
 
 
 # ===========================
@@ -245,12 +248,13 @@ async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     pages_info = context.user_data["userlogs_pages"]
     total_pages = len(pages_info["pages"])
+
     if query.data == "userlogs_prev" and pages_info["page_index"] > 0:
         pages_info["page_index"] -= 1
     elif query.data == "userlogs_next" and pages_info["page_index"] < total_pages - 1:
         pages_info["page_index"] += 1
 
-    # 根据保存的 key 来翻页
+    # ✅ 动态读取 key
     key = pages_info.get("key", "userlogs")
     await send_logs_page(update, context, key=key)
 
