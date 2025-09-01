@@ -240,7 +240,7 @@ async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     if "userlogs_pages" not in context.user_data:
-        await query.edit_message_text("⚠️ 会话已过期，请重新使用 /userlogs")
+        await query.edit_message_text("⚠️ 会话已过期，请重新使用 /userlogs 或 /userlogs_lastmonth")
         return
 
     pages_info = context.user_data["userlogs_pages"]
@@ -250,8 +250,10 @@ async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif query.data == "userlogs_next" and pages_info["page_index"] < total_pages - 1:
         pages_info["page_index"] += 1
 
-    await send_logs_page(update, context, key="userlogs")
-    
+    # 根据保存的 key 来翻页
+    key = pages_info.get("key", "userlogs")
+    await send_logs_page(update, context, key=key)
+
 
 # ===========================
 # 用户数据迁移命令：/transfer <userA> <userB>
