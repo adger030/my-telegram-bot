@@ -292,20 +292,28 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text("⚠️ 未找到有效的班次，无法下班打卡。")
             return
 
-        # 获取该班次的下班时间
-        _, end_time = get_shift_times_short()[last_shift]
-        shift_end_today = now.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
+        # ================= 修改部分 =================
+        shift_start, shift_end = get_shift_times_short()[last_shift]
 
-        # 如果班次跨天（如 I班 15:00-00:00），需要把结束时间加一天
-        if end_time < get_shift_times_short()[last_shift][0]:
-            shift_end_today += timedelta(days=1)
+        # 以“上班日期”为基准，推算下班时间
+        shift_start_day = last_check_in.replace(
+            hour=shift_start.hour, minute=shift_start.minute, second=0, microsecond=0
+        )
+        shift_end_day = last_check_in.replace(
+            hour=shift_end.hour, minute=shift_end.minute, second=0, microsecond=0
+        )
+
+        # 如果班次跨天（如 I班 15:00–00:00），下班要+1天
+        if shift_end < shift_start:
+            shift_end_day += timedelta(days=1)
 
         # 允许的打卡时间窗口：下班后 1 小时
-        latest_allowed = shift_end_today + timedelta(hours=1)
+        latest_allowed = shift_end_day + timedelta(hours=1)
 
         if now > latest_allowed:
             await msg.reply_text("⚠️ 已超过班次结束 1 小时，下班打卡无效。")
             return
+        # ================= 修改结束 =================
 
         # 当日重复限制：防止同一天多次下班卡
         start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -314,14 +322,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text("⚠️ 今天已经打过下班卡了。")
             return
 
-		# 原有：保存下班卡
-        save_message(username=username, name=name, content=image_url,timestamp=now, keyword=keyword, shift=last_shift)
+        # 原有：保存下班卡
+        save_message(username=username, name=name, content=image_url,
+                     timestamp=now, keyword=keyword, shift=last_shift)
 
-   	    # 追加一个“仅按钮”的消息（无文字）
+        # 追加一个“仅按钮”的消息（无文字）
         buttons = [[InlineKeyboardButton("🗓 查看打卡记录", callback_data="mylogs_open")]]
         markup = InlineKeyboardMarkup(buttons)
         await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}", reply_markup=markup)
-
 
 
 # ===========================
