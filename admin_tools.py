@@ -2,6 +2,7 @@ import os
 import re
 from datetime import datetime, timedelta
 from collections import defaultdict
+import logging
 
 import pandas as pd
 import cloudinary.api
