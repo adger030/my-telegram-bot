@@ -235,24 +235,26 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ===========================
-# 翻页回调（统一版，支持本月 & 上月）
+# 翻页回调（统一版）
 # ===========================
 async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    # 从 callback_data 提取 key
-    key = "mylogs" if query.data.startswith("mylogs") else "lastmonth"
+    if query.data.startswith("userlogs_lastmonth"):
+        key = "userlogs_lastmonth"
+    else:
+        key = "userlogs"
 
-    if f"{key}_pages" not in context.user_data:
+    pages_info = context.user_data.get(f"{key}_pages")
+    if not pages_info:
         await query.edit_message_text(f"⚠️ 会话已过期，请重新使用 /{key}")
         return
 
-    pages_info = context.user_data[f"{key}_pages"]
     total_pages = len(pages_info["pages"])
-    if query.data.endswith("prev") and pages_info["page_index"] > 0:
+    if query.data.endswith("_prev") and pages_info["page_index"] > 0:
         pages_info["page_index"] -= 1
-    elif query.data.endswith("next") and pages_info["page_index"] < total_pages - 1:
+    elif query.data.endswith("_next") and pages_info["page_index"] < total_pages - 1:
         pages_info["page_index"] += 1
 
     await send_logs_page(update, context, key=key)
