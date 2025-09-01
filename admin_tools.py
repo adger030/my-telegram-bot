@@ -239,8 +239,13 @@ async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
 
-    # 拿 prefix：userlogs 或 userlogs_lastmonth
-    prefix = query.data.split("_")[0]
+    # 去掉最后一个 "_prev" 或 "_next" 得到完整 key
+    if query.data.endswith("_prev"):
+        prefix = query.data[:-5]   # 去掉 "_prev"
+    elif query.data.endswith("_next"):
+        prefix = query.data[:-5]   # 去掉 "_next"
+    else:
+        prefix = query.data
 
     pages_info = context.user_data.get(f"{prefix}_pages")
     if not pages_info:
@@ -253,8 +258,8 @@ async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif query.data.endswith("_next") and pages_info["page_index"] < total_pages - 1:
         pages_info["page_index"] += 1
 
-    # ✅ 传 prefix 作为 key
     await send_logs_page(update, context, key=prefix)
+
 
 
 
