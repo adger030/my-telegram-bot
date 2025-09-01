@@ -623,6 +623,6 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     ws.auto_filter.ref = ws.dimensions
 
     wb.save(file_path)
-    logging.info(f"✅ 已导出用户 {user_name} 的考勤详情（含休息/缺勤 + 未打下班卡）：{file_path}")
+    logging.info(f"✅ 已导出用户 {user_name} 的考勤详情：{file_path}")
     return file_path
 
