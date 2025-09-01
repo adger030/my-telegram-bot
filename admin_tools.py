@@ -403,12 +403,12 @@ def get_default_month_range():
     return start, end
     
 # ===========================
-# 获取本月 1 日 01:00 至 今日 的范围
+# 获取本月 1 日 06:00 至 今日 的范围
 # ===========================
 def get_month_to_today_range():
     now = datetime.now(BEIJING_TZ)
     # 本月1日 01:00
-    start = now.replace(day=1, hour=1, minute=0, second=0, microsecond=0)
+    start = now.replace(day=1, hour=6, minute=0, second=0, microsecond=0)
     # 今日 23:59:59.999999
     end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
     return start, end
