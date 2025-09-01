@@ -235,28 +235,31 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ===========================
-# 翻页回调（统一支持 userlogs 和 userlogs_lastmonth）
+# 翻页回调（支持 userlogs 和 userlogs_lastmonth）
 # ===========================
 async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    # 从 callback_data 拿到前缀（userlogs / userlogs_lastmonth）
-    prefix = query.data.split("_")[0]  
+    # 从 callback_data 提取 key
+    if query.data.startswith("userlogs_lastmonth"):
+        key = "userlogs_lastmonth"
+    else:
+        key = "userlogs"
 
-    pages_info = context.user_data.get(f"{prefix}_pages")
-    if not pages_info:
-        await query.edit_message_text("⚠️ 会话已过期，请重新使用 /userlogs 或 /userlogs_lastmonth")
+    if f"{key}_pages" not in context.user_data:
+        await query.edit_message_text(f"⚠️ 会话已过期，请重新使用 /{key}")
         return
 
+    pages_info = context.user_data[f"{key}_pages"]
     total_pages = len(pages_info["pages"])
-    if query.data.endswith("_prev") and pages_info["page_index"] > 0:
+    if query.data.endswith("prev") and pages_info["page_index"] > 0:
         pages_info["page_index"] -= 1
-    elif query.data.endswith("_next") and pages_info["page_index"] < total_pages - 1:
+    elif query.data.endswith("next") and pages_info["page_index"] < total_pages - 1:
         pages_info["page_index"] += 1
 
-    # 用 prefix 作为 key 传回去
-    await send_logs_page(update, context, key=prefix)
+    await send_logs_page(update, context, key=key)
+
 
 
 
