@@ -607,7 +607,7 @@ def main():
     app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))               # 用户点击“选择上班班次”按钮
     app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:")) # 用户点击“选择补卡班次”按钮
     app.add_handler(CallbackQueryHandler(logs_page_callback, pattern="^(mylogs|lastmonth)_(prev|next)$")) # 用户点击“我的打卡记录”翻页按钮
-    app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^userlogs_(prev|next)$")) # 管理员查看“指定用户打卡记录”翻页按钮
+    app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^userlogs(_lastmonth)?_(prev|next)$")) # 管理员查看“指定用户打卡记录”翻页按钮
     app.add_handler(CallbackQueryHandler(mylogs_cmd, pattern="^mylogs_open$"))
 
     # ===========================
