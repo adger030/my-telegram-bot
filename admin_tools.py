@@ -235,20 +235,18 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ===========================
-# 翻页回调（统一版）
+# 翻页回调（统一支持 userlogs 和 userlogs_lastmonth）
 # ===========================
 async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data.startswith("userlogs_lastmonth"):
-        key = "userlogs_lastmonth"
-    else:
-        key = "userlogs"
+    # 从 callback_data 拿到前缀（userlogs / userlogs_lastmonth）
+    prefix = query.data.split("_")[0]  
 
-    pages_info = context.user_data.get(f"{key}_pages")
+    pages_info = context.user_data.get(f"{prefix}_pages")
     if not pages_info:
-        await query.edit_message_text(f"⚠️ 会话已过期，请重新使用 /{key}")
+        await query.edit_message_text("⚠️ 会话已过期，请重新使用 /userlogs 或 /userlogs_lastmonth")
         return
 
     total_pages = len(pages_info["pages"])
@@ -257,7 +255,9 @@ async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif query.data.endswith("_next") and pages_info["page_index"] < total_pages - 1:
         pages_info["page_index"] += 1
 
-    await send_logs_page(update, context, key=key)
+    # 用 prefix 作为 key 传回去
+    await send_logs_page(update, context, key=prefix)
+
 
 
 
