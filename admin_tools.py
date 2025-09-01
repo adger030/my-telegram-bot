@@ -234,27 +234,25 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         key=f"userlogs:{target_key}"
     )
 
-
 # ===========================
-# 翻页回调（支持本月 & 上月）
+# 翻页回调（统一版，支持本月 & 上月）
 # ===========================
 async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if "userlogs_pages" not in context.user_data:
+    pages_info = context.user_data.get("userlogs_pages")
+    if not pages_info:
         await query.edit_message_text("⚠️ 会话已过期，请重新使用 /userlogs 或 /userlogs_lastmonth")
         return
 
-    pages_info = context.user_data["userlogs_pages"]
     total_pages = len(pages_info["pages"])
-
     if query.data.endswith("_prev") and pages_info["page_index"] > 0:
         pages_info["page_index"] -= 1
     elif query.data.endswith("_next") and pages_info["page_index"] < total_pages - 1:
         pages_info["page_index"] += 1
 
-    # ✅ 保留原始 key（userlogs:xxx 或 userlogs_lastmonth:xxx）
+    # ✅ 使用存储的 key（保证 userlogs 和 userlogs_lastmonth 都能翻页）
     key = pages_info.get("key", "userlogs")
     await send_logs_page(update, context, key=key)
 
