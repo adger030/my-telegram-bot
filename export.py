@@ -531,7 +531,7 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         for _, row in group.iterrows():
             ws.append(list(row))
         end_row = ws.max_row
-        # 合并日期列单元格
+        # 合并日期列
         if end_row > start_row:
             ws.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=1)
 
@@ -546,29 +546,61 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         bottom=Side(style="thin", color="000000")
     )
 
+    # 交替底色
+    from itertools import cycle
+    user_fills = cycle([
+        PatternFill(start_color="f9f9f9", end_color="f9f9f9", fill_type="solid"),
+        PatternFill(start_color="ffffff", end_color="ffffff", fill_type="solid"),
+    ])
+
     # 表头样式
     for cell in ws[1]:
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
     # 行样式 + 高亮
+    current_fill = next(user_fills)
+    prev_name = None
     for row in ws.iter_rows(min_row=2):
         if all(cell.value is None for cell in row):
             continue
+        name_val = row[1].value
+        remark_val = str(row[5].value or "")
+
+        if name_val != prev_name:
+            current_fill = next(user_fills)
+            prev_name = name_val
+
         for cell in row:
+            cell.fill = current_fill
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border = thin_border
 
-        remark_val = str(row[5].value or "")
         if "迟到" in remark_val or "早退" in remark_val:
-            for cell in row:
+            for cell in row[2:]:
                 cell.fill = red_fill
         elif "补卡" in remark_val:
-            for cell in row:
+            for cell in row[2:]:
                 cell.fill = yellow_fill
         elif "休息/缺勤" in remark_val:
-            for cell in row:
+            for cell in row[2:]:
                 cell.fill = blue_fill_light
+
+    # 合并姓名列
+    name_col = 2
+    merge_start = None
+    prev_name = None
+    for row_idx in range(2, ws.max_row + 1):
+        cell_val = ws.cell(row=row_idx, column=name_col).value
+        if cell_val != prev_name:
+            if merge_start and row_idx - merge_start > 1:
+                ws.merge_cells(start_row=merge_start, start_column=name_col,
+                               end_row=row_idx - 1, end_column=name_col)
+            merge_start = row_idx
+            prev_name = cell_val
+    if merge_start and ws.max_row - merge_start >= 1:
+        ws.merge_cells(start_row=merge_start, start_column=name_col,
+                       end_row=ws.max_row, end_column=name_col)
 
     # 列宽自适应
     for col in ws.columns:
