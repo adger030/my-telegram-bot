@@ -537,9 +537,9 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     if unclosed_rows:
         df = pd.concat([df, pd.DataFrame(unclosed_rows)], ignore_index=True)
 
-    # ======================== 整理数据表（去掉 日期 列） ========================
-    slim_df = df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
-    slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+    # ======================== 整理数据表（保留 日期 列） ========================
+    slim_df = df[["日期", "name", "timestamp", "keyword", "shift", "remark"]].copy()
+    slim_df.columns = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
 
     slim_df["打卡时间"] = slim_df["打卡时间"].apply(lambda x: x.strftime("%Y-%m-%d %H:%M:%S") if pd.notna(x) else "")
     slim_df["班次"] = slim_df["班次"].apply(format_shift)
@@ -555,16 +555,17 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     ws = wb.active
     ws.title = f"{user_name}考勤详情"
 
-    headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+    headers = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
     ws.append(headers)
 
-    for _, row in slim_df.sort_values(["打卡时间"]).iterrows():
+    for _, row in slim_df.sort_values(["日期", "打卡时间"]).iterrows():
         ws.append(list(row))
 
     # ======================== 样式处理 ========================
     red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
     yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
     blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")
+    purple_fill = PatternFill(start_color="e6ccff", end_color="e6ccff", fill_type="solid")  # 未打下班卡用淡紫色
     thin_border = Border(
         left=Side(style="thin", color="000000"),
         right=Side(style="thin", color="000000"),
@@ -583,16 +584,16 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
     current_fill = next(user_fills)
-    prev_name = None
+    prev_date = None
     for row in ws.iter_rows(min_row=2):
         if all(cell.value is None for cell in row):
             continue
-        name_val = row[0].value
-        remark_val = str(row[4].value or "")
+        date_val = row[0].value
+        remark_val = str(row[5].value or "")
 
-        if name_val != prev_name:
+        if date_val != prev_date:
             current_fill = next(user_fills)
-            prev_name = name_val
+            prev_date = date_val
 
         for cell in row:
             cell.fill = current_fill
@@ -600,17 +601,17 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
             cell.border = thin_border
 
         if "迟到" in remark_val or "早退" in remark_val:
-            for cell in row[1:]:
+            for cell in row[2:]:
                 cell.fill = red_fill
         elif "补卡" in remark_val:
-            for cell in row[1:]:
+            for cell in row[2:]:
                 cell.fill = yellow_fill
         elif "休息/缺勤" in remark_val:
-            for cell in row[1:]:
+            for cell in row[2:]:
                 cell.fill = blue_fill_light
         elif "未打下班卡" in remark_val:
-            for cell in row[1:]:
-                cell.fill = blue_fill_light  # 同样标浅蓝色
+            for cell in row[2:]:
+                cell.fill = purple_fill
 
     # 列宽自适应
     for col in ws.columns:
