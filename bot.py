@@ -258,12 +258,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("请选择要补卡的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif keyword == "#下班打卡":
-        # 原有：当天是否已打过下班卡
-        if has_user_checked_keyword_today_fixed(username, "#下班打卡"):
-            await msg.reply_text("⚠️ 今天已经打过下班卡了。")
-            return
-
-        # 原有：必须先有上班卡/补卡
+        # 原有：当天是否已打过下班卡（改掉：不再按自然日判断）
+        # 🚫 必须先有上班卡/补卡
         if not (has_user_checked_keyword_today_fixed(username, "#上班打卡") or
                 has_user_checked_keyword_today_fixed(username, "#补卡")):
             await msg.reply_text("❗ 今天还没有上班打卡，请先打卡或补卡。")
@@ -282,7 +278,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text("⚠️ 未找到有效的班次，无法下班打卡。")
             return
 
-        # ================= 修改部分 =================
+        # ================= 时间校验 =================
         shift_start, shift_end = get_shift_times_short()[last_shift]
 
         # 以“上班日期”为基准，推算下班时间
@@ -303,16 +299,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if now > latest_allowed:
             await msg.reply_text("⚠️ 已超过班次结束 1 小时，下班打卡无效。")
             return
-        # ================= 修改结束 =================
+        # ================= 时间校验结束 =================
 
-        # 当日重复限制：防止同一天多次下班卡
-        start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        logs_today = get_user_logs(username, start_of_today, now)
-        if any(kw2 == "#下班打卡" for _, kw2, _ in logs_today):
-            await msg.reply_text("⚠️ 今天已经打过下班卡了。")
+        # 🚩 重复限制：同一班次只能有一个下班卡
+        logs_for_shift = get_user_logs(username, last_check_in, now)
+        if any(kw2 == "#下班打卡" and shift2 == last_shift for _, kw2, shift2 in logs_for_shift):
+            await msg.reply_text(f"⚠️ {last_shift} 已经打过下班卡了。")
             return
 
-        # 原有：保存下班卡
+        # 保存下班卡
         save_message(username=username, name=name, content=image_url,
                      timestamp=now, keyword=keyword, shift=last_shift)
 
