@@ -241,7 +241,8 @@ async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
 
-    pages_info = context.user_data.get("userlogs_pages")
+    # 支持 userlogs / userlogs_lastmonth 两类 key
+    pages_info = context.user_data.get("userlogs_pages") or context.user_data.get("userlogs_lastmonth_pages")
     if not pages_info:
         await query.edit_message_text("⚠️ 会话已过期，请重新使用 /userlogs 或 /userlogs_lastmonth")
         return
@@ -252,9 +253,10 @@ async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif query.data.endswith("_next") and pages_info["page_index"] < total_pages - 1:
         pages_info["page_index"] += 1
 
-    # ✅ 使用存储的 key（保证 userlogs 和 userlogs_lastmonth 都能翻页）
+    # ✅ 使用存储的 key（userlogs 或 userlogs_lastmonth）
     key = pages_info.get("key", "userlogs")
     await send_logs_page(update, context, key=key)
+
 
 
 # ===========================
