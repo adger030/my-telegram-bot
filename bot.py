@@ -258,8 +258,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("请选择要补卡的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif keyword == "#下班打卡":
-        # 原有：当天是否已打过下班卡（改掉：不再按自然日判断）
-        # 🚫 必须先有上班卡/补卡
+        # 🚫 必须先有上班卡或补卡
         if not (has_user_checked_keyword_today_fixed(username, "#上班打卡") or
                 has_user_checked_keyword_today_fixed(username, "#补卡")):
             await msg.reply_text("❗ 今天还没有上班打卡，请先打卡或补卡。")
@@ -281,21 +280,21 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ================= 时间校验 =================
         shift_start, shift_end = get_shift_times_short()[last_shift]
 
-        # 以“上班日期”为基准，推算下班时间
-        shift_start_day = last_check_in.replace(
-            hour=shift_start.hour, minute=shift_start.minute, second=0, microsecond=0
-        )
+        # 上班日的下班时间点
         shift_end_day = last_check_in.replace(
             hour=shift_end.hour, minute=shift_end.minute, second=0, microsecond=0
         )
 
-        # 如果班次跨天（如 I班 15:00–00:00），下班要+1天
-        if shift_end < shift_start:
+        # 跨天班次 (例如 I班 15:00–00:00)
+        if shift_end <= shift_start:
             shift_end_day += timedelta(days=1)
 
-        # 允许的打卡时间窗口：下班后 1 小时
+        # 合法下班时间区间： [shift_end_day, shift_end_day + 1小时]
         latest_allowed = shift_end_day + timedelta(hours=1)
 
+        if now < shift_end_day:
+            await msg.reply_text("⚠️ 还没到下班时间，不能提前打卡。")
+            return
         if now > latest_allowed:
             await msg.reply_text("⚠️ 已超过班次结束 1 小时，下班打卡无效。")
             return
@@ -311,10 +310,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_message(username=username, name=name, content=image_url,
                      timestamp=now, keyword=keyword, shift=last_shift)
 
-        # 追加一个“仅按钮”的消息（无文字）
+        # 追加按钮
         buttons = [[InlineKeyboardButton("🗓 查看打卡记录", callback_data="mylogs_open")]]
         markup = InlineKeyboardMarkup(buttons)
-        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}", reply_markup=markup)
+        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift}", reply_markup=markup)
 
 
 # ===========================
