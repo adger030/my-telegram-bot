@@ -104,15 +104,8 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = get_user_name(username)
     await send_welcome(update.message, name)
 
-    # 🚀 动态按钮逻辑
-    today = datetime.now(BEIJING_TZ)
-    day = today.day
-    _, last_day = calendar.monthrange(today.year, today.month)
-
-    if 1 <= day <= 7:
-        keyboard = [["🗓 本月打卡记录", "🗓 上月打卡记录"]]
-    else:
-        keyboard = [["🗓 本月打卡记录"]]
+    # 🚀 固定按钮：只保留一个“本月打卡记录”
+    keyboard = [["🗓 本月打卡记录"]]
 
     reply_markup = ReplyKeyboardMarkup(
         keyboard,
@@ -136,9 +129,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 🚩 如果点击了按钮
     if text == "🗓 本月打卡记录":
         await mylogs_cmd(update, context)
-        return
-    elif text == "🗓 上月打卡记录":
-        await lastmonth_cmd(update, context)
         return
 		
     # 🚩 如果用户还没登记姓名
