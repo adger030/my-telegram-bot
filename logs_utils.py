@@ -37,11 +37,8 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
         if kw == "#上班打卡":
             daily_map[date_key]["shift"] = shift
             daily_map[date_key]["#上班打卡"] = ts
-
-            # 标记补卡
             if shift and "（补卡）" in shift:
                 daily_map[date_key]["补卡标记"] = True
-
             # 找可能匹配的下班卡
             j = i + 1
             while j < len(logs):
@@ -50,9 +47,7 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
                     daily_map[date_key]["#下班打卡"] = ts2
                     break
                 j += 1
-
-            i += 1  # ✅ 始终自增，避免漏掉当天只有补卡的情况
-
+            i += 1
         else:  # 下班打卡
             daily_map[date_key]["#下班打卡"] = ts
             if "shift" not in daily_map[date_key]:
@@ -77,39 +72,35 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
         if is_makeup:
             total_makeup += 1
             if has_up:
-                pass  # 上班补卡的情况，不再进入正常/异常统计
+                pass
         else:
-            # ===== 上班统计 =====
             if has_up:
                 if shift_name in get_shift_times_short():
                     start_time, _ = get_shift_times_short()[shift_name]
                     if kw_map["#上班打卡"].time() > start_time:
-                        total_abnormal += 1  # 迟到
+                        total_abnormal += 1
                     else:
-                        total_complete += 1  # 正常
+                        total_complete += 1
                 else:
                     total_complete += 1
             else:
-                # 🚩 优化：只有下班卡，没有上班卡 → 不算异常
                 if not has_down:
-                    total_abnormal += 1  # 真正缺卡才算异常
-
-        # ===== 下班统计 =====
+                    total_abnormal += 1
         if has_down:
             if shift_name in get_shift_times_short():
                 _, end_time = get_shift_times_short()[shift_name]
                 down_ts = kw_map["#下班打卡"]
                 if shift_name == "I班" and down_ts.date() == day:
-                    total_abnormal += 1  # I 班下班当天就走 → 早退
+                    total_abnormal += 1
                 elif shift_name != "I班" and down_ts.time() < end_time:
-                    total_abnormal += 1  # 普通班早退
+                    total_abnormal += 1
                 else:
-                    total_complete += 1  # 正常
+                    total_complete += 1
             else:
                 total_complete += 1
         else:
             if not is_makeup and has_up:
-                total_abnormal += 1  # 有上班卡但没下班卡，才算异常
+                total_abnormal += 1
 
     # ===========================
     # 分页
@@ -155,7 +146,6 @@ async def send_logs_page(update, context, key="mylogs"):
         
     for idx, day in enumerate(current_page_days, start=1 + page_index * LOGS_PER_PAGE):
         kw_map = daily_map[day]
-        # ✅ 修复：避免 shift=None
         shift_full = str(kw_map.get("shift") or "未选择班次")
         is_makeup = shift_full.endswith("（补卡）") or "补卡标记" in kw_map
         shift_name = shift_full.split("（")[0]
@@ -168,7 +158,6 @@ async def send_logs_page(update, context, key="mylogs"):
             start_time, _ = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
-
         if has_down and shift_name in get_shift_times_short():
             _, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
@@ -177,9 +166,6 @@ async def send_logs_page(update, context, key="mylogs"):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
-        # ===========================
-        # 输出格式（加上周几）
-        # ===========================
         weekday_map = ["周一","周二","周三","周四","周五","周六","周日"]
         weekday_str = weekday_map[day.weekday()]
     
@@ -215,4 +201,3 @@ async def send_logs_page(update, context, key="mylogs"):
         await update.callback_query.edit_message_text(reply, reply_markup=markup)
     else:
         await update.message.reply_text(reply, reply_markup=markup)
-
