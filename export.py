@@ -503,9 +503,43 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
                         if ts_time < end_time:
                             df.at[idx, "remark"] = "早退"
 
-    # ======================== 整理数据表 ========================
-    slim_df = df[["日期", "name", "timestamp", "keyword", "shift", "remark"]].copy()
-    slim_df.columns = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
+    # ======================== 补齐休息/缺勤 ========================
+    all_dates = pd.date_range(start_datetime.date(), (end_datetime - timedelta(seconds=1)).date(), freq="D")
+    existing_dates = set(df["日期"].unique())
+
+    missing_dates = [d.strftime("%Y-%m-%d") for d in all_dates if d.strftime("%Y-%m-%d") not in existing_dates]
+
+    if missing_dates:
+        missed_df = pd.DataFrame({
+            "日期": missing_dates,
+            "name": user_name,
+            "timestamp": pd.NaT,
+            "keyword": None,
+            "shift": None,
+            "remark": "休息/缺勤"
+        })
+        df = pd.concat([df, missed_df], ignore_index=True)
+
+    # ======================== 补齐未打下班卡 ========================
+    unclosed_rows = []
+    for day, g in df.groupby("日期"):
+        has_up = g["keyword"].eq("#上班打卡").any()
+        has_down = g["keyword"].eq("#下班打卡").any()
+        if has_up and not has_down:
+            unclosed_rows.append({
+                "日期": day,
+                "name": user_name,
+                "timestamp": pd.NaT,
+                "keyword": "#下班打卡",
+                "shift": None,
+                "remark": "未打下班卡"
+            })
+    if unclosed_rows:
+        df = pd.concat([df, pd.DataFrame(unclosed_rows)], ignore_index=True)
+
+    # ======================== 整理数据表（去掉 日期 列） ========================
+    slim_df = df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
+    slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
 
     slim_df["打卡时间"] = slim_df["打卡时间"].apply(lambda x: x.strftime("%Y-%m-%d %H:%M:%S") if pd.notna(x) else "")
     slim_df["班次"] = slim_df["班次"].apply(format_shift)
@@ -521,19 +555,11 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     ws = wb.active
     ws.title = f"{user_name}考勤详情"
 
-    headers = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
+    headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
     ws.append(headers)
 
-    # 按日期分组写入
-    grouped = slim_df.groupby("日期")
-    for date, group in grouped:
-        start_row = ws.max_row + 1
-        for _, row in group.iterrows():
-            ws.append(list(row))
-        end_row = ws.max_row
-        # 合并日期列
-        if end_row > start_row:
-            ws.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=1)
+    for _, row in slim_df.sort_values(["打卡时间"]).iterrows():
+        ws.append(list(row))
 
     # ======================== 样式处理 ========================
     red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
@@ -546,26 +572,23 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         bottom=Side(style="thin", color="000000")
     )
 
-    # 交替底色
     from itertools import cycle
     user_fills = cycle([
         PatternFill(start_color="f9f9f9", end_color="f9f9f9", fill_type="solid"),
         PatternFill(start_color="ffffff", end_color="ffffff", fill_type="solid"),
     ])
 
-    # 表头样式
     for cell in ws[1]:
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    # 行样式 + 高亮
     current_fill = next(user_fills)
     prev_name = None
     for row in ws.iter_rows(min_row=2):
         if all(cell.value is None for cell in row):
             continue
-        name_val = row[1].value
-        remark_val = str(row[5].value or "")
+        name_val = row[0].value
+        remark_val = str(row[4].value or "")
 
         if name_val != prev_name:
             current_fill = next(user_fills)
@@ -577,30 +600,17 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
             cell.border = thin_border
 
         if "迟到" in remark_val or "早退" in remark_val:
-            for cell in row[2:]:
+            for cell in row[1:]:
                 cell.fill = red_fill
         elif "补卡" in remark_val:
-            for cell in row[2:]:
+            for cell in row[1:]:
                 cell.fill = yellow_fill
         elif "休息/缺勤" in remark_val:
-            for cell in row[2:]:
+            for cell in row[1:]:
                 cell.fill = blue_fill_light
-
-    # 合并姓名列
-    name_col = 2
-    merge_start = None
-    prev_name = None
-    for row_idx in range(2, ws.max_row + 1):
-        cell_val = ws.cell(row=row_idx, column=name_col).value
-        if cell_val != prev_name:
-            if merge_start and row_idx - merge_start > 1:
-                ws.merge_cells(start_row=merge_start, start_column=name_col,
-                               end_row=row_idx - 1, end_column=name_col)
-            merge_start = row_idx
-            prev_name = cell_val
-    if merge_start and ws.max_row - merge_start >= 1:
-        ws.merge_cells(start_row=merge_start, start_column=name_col,
-                       end_row=ws.max_row, end_column=name_col)
+        elif "未打下班卡" in remark_val:
+            for cell in row[1:]:
+                cell.fill = blue_fill_light  # 同样标浅蓝色
 
     # 列宽自适应
     for col in ws.columns:
@@ -612,5 +622,6 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     ws.auto_filter.ref = ws.dimensions
 
     wb.save(file_path)
-    logging.info(f"✅ 已导出用户 {user_name} 的考勤详情：{file_path}")
+    logging.info(f"✅ 已导出用户 {user_name} 的考勤详情（含休息/缺勤 + 未打下班卡）：{file_path}")
     return file_path
+
