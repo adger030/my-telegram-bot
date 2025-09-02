@@ -185,7 +185,7 @@ async def send_logs_page(update, context, key="mylogs"):
             
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
-        f"🔴 异常（迟到/早退/缺卡）：{total_abnormal} 次\n"
+        f"🔴 异常（迟到/缺卡）：{total_abnormal} 次\n"
         f"🟡 补卡：{total_makeup} 次"
     )
 
