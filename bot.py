@@ -265,51 +265,35 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text("❗ 今天还没有上班打卡，请先打卡或补卡。")
             return
 
-        # 找到最近的上班/补卡记录
+        # 找到最近的上班/补卡记录，获取班次
         logs = get_user_logs(username, now - timedelta(days=1), now)
-        last_check_in, last_shift = None, None
+        last_shift = None
         for ts, kw, shift in reversed(logs):
             if kw in ("#上班打卡", "#补卡"):
-                last_check_in = parse(ts) if isinstance(ts, str) else ts
-                # 强制转为北京时间
-                if last_check_in.tzinfo is None:
-                    last_check_in = BEIJING_TZ.localize(last_check_in)
                 last_shift = shift.split("（")[0] if shift else None
                 break
 
-        if not last_shift or last_shift not in get_shift_times_short():
+        if not last_shift:
             await msg.reply_text("⚠️ 未找到有效的班次，无法下班打卡。")
             return
 
-        # ================= 时间校验 =================
-        shift_start, shift_end = get_shift_times_short()[last_shift]
-
-        # 默认基于上班当天的日期
-        base_date = last_check_in.date()
-
-        # 如果班次跨天 (如 I 班 15:00–00:00)，下班是次日
-        if shift_end <= shift_start:
-            shift_end_day = datetime.combine(base_date + timedelta(days=1),
-                                             shift_end,
-                                             tzinfo=BEIJING_TZ)
+        # ================= 简化后的时间校验 =================
+        if last_shift == "F班":
+            deadline = now.replace(hour=22, minute=0, second=0, microsecond=0)
+        elif last_shift == "I班":
+            # I班下班是次日01:00
+            deadline = (now + timedelta(days=1)).replace(hour=1, minute=0, second=0, microsecond=0)
         else:
-            shift_end_day = datetime.combine(base_date,
-                                             shift_end,
-                                             tzinfo=BEIJING_TZ)
-
-        # 合法下班时间区间：[shift_end_day, shift_end_day + 1小时]
-        latest_allowed = shift_end_day + timedelta(hours=1)
-
-        if now < shift_end_day:
-            await msg.reply_text("⚠️ 还没到下班时间，不能提前打卡。")
+            await msg.reply_text("⚠️ 班次信息错误，无法下班打卡。")
             return
-        if now > latest_allowed:
-            await msg.reply_text("⚠️ 已超过班次结束 1 小时，下班打卡无效。")
+
+        if now > deadline:
+            await msg.reply_text("⚠️ 已超过允许下班打卡时间（超过1小时），打卡无效。")
             return
         # ================= 时间校验结束 =================
 
         # 🚩 重复限制：同一班次只能有一个下班卡
-        logs_for_shift = get_user_logs(username, last_check_in, now)
+        logs_for_shift = get_user_logs(username, now - timedelta(days=1), now)
         if any(kw2 == "#下班打卡" and shift2 == last_shift for _, kw2, shift2 in logs_for_shift):
             await msg.reply_text(f"⚠️ {last_shift} 已经打过下班卡了。")
             return
