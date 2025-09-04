@@ -268,8 +268,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 找到最近的上班/补卡记录，获取班次
         logs = get_user_logs(username, now - timedelta(days=1), now)
         last_shift = None
+        last_check_in = None
         for ts, kw, shift in reversed(logs):
             if kw in ("#上班打卡", "#补卡"):
+                last_check_in = ts if isinstance(ts, datetime) else parse(ts)
                 last_shift = shift.split("（")[0] if shift else None
                 break
 
@@ -278,13 +280,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ================= 固定的时间校验 =================
-        today = now.date()
+        today = last_check_in.date()
         if last_shift == "F班":
-            # F班：当天 22:00 前
-            deadline = datetime.combine(today, time(22, 0, 0), tzinfo=BEIJING_TZ)
+            # F班下班 22:00 截止
+            deadline = datetime.combine(today, time(22, 0), tzinfo=BEIJING_TZ)
+            shift_start = datetime.combine(today, time(12, 0), tzinfo=BEIJING_TZ)
+            shift_end   = deadline
         elif last_shift == "I班":
-            # I班：次日 01:00 前
-            deadline = datetime.combine(today + timedelta(days=1), time(1, 0, 0), tzinfo=BEIJING_TZ)
+            # I班下班 次日 01:00 截止
+            deadline = datetime.combine(today + timedelta(days=1), time(1, 0), tzinfo=BEIJING_TZ)
+            shift_start = datetime.combine(today, time(15, 0), tzinfo=BEIJING_TZ)
+            shift_end   = deadline
         else:
             await msg.reply_text("⚠️ 班次信息错误，无法下班打卡。")
             return
@@ -294,8 +300,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         # ================= 时间校验结束 =================
 
-        # 🚩 重复限制：同一班次只能有一个下班卡
-        logs_for_shift = get_user_logs(username, now - timedelta(days=1), now + timedelta(days=1))
+        # 🚩 重复限制：仅在该班次范围内检查
+        logs_for_shift = get_user_logs(username, shift_start, shift_end)
         if any(kw2 == "#下班打卡" and shift2 == last_shift for _, kw2, shift2 in logs_for_shift):
             await msg.reply_text(f"⚠️ {last_shift} 已经打过下班卡了。")
             return
@@ -308,7 +314,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         buttons = [[InlineKeyboardButton("🗓 查看打卡记录", callback_data="mylogs_open")]]
         markup = InlineKeyboardMarkup(buttons)
         await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift}", reply_markup=markup)
-
 
 
 # ===========================
