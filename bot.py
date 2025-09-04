@@ -259,60 +259,65 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("请选择要补卡的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif keyword == "#下班打卡":
-        # 原有：当天是否已打过下班卡
-        if has_user_checked_keyword_today_fixed(username, "#下班打卡"):
-            await msg.reply_text("⚠️ 今天已经打过下班卡了。")
-            return
-
-        # 原有：必须先有上班卡/补卡
+        # 🚫 必须先有上班卡或补卡
         if not (has_user_checked_keyword_today_fixed(username, "#上班打卡") or
                 has_user_checked_keyword_today_fixed(username, "#补卡")):
             await msg.reply_text("❗ 今天还没有上班打卡，请先打卡或补卡。")
             return
 
-        # 找到最近的上班/补卡记录
+        # 找到最近的上班/补卡记录，获取班次
         logs = get_user_logs(username, now - timedelta(days=1), now)
-        last_check_in, last_shift = None, None
+        last_shift = None
+        last_check_in = None
         for ts, kw, shift in reversed(logs):
             if kw in ("#上班打卡", "#补卡"):
-                last_check_in = parse(ts) if isinstance(ts, str) else ts
+                last_check_in = ts if isinstance(ts, datetime) else parse(ts)
                 last_shift = shift.split("（")[0] if shift else None
                 break
 
-        if not last_shift or last_shift not in get_shift_times_short():
+        if not last_shift:
             await msg.reply_text("⚠️ 未找到有效的班次，无法下班打卡。")
             return
 
-        # 获取该班次的下班时间
-        _, end_time = get_shift_times_short()[last_shift]
-        shift_end_today = now.replace(hour=end_time.hour, minute=end_time.minute, second=0, microsecond=0)
-
-        # 如果班次跨天（如 I班 15:00-00:00），需要把结束时间加一天
-        if end_time < get_shift_times_short()[last_shift][0]:
-            shift_end_today += timedelta(days=1)
-
-        # 允许的打卡时间窗口：下班后 1 小时
-        latest_allowed = shift_end_today + timedelta(hours=1)
-
-        if now > latest_allowed:
-            await msg.reply_text("⚠️ 已超过班次结束 1 小时，下班打卡无效。")
+        # ================= 时间校验 =================
+        if last_shift == "F班":
+            # 下班后 1 小时内允许打卡
+            deadline = last_check_in.replace(hour=22, minute=0, second=0, microsecond=0)
+        elif last_shift == "I班":
+            # I班下班是次日 01:00
+            deadline = (last_check_in + timedelta(days=1)).replace(hour=1, minute=0, second=0, microsecond=0)
+        else:
+            await msg.reply_text("⚠️ 班次信息错误，无法下班打卡。")
             return
 
-        # 当日重复限制：防止同一天多次下班卡
-        start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        logs_today = get_user_logs(username, start_of_today, now)
-        if any(kw2 == "#下班打卡" for _, kw2, _ in logs_today):
-            await msg.reply_text("⚠️ 今天已经打过下班卡了。")
+        if now > deadline:
+            await msg.reply_text("⚠️ 已超过允许下班打卡时间（超过1小时），打卡无效。")
+            return
+        # ================= 时间校验结束 =================
+
+        # 🚩 重复限制：查找该班次范围内是否已打过下班卡
+        if last_shift == "F班":
+            shift_start = last_check_in.replace(hour=12, minute=0, second=0, microsecond=0)
+            shift_end = last_check_in.replace(hour=22, minute=0, second=0, microsecond=0)
+        elif last_shift == "I班":
+            shift_start = last_check_in.replace(hour=15, minute=0, second=0, microsecond=0)
+            shift_end = (last_check_in + timedelta(days=1)).replace(hour=1, minute=0, second=0, microsecond=0)
+        else:
+            shift_start, shift_end = now - timedelta(days=1), now
+
+        logs_for_shift = get_user_logs(username, shift_start, shift_end)
+        if any(kw2 == "#下班打卡" and shift2 == last_shift for _, kw2, shift2 in logs_for_shift):
+            await msg.reply_text(f"⚠️ {last_shift} 已经打过下班卡了。")
             return
 
-		# 原有：保存下班卡
-        save_message(username=username, name=name, content=image_url,timestamp=now, keyword=keyword, shift=last_shift)
+        # 保存下班卡
+        save_message(username=username, name=name, content=image_url,
+                     timestamp=now, keyword=keyword, shift=last_shift)
 
-   	    # 追加一个“仅按钮”的消息（无文字）
+        # 追加按钮
         buttons = [[InlineKeyboardButton("🗓 查看打卡记录", callback_data="mylogs_open")]]
         markup = InlineKeyboardMarkup(buttons)
-        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift or '未选择'}", reply_markup=markup)
-
+        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift}", reply_markup=markup)
 
 
 # ===========================
