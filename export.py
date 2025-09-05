@@ -236,6 +236,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
     yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
     blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")
+    purple_fill_light = PatternFill(start_color="E6CCFF", end_color="E6CCFF", fill_type="solid")
     thin_border = Border(
         left=Side(style="thin", color="000000"),
         right=Side(style="thin", color="000000"),
@@ -272,6 +273,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             elif "休息/缺勤" in remark_val:
                 for cell in row[1:]:
                     cell.fill = blue_fill_light
+            elif "未打下班卡" in remark_val:
+                for cell in row[1:]:
+                    cell.fill = purple_fill_light
 
         # 合并姓名列
         name_col = 1
