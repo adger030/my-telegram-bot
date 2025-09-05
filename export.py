@@ -388,7 +388,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     end_row = start_row + 2  # 三行高度
     
     # 合并三行七列
-    stats_sheet.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=7)
+    stats_sheet.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=6)
     cell = stats_sheet.cell(row=start_row, column=1, value=desc_text)
     
     # 居中对齐 + 自动换行
