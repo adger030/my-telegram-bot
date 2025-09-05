@@ -557,8 +557,8 @@ def main():
     # ===========================
     # 定时任务：自动清理上个月的数据
     # ===========================
-    scheduler.add_job(delete_last_month_data, CronTrigger(day=15, hour=1))
-    # 每月15号凌晨1点，执行 delete_last_month_data 清理旧数据
+    scheduler.add_job(delete_last_month_data, CronTrigger(day=6, hour=1))
+    # 每月6号凌晨1点，执行 delete_last_month_data 清理旧数据
     scheduler.start()
     # ===========================
     # 初始化 Telegram Bot 应用
