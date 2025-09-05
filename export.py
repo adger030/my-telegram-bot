@@ -79,7 +79,7 @@ def get_all_user_names():
             cur.execute("SELECT name FROM users;")
             return [row[0] for row in cur.fetchall()]
 
-# 导出打卡记录
+# 导出打卡记录（修正版）
 def export_excel(start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
     if df.empty:
@@ -122,10 +122,15 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
     missed_days_count = {u: 0 for u in all_user_names}
 
-    # 过滤掉当天 sheet 的 I班凌晨下班卡
-    i_shift_mask = (df["keyword"] == "#下班打卡") & (df["shift"].notna()) & (df["shift"].astype(str).str.startswith("I班")) & (df["timestamp"].dt.hour < 6)
+    # 过滤掉当天 sheet 的 I班凌晨下班卡（次日）
+    i_shift_mask = (
+        (df["keyword"] == "#下班打卡") &
+        (df["shift"].notna()) &
+        (df["shift"].astype(str).str.startswith("I班")) &
+        (df["timestamp"].dt.hour < 6)
+    )
     cross_df = df[i_shift_mask].copy()
-    df = df[~i_shift_mask]  # 当天 sheet 不显示
+    df = df[~i_shift_mask]
     cross_df["remark"] = cross_df.get("remark", "") + "（次日）"
     cross_df["date"] = (cross_df["timestamp"] - pd.Timedelta(days=1)).dt.strftime("%Y-%m-%d")
     df = pd.concat([df, cross_df], ignore_index=True)
@@ -138,17 +143,29 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             if "remark" not in group_df.columns:
                 group_df["remark"] = ""
 
-            checked_users = set(
-                group_df.loc[group_df["keyword"] == "#上班打卡", "name"].unique()
-            )
-            missed_users = []
+            # 当日已打上班 / 下班的用户
+            checked_users = set(group_df.loc[group_df["keyword"] == "#上班打卡", "name"].unique())
+            down_checked_users = set(group_df.loc[group_df["keyword"] == "#下班打卡", "name"].unique())  # ✅ 修复
 
+            missed_users = []
             day_date = datetime.strptime(day, "%Y-%m-%d").date()
 
             for u in all_user_names:
                 if u not in checked_users:
                     missed_users.append(u)
                     missed_days_count[u] += 1
+                elif u not in down_checked_users:
+                    # 有上班但没下班 → 未打下班卡
+                    group_df = pd.concat([
+                        group_df,
+                        pd.DataFrame([{
+                            "name": u,
+                            "timestamp": pd.NaT,
+                            "keyword": "#下班打卡",
+                            "shift": None,
+                            "remark": "未打下班卡"
+                        }])
+                    ], ignore_index=True)
 
             if missed_users:
                 missed_df = pd.DataFrame({
@@ -191,19 +208,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                             if not (0 <= ts.hour <= 1):
                                 if ts_time < end_time:
                                     group_df.at[idx, "remark"] = "早退"
-
-            # 检查“有上班但无下班” → 自动补齐未打下班卡
-            for user in checked_users:
-                if user not in down_checked_users:
-                    shift_val = group_df.loc[group_df["name"] == user, "shift"].iloc[0] if not group_df.loc[group_df["name"] == user, "shift"].empty else None
-                    missed_down = pd.DataFrame([{
-                        "name": user,
-                        "timestamp": pd.NaT,
-                        "keyword": "#下班打卡",
-                        "shift": shift_val,
-                        "remark": "未打下班卡"
-                    }])
-                    group_df = pd.concat([group_df, missed_down], ignore_index=True)
 
             group_df = group_df.sort_values(["name", "timestamp"], na_position="last")
             slim_df = group_df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
