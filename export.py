@@ -328,7 +328,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                                          g["备注"].str.count("早退").sum())
             stats[name]["休息/缺勤"] += int(g["备注"].str.count("休息/缺勤").sum())
             stats[name]["未打下班卡"] += int(g["备注"].str.count("未打下班卡").sum())
-    
+
     # 转换为 DataFrame（去掉正常列）
     summary_df = pd.DataFrame([
         {
@@ -338,8 +338,11 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         }
         for u, v in stats.items()
     ])
-    summary_df = summary_df[["姓名", "休息/缺勤", "迟到/早退", "补卡", "未打下班卡", "异常总数"]]
-    
+
+    # ✅ 按姓名英文字母排序
+    summary_df = summary_df[["姓名", "休息/缺勤", "迟到/早退", "补卡", "未打下班卡", "异常总数"]] \
+        .sort_values(by="姓名", ascending=True)
+ 
     # 写入 Excel
     if "统计" in [s.title for s in wb.worksheets]:
         del wb["统计"]
