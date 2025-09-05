@@ -192,6 +192,19 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                                 if ts_time < end_time:
                                     group_df.at[idx, "remark"] = "早退"
 
+            # 检查“有上班但无下班” → 自动补齐未打下班卡
+            for user in checked_users:
+                if user not in down_checked_users:
+                    shift_val = group_df.loc[group_df["name"] == user, "shift"].iloc[0] if not group_df.loc[group_df["name"] == user, "shift"].empty else None
+                    missed_down = pd.DataFrame([{
+                        "name": user,
+                        "timestamp": pd.NaT,
+                        "keyword": "#下班打卡",
+                        "shift": shift_val,
+                        "remark": "未打下班卡"
+                    }])
+                    group_df = pd.concat([group_df, missed_down], ignore_index=True)
+
             group_df = group_df.sort_values(["name", "timestamp"], na_position="last")
             slim_df = group_df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
             slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
