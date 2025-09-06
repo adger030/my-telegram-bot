@@ -557,7 +557,7 @@ def main():
     # ===========================
     # 定时任务：自动清理上个月的数据
     # ===========================
-	scheduler.add_job( delete_last_month_data,CronTrigger(day=7, hour=1, minute=7, timezone=BEIJING_TZ))
+    scheduler.add_job( delete_last_month_data,CronTrigger(day=7, hour=1, minute=10, timezone=BEIJING_TZ))
     # 每月7号凌晨1点，执行 delete_last_month_data 清理旧数据
     scheduler.start()
     # ===========================
