@@ -1,10 +1,12 @@
 import os
+import time
 import pytz
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from db_pg import get_conn, engine
-from cloudinary import api as cloudinary_api
+
 from sqlalchemy import text
+from db_pg import engine
+from cloudinary import api as cloudinary_api
 
 # ===========================
 # 入口：删除上月数据（定时任务）
