@@ -404,28 +404,24 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
         abnormal_sheet.append(headers)
 
+        # ✅ 用户为单位输出，并在用户之间插入空白行
         for user, user_df in df_abnormal.groupby("姓名"):
+            start_row = abnormal_sheet.max_row + 1
             for _, row in user_df.iterrows():
                 abnormal_sheet.append(list(row))
-            # 用户和用户之间插入空白行
+            end_row = abnormal_sheet.max_row
+            # 合并姓名列
+            if end_row >= start_row:
+                abnormal_sheet.merge_cells(start_row=start_row, start_column=1,
+                                           end_row=end_row, end_column=1)
+            # 用户之间空一行
             abnormal_sheet.append([None] * len(headers))
 
-        # 样式处理：姓名合并 + 异常颜色
-        merge_start = None
-        current_user = None
-        for r_idx, row in enumerate(abnormal_sheet.iter_rows(min_row=2), start=2):
+        # 样式处理：异常颜色
+        for row in abnormal_sheet.iter_rows(min_row=2):
             if all(c.value is None for c in row):
                 continue
-            name_val = row[0].value
             remark_val = str(row[4].value or "")
-            if name_val != current_user:
-                if merge_start and r_idx - merge_start > 1:
-                    abnormal_sheet.merge_cells(start_row=merge_start, start_column=1,
-                                               end_row=r_idx - 1, end_column=1)
-                merge_start = r_idx
-                current_user = name_val
-
-            # 着色规则
             if "迟到" in remark_val or "早退" in remark_val:
                 for c in row[1:]:
                     c.fill = red_fill
