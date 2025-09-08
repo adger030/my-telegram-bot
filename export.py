@@ -385,12 +385,13 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             continue
         df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
         df_sheet["备注"] = df_sheet["备注"].astype(str).fillna("")
-        # 只要用户在 highlighted_names，就取他的所有异常行
-        for name in highlighted_names:
-            user_df = df_sheet[df_sheet["姓名"] == name]
-            user_abnormal = user_df[user_df["备注"].str.contains("迟到|早退|补卡|休息/缺勤|未打下班卡")]
-            if not user_abnormal.empty:
-                abnormal_rows.append(user_abnormal)
+        # 把用户的所有异常行提取出来
+        df_subset = df_sheet[
+            (df_sheet["姓名"].isin(highlighted_names)) &
+            (df_sheet["备注"].str.contains("迟到|早退|补卡|休息/缺勤|未打下班卡"))
+        ]
+        if not df_subset.empty:
+            abnormal_rows.append(df_subset)
 
     if abnormal_rows:
         df_abnormal = pd.concat(abnormal_rows, ignore_index=True)
@@ -407,7 +408,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for user, user_df in df_abnormal.groupby("姓名"):
             for _, row in user_df.iterrows():
                 abnormal_sheet.append(list(row))
-            # 每个用户后插 1 行空白行
+            # 在不同用户之间插入空白行
             abnormal_sheet.append([None] * len(headers))
 
         # 样式处理（背景色 + 合并姓名列）
@@ -439,6 +440,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             elif "未打下班卡" in remark_val:
                 for c in row[1:]:
                     c.fill = purple_fill_light
+
         if merge_start and abnormal_sheet.max_row - merge_start >= 1:
             abnormal_sheet.merge_cells(
                 start_row=merge_start, start_column=1,
