@@ -365,6 +365,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     cell.font = Font(bold=True, color="000000")
 
     # ======================== 异常人员 ========================
+    # 从异常统计表中获取红色高亮的人员
     highlighted_names = set()
     for row in stats_sheet.iter_rows(min_row=2):
         try:
@@ -375,6 +376,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         except Exception:
             continue
 
+    # 收集这些人员的异常记录
     abnormal_rows = []
     for sheet in wb.worksheets:
         if sheet.title in ["统计", "异常统计", "异常人员"]:
@@ -384,6 +386,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             continue
         df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
         df_sheet["备注"] = df_sheet["备注"].astype(str).fillna("")
+        # 只要是标红的用户，就取他所有异常记录
         df_subset = df_sheet[
             (df_sheet["姓名"].isin(highlighted_names)) &
             (df_sheet["备注"].str.contains("迟到|早退|补卡|休息/缺勤|未打下班卡"))
@@ -394,6 +397,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         df_abnormal = pd.concat(abnormal_rows, ignore_index=True)
         df_abnormal = df_abnormal.sort_values(["姓名", "打卡时间"])
 
+        # 创建异常人员 sheet（紧跟在异常统计后面）
         if "异常人员" in [s.title for s in wb.worksheets]:
             del wb["异常人员"]
         abnormal_sheet = wb.create_sheet("异常人员", wb.worksheets.index(stats_sheet) + 1)
@@ -404,8 +408,10 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for user, user_df in df_abnormal.groupby("姓名"):
             for _, row in user_df.iterrows():
                 abnormal_sheet.append(list(row))
+            # 用户和用户之间插入空白行
             abnormal_sheet.append([None] * len(headers))
 
+        # 样式处理（背景色 + 合并姓名列）
         current_user = None
         merge_start = None
         for r_idx, row in enumerate(abnormal_sheet.iter_rows(min_row=2), start=2):
@@ -421,6 +427,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     )
                 merge_start = r_idx
                 current_user = name_val
+            # 背景色规则
             if "迟到" in remark_val or "早退" in remark_val:
                 for c in row[1:]:
                     c.fill = red_fill
