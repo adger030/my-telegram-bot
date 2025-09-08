@@ -79,7 +79,7 @@ def get_all_user_names():
             cur.execute("SELECT name FROM users;")
             return [row[0] for row in cur.fetchall()]
 
-# 导出打卡记录（修正版）
+# 导出打卡记录
 def export_excel(start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
     if df.empty:
@@ -249,7 +249,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     ])
 
     for sheet in wb.worksheets:
-        if sheet.title in ["统计", "异常统计", "异常人员"]:
+        if sheet.title in ["统计", "异常统计"]:
             continue
         current_user = None
         current_fill = next(user_fills)
@@ -299,7 +299,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     # ======================== 异常统计 ========================
     stats = {u: {"休息/缺勤": 0, "迟到/早退": 0, "补卡": 0, "未打下班卡": 0} for u in all_user_names}
     for sheet in wb.worksheets:
-        if sheet.title in ["统计", "异常统计", "异常人员"]:
+        if sheet.title in ["统计", "异常统计"]:
             continue
         df_sheet = pd.DataFrame(sheet.values)
         if df_sheet.empty or len(df_sheet.columns) < 5:
@@ -339,6 +339,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     stats_sheet.freeze_panes = "A2"
     header_font = Font(bold=True)
     center_align = Alignment(horizontal="center")
+    highlight_fill = PatternFill(start_color="FFF8B0", end_color="FFF8B0", fill_type="solid")
     stats_sheet.auto_filter.ref = stats_sheet.dimensions
     for cell in stats_sheet[1]:
         cell.font = header_font
@@ -363,81 +364,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     cell.fill = PatternFill(fill_type="solid", fgColor="FFFF00")
     cell.font = Font(bold=True, color="000000")
 
-    # ======================== 异常人员 ========================
-    highlighted_names = set()
-    for row in stats_sheet.iter_rows(min_row=2):
-        try:
-            rest_days = int(row[2].value or 0)
-            abnormal_total = int(row[-1].value or 0)
-            if rest_days > 4 or abnormal_total > 2:
-                highlighted_names.add(row[0].value)
-        except Exception:
-            continue
-
-    # 新建异常人员表（放在异常统计后面）
-    if "异常人员" in [s.title for s in wb.worksheets]:
-        del wb["异常人员"]
-    abnormal_sheet = wb.create_sheet("异常人员", wb.worksheets.index(stats_sheet) + 1)
-
-    headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
-    abnormal_sheet.append(headers)
-
-    # 遍历日期表，把标红用户的所有异常数据复制过来
-    for name in highlighted_names:
-        for sheet in wb.worksheets:
-            if sheet.title in ["统计", "异常统计", "异常人员"]:
-                continue
-            for row in sheet.iter_rows(min_row=2, values_only=True):
-                if not any(row):
-                    continue
-                row_name = row[0]
-                remark = str(row[4]) if row[4] is not None else ""   # 保证保留 remark
-                if row_name == name and any(k in remark for k in ["迟到", "早退", "补卡", "休息/缺勤", "未打下班卡"]):
-                    abnormal_sheet.append([
-                        row[0], 
-                        row[1] if row[1] is not None else "", 
-                        row[2], 
-                        row[3], 
-                        remark
-                    ])
-        # 每个用户后加一行空白
-        abnormal_sheet.append([None] * len(headers))
-
-    # 样式处理：姓名合并 + 异常颜色
-    merge_start = None
-    current_user = None
-    for r_idx, row in enumerate(abnormal_sheet.iter_rows(min_row=2), start=2):
-        if all(c.value is None for c in row):
-            continue
-        name_val = row[0].value
-        remark_val = str(row[4].value or "")
-        if name_val != current_user:
-            if merge_start and r_idx - merge_start > 1:
-                abnormal_sheet.merge_cells(start_row=merge_start, start_column=1,
-                                           end_row=r_idx - 1, end_column=1)
-            merge_start = r_idx
-            current_user = name_val
-
-        # 背景色规则
-        if "迟到" in remark_val or "早退" in remark_val:
-            for c in row[1:]:
-                c.fill = red_fill
-        elif "补卡" in remark_val:
-            for c in row[1:]:
-                c.fill = yellow_fill
-        elif "休息/缺勤" in remark_val:
-            for c in row[1:]:
-                c.fill = blue_fill_light
-        elif "未打下班卡" in remark_val:
-            for c in row[1:]:
-                c.fill = purple_fill_light
-
-    # 合并最后一段姓名单元格
-    if merge_start and abnormal_sheet.max_row - merge_start >= 1:
-        abnormal_sheet.merge_cells(start_row=merge_start, start_column=1,
-                                   end_row=abnormal_sheet.max_row, end_column=1)
-
-
     # ======================== 列宽/边框/筛选 ========================
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
@@ -457,6 +383,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
 
+# 导出个人打卡记录
 def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
     if df.empty:
