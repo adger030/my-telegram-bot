@@ -382,19 +382,20 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
     abnormal_sheet.append(headers)
 
-    # 遍历日期表，把标红用户的异常数据复制过来
+    # 遍历日期表，把标红用户的所有异常数据复制过来
     for name in highlighted_names:
         for sheet in wb.worksheets:
             if sheet.title in ["统计", "异常统计", "异常人员"]:
                 continue
             for row in sheet.iter_rows(min_row=2, values_only=True):
-                if not any(row):
+                if not any(row):  # 跳过整行空
                     continue
-                row_name, clock_time, keyword, shift, remark = row
-                remark = str(remark or "")
+                row_name = row[0]
+                remark = str(row[4] or "")
+                # 只要名字在标红名单 且 备注里包含异常关键词
                 if row_name == name and any(k in remark for k in ["迟到", "早退", "补卡", "休息/缺勤", "未打下班卡"]):
-                    abnormal_sheet.append([row_name, clock_time, keyword, shift, remark])
-        # 用户与用户之间插入空白行
+                    abnormal_sheet.append(list(row))
+        # 每个用户后加一行空白
         abnormal_sheet.append([None] * len(headers))
 
     # 样式处理：姓名合并 + 异常颜色
@@ -412,7 +413,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             merge_start = r_idx
             current_user = name_val
 
-        # 背景色规则
+        # 着色规则
         if "迟到" in remark_val or "早退" in remark_val:
             for c in row[1:]:
                 c.fill = red_fill
@@ -426,10 +427,11 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             for c in row[1:]:
                 c.fill = purple_fill_light
 
-    # 合并最后一段姓名单元格
+    # 最后一位用户也要合并姓名
     if merge_start and abnormal_sheet.max_row - merge_start >= 1:
         abnormal_sheet.merge_cells(start_row=merge_start, start_column=1,
                                    end_row=abnormal_sheet.max_row, end_column=1)
+
 
 
     # ======================== 列宽/边框/筛选 ========================
