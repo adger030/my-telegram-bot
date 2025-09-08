@@ -339,7 +339,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     stats_sheet.freeze_panes = "A2"
     header_font = Font(bold=True)
     center_align = Alignment(horizontal="center")
-    highlight_fill = PatternFill(start_color="FFF8B0", end_color="FFF8B0", fill_type="solid")
     stats_sheet.auto_filter.ref = stats_sheet.dimensions
     for cell in stats_sheet[1]:
         cell.font = header_font
@@ -375,7 +374,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         except Exception:
             continue
 
-    # 收集这些人员的所有异常记录（跨所有日期 sheet）
     abnormal_rows = []
     for sheet in wb.worksheets:
         if sheet.title in ["统计", "异常统计", "异常人员"]:
@@ -386,17 +384,21 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
         df_sheet["备注"] = df_sheet["备注"].astype(str).fillna("")
 
+        # 保证包含所有异常（包括未打下班卡）
         df_subset = df_sheet[
             (df_sheet["姓名"].isin(highlighted_names)) &
-            (df_sheet["备注"].str.contains("迟到|早退|补卡|休息/缺勤|未打下班卡"))
+            (df_sheet["备注"].str.contains("迟到|早退|补卡|休息/缺勤|未打下班卡", regex=True))
         ]
         abnormal_rows.append(df_subset)
 
     if abnormal_rows:
         df_abnormal = pd.concat(abnormal_rows, ignore_index=True)
-        df_abnormal = df_abnormal.sort_values(["姓名", "打卡时间"])
 
-        # 重新建 sheet（放在异常统计后面）
+        # 排序时兼容 NaT
+        df_abnormal["打卡时间"] = pd.to_datetime(df_abnormal["打卡时间"], errors="coerce")
+        df_abnormal = df_abnormal.sort_values(["姓名", "打卡时间"], na_position="last")
+        df_abnormal["打卡时间"] = df_abnormal["打卡时间"].apply(lambda x: x.strftime("%H:%M:%S") if pd.notna(x) else "")
+
         if "异常人员" in [s.title for s in wb.worksheets]:
             del wb["异常人员"]
         abnormal_sheet = wb.create_sheet("异常人员", wb.worksheets.index(stats_sheet) + 1)
@@ -404,24 +406,26 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
         abnormal_sheet.append(headers)
 
-        # ✅ 用户为单位输出，并在用户之间插入空白行
         for user, user_df in df_abnormal.groupby("姓名"):
-            start_row = abnormal_sheet.max_row + 1
             for _, row in user_df.iterrows():
                 abnormal_sheet.append(list(row))
-            end_row = abnormal_sheet.max_row
-            # 合并姓名列
-            if end_row >= start_row:
-                abnormal_sheet.merge_cells(start_row=start_row, start_column=1,
-                                           end_row=end_row, end_column=1)
-            # 用户之间空一行
             abnormal_sheet.append([None] * len(headers))
 
-        # 样式处理：异常颜色
-        for row in abnormal_sheet.iter_rows(min_row=2):
+        # 样式处理：姓名合并 + 异常颜色
+        merge_start = None
+        current_user = None
+        for r_idx, row in enumerate(abnormal_sheet.iter_rows(min_row=2), start=2):
             if all(c.value is None for c in row):
                 continue
+            name_val = row[0].value
             remark_val = str(row[4].value or "")
+            if name_val != current_user:
+                if merge_start and r_idx - merge_start > 1:
+                    abnormal_sheet.merge_cells(start_row=merge_start, start_column=1,
+                                               end_row=r_idx - 1, end_column=1)
+                merge_start = r_idx
+                current_user = name_val
+
             if "迟到" in remark_val or "早退" in remark_val:
                 for c in row[1:]:
                     c.fill = red_fill
@@ -435,7 +439,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 for c in row[1:]:
                     c.fill = purple_fill_light
 
-        # 最后一位用户也合并
         if merge_start and abnormal_sheet.max_row - merge_start >= 1:
             abnormal_sheet.merge_cells(start_row=merge_start, start_column=1,
                                        end_row=abnormal_sheet.max_row, end_column=1)
@@ -458,7 +461,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     wb.save(excel_path)
     logging.info(f"✅ Excel 导出完成: {excel_path}")
     return excel_path
-
 
 def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: datetime):
     df = _fetch_data(start_datetime, end_datetime)
