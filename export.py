@@ -145,7 +145,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
 
             # 当日已打上班 / 下班的用户
             checked_users = set(group_df.loc[group_df["keyword"] == "#上班打卡", "name"].unique())
-            down_checked_users = set(group_df.loc[group_df["keyword"] == "#下班打卡", "name"].unique())  # ✅ 修复
+            down_checked_users = set(group_df.loc[group_df["keyword"] == "#下班打卡", "name"].unique())
 
             missed_users = []
             day_date = datetime.strptime(day, "%Y-%m-%d").date()
@@ -155,7 +155,6 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                     missed_users.append(u)
                     missed_days_count[u] += 1
                 elif u not in down_checked_users:
-                    # 有上班但没下班 → 未打下班卡
                     group_df = pd.concat([
                         group_df,
                         pd.DataFrame([{
@@ -250,7 +249,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     ])
 
     for sheet in wb.worksheets:
-        if sheet.title == "统计":
+        if sheet.title in ["统计", "异常统计", "异常人员"]:
             continue
         current_user = None
         current_fill = next(user_fills)
@@ -297,118 +296,113 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 end_row=sheet.max_row, end_column=name_col
             )
 
-# ======================== 统计表（终极修正版） ========================
-    stats = {u: {"休息/缺勤": 0, "迟到/早退": 0, "补卡": 0, "未打下班卡": 0} for u in all_user_names}
-    
+    # ======================== 异常人员 ========================
+    abnormal_rows = []
     for sheet in wb.worksheets:
-        if sheet.title == "统计":
+        if sheet.title in ["统计", "异常统计", "异常人员"]:
             continue
         df_sheet = pd.DataFrame(sheet.values)
         if df_sheet.empty or len(df_sheet.columns) < 5:
             continue
         df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
-    
-        # 补齐姓名
+        abnormal_subset = df_sheet[df_sheet["备注"].astype(str).str.contains("迟到|早退|补卡|休息/缺勤|未打下班卡")]
+        abnormal_rows.append(abnormal_subset)
+    if abnormal_rows:
+        abnormal_df = pd.concat(abnormal_rows, ignore_index=True)
+        if "异常人员" in [s.title for s in wb.worksheets]:
+            del wb["异常人员"]
+        sheet = wb.create_sheet("异常人员", 1)
+        sheet.append(list(abnormal_df.columns))
+        for _, row in abnormal_df.iterrows():
+            sheet.append(list(row))
+        # 着色
+        for row in sheet.iter_rows(min_row=2):
+            remark_val = str(row[4].value or "")
+            if "迟到" in remark_val or "早退" in remark_val:
+                for cell in row[1:]:
+                    cell.fill = red_fill
+            elif "补卡" in remark_val:
+                for cell in row[1:]:
+                    cell.fill = yellow_fill
+            elif "休息/缺勤" in remark_val:
+                for cell in row[1:]:
+                    cell.fill = blue_fill_light
+            elif "未打下班卡" in remark_val:
+                for cell in row[1:]:
+                    cell.fill = purple_fill_light
+
+    # ======================== 异常统计 ========================
+    stats = {u: {"休息/缺勤": 0, "迟到/早退": 0, "补卡": 0, "未打下班卡": 0} for u in all_user_names}
+    for sheet in wb.worksheets:
+        if sheet.title in ["统计", "异常统计", "异常人员"]:
+            continue
+        df_sheet = pd.DataFrame(sheet.values)
+        if df_sheet.empty or len(df_sheet.columns) < 5:
+            continue
+        df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
         last_name = None
         for i in range(len(df_sheet)):
             if pd.notna(df_sheet.at[i, "姓名"]):
                 last_name = df_sheet.at[i, "姓名"]
             elif last_name:
                 df_sheet.at[i, "姓名"] = last_name
-    
         df_sheet["备注"] = df_sheet["备注"].astype(str).fillna("")
-    
-        # 分组统计
         for name, g in df_sheet.groupby("姓名"):
             if not name or name not in stats:
                 continue
-    
             stats[name]["补卡"] += int(g["备注"].str.count("补卡").sum())
-            stats[name]["迟到/早退"] += int(g["备注"].str.count("迟到").sum() +
-                                         g["备注"].str.count("早退").sum())
+            stats[name]["迟到/早退"] += int(g["备注"].str.count("迟到").sum() + g["备注"].str.count("早退").sum())
             stats[name]["休息/缺勤"] += int(g["备注"].str.count("休息/缺勤").sum())
             stats[name]["未打下班卡"] += int(g["备注"].str.count("未打下班卡").sum())
 
-    # 转换为 DataFrame（去掉正常列）
     summary_df = pd.DataFrame([
-        {
-            "姓名": u,
-            **v,
-            "异常总数": v["迟到/早退"] + v["补卡"] + v["未打下班卡"]
-        }
+        {"姓名": u, **v, "异常总数": v["迟到/早退"] + v["补卡"] + v["未打下班卡"]}
         for u, v in stats.items()
     ])
+    summary_df = summary_df[["姓名", "休息/缺勤", "迟到/早退", "补卡", "未打下班卡", "异常总数"]].sort_values(by="姓名", ascending=True)
 
-    # ✅ 按姓名英文字母排序
-    summary_df = summary_df[["姓名", "休息/缺勤", "迟到/早退", "补卡", "未打下班卡", "异常总数"]] \
-        .sort_values(by="姓名", ascending=True)
- 
-    # 写入 Excel
     if "统计" in [s.title for s in wb.worksheets]:
         del wb["统计"]
-    
-    stats_sheet = wb.create_sheet("统计", 0)
+    if "异常统计" in [s.title for s in wb.worksheets]:
+        del wb["异常统计"]
+
+    stats_sheet = wb.create_sheet("异常统计", 0)
     headers = ["姓名", "休息/缺勤", "迟到/早退", "补卡", "未打下班卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
-
-    # 样式
     stats_sheet.freeze_panes = "A2"
     header_font = Font(bold=True)
     center_align = Alignment(horizontal="center")
     highlight_fill = PatternFill(start_color="FFF8B0", end_color="FFF8B0", fill_type="solid")
-
     stats_sheet.auto_filter.ref = stats_sheet.dimensions
-
     for cell in stats_sheet[1]:
         cell.font = header_font
         cell.alignment = center_align
-
     light_red_fill = PatternFill(start_color="FFD6D6", end_color="FFD6D6", fill_type="solid")
-    
     for row in stats_sheet.iter_rows(min_row=2):
         try:
-            # 如果休息/缺勤 > 4，则标淡红色（第 3 列）
             rest_days = int(row[2].value or 0)
             if rest_days > 4:
                 row[2].fill = light_red_fill
-    
-            # 如果异常总数 > 2，则标淡红色（最后一列）
             abnormal_total = int(row[-1].value or 0)
             if abnormal_total > 2:
                 row[-1].fill = light_red_fill
         except ValueError:
             pass
-
-    # ======================== 说明文字 ========================
-    desc_text = (
-        "【休息/缺勤：没有打卡记录的天数】\n"
-        "【异常总数：迟到/早退+补卡+未打下班卡】"
-    )
-    
-    start_row = summary_df.shape[0] + 3  # 表格最后一行 + 空一行
-    end_row = start_row + 2  # 三行高度
-    
-    # 合并三行七列
+    desc_text = "【休息/缺勤：没有打卡记录的天数】\n【异常总数：迟到/早退+补卡+未打下班卡】"
+    start_row = summary_df.shape[0] + 3
+    end_row = start_row + 2
     stats_sheet.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=6)
     cell = stats_sheet.cell(row=start_row, column=1, value=desc_text)
-    
-    # 居中对齐 + 自动换行
     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    
-    # 标准黄色底色
-    yellow_fill = PatternFill(fill_type="solid", fgColor="FFFF00")
-    cell.fill = yellow_fill
-    
-    # 加粗字体（黑色）
+    cell.fill = PatternFill(fill_type="solid", fgColor="FFFF00")
     cell.font = Font(bold=True, color="000000")
 
-    # ======================== 列宽/边框 + 自动筛选 ========================
+    # ======================== 列宽/边框/筛选 ========================
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
-        sheet.auto_filter.ref = sheet.dimensions  
-
+        sheet.auto_filter.ref = sheet.dimensions
         for cell in sheet[1]:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center", vertical="center")
