@@ -297,6 +297,18 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             )
 
     # ======================== 异常人员 ========================
+    # 从异常统计表中获取红色高亮的人员
+    highlighted_names = set()
+    for row in stats_sheet.iter_rows(min_row=2):
+        try:
+            rest_days = int(row[2].value or 0)
+            abnormal_total = int(row[-1].value or 0)
+            if rest_days > 4 or abnormal_total > 2:
+                highlighted_names.add(row[0].value)
+        except Exception:
+            continue
+
+    # 收集这些人员的异常记录
     abnormal_rows = []
     for sheet in wb.worksheets:
         if sheet.title in ["统计", "异常统计", "异常人员"]:
@@ -305,31 +317,64 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         if df_sheet.empty or len(df_sheet.columns) < 5:
             continue
         df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
-        abnormal_subset = df_sheet[df_sheet["备注"].astype(str).str.contains("迟到|早退|补卡|休息/缺勤|未打下班卡")]
-        abnormal_rows.append(abnormal_subset)
+        df_sheet["备注"] = df_sheet["备注"].astype(str).fillna("")
+        df_subset = df_sheet[
+            (df_sheet["姓名"].isin(highlighted_names)) &
+            (df_sheet["备注"].str.contains("迟到|早退|补卡|休息/缺勤|未打下班卡"))
+        ]
+        abnormal_rows.append(df_subset)
+
     if abnormal_rows:
-        abnormal_df = pd.concat(abnormal_rows, ignore_index=True)
+        df_abnormal = pd.concat(abnormal_rows, ignore_index=True)
+        df_abnormal = df_abnormal.sort_values(["姓名", "打卡时间"])
+
+        # 创建异常人员 sheet（紧跟在异常统计后面）
         if "异常人员" in [s.title for s in wb.worksheets]:
             del wb["异常人员"]
-        sheet = wb.create_sheet("异常人员", 1)
-        sheet.append(list(abnormal_df.columns))
-        for _, row in abnormal_df.iterrows():
-            sheet.append(list(row))
-        # 着色
-        for row in sheet.iter_rows(min_row=2):
+        abnormal_sheet = wb.create_sheet("异常人员", wb.worksheets.index(stats_sheet) + 1)
+
+        headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+        abnormal_sheet.append(headers)
+
+        for user, user_df in df_abnormal.groupby("姓名"):
+            for _, row in user_df.iterrows():
+                abnormal_sheet.append(list(row))
+            abnormal_sheet.append([None] * len(headers))  # 空白行间距
+
+        # 样式处理（背景色 + 合并姓名列）
+        current_user = None
+        merge_start = None
+        for r_idx, row in enumerate(abnormal_sheet.iter_rows(min_row=2), start=2):
+            if all(c.value is None for c in row):
+                continue
+            name_val = row[0].value
             remark_val = str(row[4].value or "")
+            if name_val != current_user:
+                if merge_start and r_idx - merge_start > 1:
+                    abnormal_sheet.merge_cells(
+                        start_row=merge_start, start_column=1,
+                        end_row=r_idx - 1, end_column=1
+                    )
+                merge_start = r_idx
+                current_user = name_val
+            # 背景色规则
             if "迟到" in remark_val or "早退" in remark_val:
-                for cell in row[1:]:
-                    cell.fill = red_fill
+                for c in row[1:]:
+                    c.fill = red_fill
             elif "补卡" in remark_val:
-                for cell in row[1:]:
-                    cell.fill = yellow_fill
+                for c in row[1:]:
+                    c.fill = yellow_fill
             elif "休息/缺勤" in remark_val:
-                for cell in row[1:]:
-                    cell.fill = blue_fill_light
+                for c in row[1:]:
+                    c.fill = blue_fill_light
             elif "未打下班卡" in remark_val:
-                for cell in row[1:]:
-                    cell.fill = purple_fill_light
+                for c in row[1:]:
+                    c.fill = purple_fill_light
+        if merge_start and abnormal_sheet.max_row - merge_start >= 1:
+            abnormal_sheet.merge_cells(
+                start_row=merge_start, start_column=1,
+                end_row=abnormal_sheet.max_row, end_column=1
+            )
 
     # ======================== 异常统计 ========================
     stats = {u: {"休息/缺勤": 0, "迟到/早退": 0, "补卡": 0, "未打下班卡": 0} for u in all_user_names}
