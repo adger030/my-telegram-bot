@@ -375,7 +375,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         except Exception:
             continue
 
-    # 收集异常人员的所有异常数据
+    # 收集这些人员的所有异常记录（跨所有日期 sheet）
     abnormal_rows = []
     for sheet in wb.worksheets:
         if sheet.title in ["统计", "异常统计", "异常人员"]:
@@ -385,19 +385,18 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             continue
         df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
         df_sheet["备注"] = df_sheet["备注"].astype(str).fillna("")
-        # 把用户的所有异常行提取出来
+
         df_subset = df_sheet[
             (df_sheet["姓名"].isin(highlighted_names)) &
             (df_sheet["备注"].str.contains("迟到|早退|补卡|休息/缺勤|未打下班卡"))
         ]
-        if not df_subset.empty:
-            abnormal_rows.append(df_subset)
+        abnormal_rows.append(df_subset)
 
     if abnormal_rows:
         df_abnormal = pd.concat(abnormal_rows, ignore_index=True)
         df_abnormal = df_abnormal.sort_values(["姓名", "打卡时间"])
 
-        # 创建异常人员 sheet（紧跟在异常统计后面）
+        # 重新建 sheet（放在异常统计后面）
         if "异常人员" in [s.title for s in wb.worksheets]:
             del wb["异常人员"]
         abnormal_sheet = wb.create_sheet("异常人员", wb.worksheets.index(stats_sheet) + 1)
@@ -408,12 +407,12 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for user, user_df in df_abnormal.groupby("姓名"):
             for _, row in user_df.iterrows():
                 abnormal_sheet.append(list(row))
-            # 在不同用户之间插入空白行
+            # 用户和用户之间插入空白行
             abnormal_sheet.append([None] * len(headers))
 
-        # 样式处理（背景色 + 合并姓名列）
-        current_user = None
+        # 样式处理：姓名合并 + 异常颜色
         merge_start = None
+        current_user = None
         for r_idx, row in enumerate(abnormal_sheet.iter_rows(min_row=2), start=2):
             if all(c.value is None for c in row):
                 continue
@@ -421,13 +420,12 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             remark_val = str(row[4].value or "")
             if name_val != current_user:
                 if merge_start and r_idx - merge_start > 1:
-                    abnormal_sheet.merge_cells(
-                        start_row=merge_start, start_column=1,
-                        end_row=r_idx - 1, end_column=1
-                    )
+                    abnormal_sheet.merge_cells(start_row=merge_start, start_column=1,
+                                               end_row=r_idx - 1, end_column=1)
                 merge_start = r_idx
                 current_user = name_val
-            # 背景色规则
+
+            # 着色规则
             if "迟到" in remark_val or "早退" in remark_val:
                 for c in row[1:]:
                     c.fill = red_fill
@@ -441,11 +439,10 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 for c in row[1:]:
                     c.fill = purple_fill_light
 
+        # 最后一位用户也合并
         if merge_start and abnormal_sheet.max_row - merge_start >= 1:
-            abnormal_sheet.merge_cells(
-                start_row=merge_start, start_column=1,
-                end_row=abnormal_sheet.max_row, end_column=1
-            )
+            abnormal_sheet.merge_cells(start_row=merge_start, start_column=1,
+                                       end_row=abnormal_sheet.max_row, end_column=1)
 
     # ======================== 列宽/边框/筛选 ========================
     for sheet in wb.worksheets:
