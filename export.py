@@ -374,7 +374,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         except Exception:
             continue
 
-    # 创建异常人员 sheet（紧跟在异常统计后面）
+    # 新建异常人员表（放在异常统计后面）
     if "异常人员" in [s.title for s in wb.worksheets]:
         del wb["异常人员"]
     abnormal_sheet = wb.create_sheet("异常人员", wb.worksheets.index(stats_sheet) + 1)
@@ -382,24 +382,19 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
     abnormal_sheet.append(headers)
 
-    # 遍历所有日期 sheet，直接拷贝异常行
-    for sheet in wb.worksheets:
-        if sheet.title in ["统计", "异常统计", "异常人员"]:
-            continue
-
-        current_user = None
-        merge_start = None
-        for r_idx, row in enumerate(sheet.iter_rows(min_row=2), start=2):
-            name_val = row[0].value
-            remark_val = str(row[4].value or "")
-            if not name_val:
+    # 遍历所有日期 sheet，复制异常行
+    for name in highlighted_names:
+        for sheet in wb.worksheets:
+            if sheet.title in ["统计", "异常统计", "异常人员"]:
                 continue
-            if name_val in highlighted_names and any(
-                x in remark_val for x in ["迟到", "早退", "补卡", "休息/缺勤", "未打下班卡"]
-            ):
-                abnormal_sheet.append([c.value for c in row])
-
-        # 在不同用户之间插入空白行（靠姓名分组）
+            for row in sheet.iter_rows(min_row=2, values_only=True):
+                if not any(row):
+                    continue
+                row_name, clock_time, keyword, shift, remark = row
+                remark = str(remark or "")
+                if row_name == name and any(k in remark for k in ["迟到", "早退", "补卡", "休息/缺勤", "未打下班卡"]):
+                    abnormal_sheet.append([row_name, clock_time, keyword, shift, remark])
+        # 每个用户后加一行空白
         abnormal_sheet.append([None] * len(headers))
 
     # 样式处理：姓名合并 + 异常颜色
@@ -431,9 +426,11 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             for c in row[1:]:
                 c.fill = purple_fill_light
 
+    # 最后一位用户也合并
     if merge_start and abnormal_sheet.max_row - merge_start >= 1:
         abnormal_sheet.merge_cells(start_row=merge_start, start_column=1,
                                    end_row=abnormal_sheet.max_row, end_column=1)
+
 
     # ======================== 列宽/边框/筛选 ========================
     for sheet in wb.worksheets:
