@@ -358,11 +358,12 @@ def has_user_checked_keyword_today_fixed(username, keyword):
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT keyword, timestamp FROM messages
+            SELECT keyword, timestamp
+            FROM messages
             WHERE username=%s
               AND timestamp >= %s
               AND timestamp < %s
-            ORDER BY timestamp ASC
+            ORDER BY timestamp ASC, id ASC
         """, (username, start, end))
         rows = cur.fetchall()
 
