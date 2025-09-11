@@ -900,3 +900,61 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(document=f, filename=os.path.basename(html_path))
 
     os.remove(html_path)
+
+
+# 管理员查看所有预设指令（带说明按钮版）
+async def commands_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ 无权限！仅管理员可执行此命令。")
+        return
+
+    # 命令 + 描述
+    commands = [
+        ("🌟 基础功能", [
+            ("/start", "欢迎信息 & 姓名登记"),
+            ("/mylogs", "查看本月打卡记录"),
+            ("/lastmonth", "查看上月打卡记录"),
+        ]),
+        ("👀 管理员查询", [
+            ("/userlogs", "查看指定用户本月打卡记录"),
+            ("/userlogs_lastmonth", "查看指定用户上月打卡记录"),
+        ]),
+        ("📤 导出功能（管理员）", [
+            ("/export", "导出所有人考勤 Excel"),
+            ("/export_images", "导出图片网址"),
+            ("/exportuser", "导出个人考勤"),
+        ]),
+        ("🛠 管理员操作", [
+            ("/admin_makeup", "为员工补卡"),
+            ("/transfer", "用户数据迁移"),
+        ]),
+        ("🗑 删除记录（管理员）", [
+            ("/delete_range", "删除指定时间范围的打卡记录"),
+            ("/delete_one", "删除个人单条打卡记录"),
+        ]),
+        ("👤 用户管理（管理员）", [
+            ("/user_list", "查看用户"),
+            ("/user_update", "编辑用户"),
+            ("/user_delete", "删除用户"),
+        ]),
+        ("⏰ 班次管理（管理员）", [
+            ("/list_shifts", "查看当前班次"),
+            ("/edit_shift", "添加/修改班次"),
+            ("/delete_shift", "删除班次"),
+        ]),
+    ]
+
+    # 生成按钮（带说明）
+    keyboard = []
+    for section, cmds in commands:
+        keyboard.append([InlineKeyboardButton(section, callback_data="ignore")])
+        for cmd, desc in cmds:
+            label = f"{cmd} - {desc}"
+            keyboard.append([InlineKeyboardButton(label, switch_inline_query_current_chat=cmd)])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "📋 可用指令列表（点击按钮即可填入输入框）：",
+        reply_markup=reply_markup
+    )
