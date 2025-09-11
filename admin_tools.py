@@ -902,62 +902,39 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.remove(html_path)
 
 
-
 # 管理员查看所有预设指令
 async def commands_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ 无权限！仅管理员可执行此命令。")
         return
 
-    # 指令分组
-    commands = [
-        ("🌟 基础功能", [
-            ("/start", "欢迎信息 & 姓名登记"),
-            ("/mylogs", "查看本月打卡记录"),
-            ("/lastmonth", "查看上月打卡记录"),
-        ]),
-        ("📑 日志查询（管理员）", [
-            ("/userlogs", "查看指定用户本月打卡记录"),
-            ("/userlogs_lastmonth", "查看指定用户上月打卡记录"),
-        ]),
-        ("📤 导出功能（管理员）", [
-            ("/export", "导出所有人考勤 Excel"),
-            ("/export_images", "导出图片网址"),
-            ("/exportuser", "导出个人考勤"),
-        ]),
-        ("🛠 管理功能（管理员）", [
-            ("/admin_makeup", "为员工补卡"),
-            ("/transfer", "用户数据迁移"),
-        ]),
-        ("🗑 删除记录（管理员）", [
-            ("/delete_range", "删除指定时间范围的打卡记录"),
-            ("/delete_one", "删除个人单条打卡记录"),
-        ]),
-        ("👤 用户管理（管理员）", [
-            ("/user_list", "查看用户"),
-            ("/user_update", "编辑用户"),
-            ("/user_delete", "删除用户"),
-        ]),
-        ("⏰ 班次管理（管理员）", [
-            ("/list_shifts", "查看当前班次"),
-            ("/edit_shift", "添加/修改班次"),
-            ("/delete_shift", "删除班次"),
-        ]),
-    ]
-
-    keyboard = []
-    message_lines = ["📋 指令清单\n"]
-    for section, cmds in commands:
-        # 分组标题（纯文本，不做按钮）
-        message_lines.append(f"\n{section}")
-        for cmd, desc in cmds:
-            label = f"{cmd} - {desc}"
-            # 点击按钮后命令会复制到输入框（不带 @机器人名）
-            keyboard.append([InlineKeyboardButton(label, switch_inline_query_current_chat=cmd)])
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        "\n".join(message_lines) + "\n\n👉 点击下方按钮可快速复制命令到输入框：",
-        reply_markup=reply_markup
+    text = (
+        "📋 指令清单\n\n"
+        "🌟 基础功能\n"
+        "`/start` - 欢迎信息 & 姓名登记\n"
+        "`/mylogs` - 查看本月打卡记录\n"
+        "`/lastmonth` - 查看上月打卡记录\n\n"
+        "📑 日志查询（管理员）\n"
+        "`/userlogs` - 查看指定用户本月打卡记录\n"
+        "`/userlogs_lastmonth` - 查看指定用户上月打卡记录\n\n"
+        "📤 导出功能（管理员）\n"
+        "`/export` - 导出所有人考勤 Excel\n"
+        "`/export_images` - 导出图片网址\n"
+        "`/exportuser` - 导出个人考勤\n\n"
+        "🛠 管理功能（管理员）\n"
+        "`/admin_makeup` - 为员工补卡\n"
+        "`/transfer` - 用户数据迁移\n\n"
+        "🗑 删除记录（管理员）\n"
+        "`/delete_range` - 删除指定时间范围的打卡记录\n"
+        "`/delete_one` - 删除个人单条打卡记录\n\n"
+        "👤 用户管理（管理员）\n"
+        "`/user_list` - 查看用户\n"
+        "`/user_update` - 编辑用户\n"
+        "`/user_delete` - 删除用户\n\n"
+        "⏰ 班次管理（管理员）\n"
+        "`/list_shifts` - 查看当前班次\n"
+        "`/edit_shift` - 添加/修改班次\n"
+        "`/delete_shift` - 删除班次\n"
     )
+
+    await update.message.reply_text(text, parse_mode="Markdown")
