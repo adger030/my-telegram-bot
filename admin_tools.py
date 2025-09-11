@@ -201,7 +201,7 @@ async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = conn.execute(
                 text(
                     """
-                    SELECT id, content, timestamp
+                    SELECT id, timestamp, keyword, shift
                     FROM messages
                     WHERE username = :username
                     ORDER BY timestamp DESC
@@ -217,8 +217,12 @@ async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         preview_text = "\n".join(
-            [f"{i+1}. 🆔 {r.id} | {r.timestamp} | {r.content[:30] if r.content else '(无内容)'}"
-             for i, r in enumerate(rows)]
+            [
+                f"{i+1}. 🆔 {r.id} | "
+                f"{r.timestamp.astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')} | "
+                f"关键词: {r.keyword or '-'} | 班次: {r.shift or '-'}"
+                for i, r in enumerate(rows)
+            ]
         )
 
         await update.message.reply_text(
@@ -234,7 +238,12 @@ async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with engine.begin() as conn:
         result = conn.execute(
-            text("SELECT id, username, content, timestamp FROM messages WHERE id = :id"),
+            text(
+                """
+                SELECT id, username, timestamp, keyword, shift, content
+                FROM messages WHERE id = :id
+                """
+            ),
             {"id": record_id}
         )
         row = result.fetchone()
@@ -244,7 +253,11 @@ async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     record_info = (
-        f"🆔 ID: {row.id}\n👤 用户: {row.username}\n📅 时间: {row.timestamp}\n📝 内容: {row.content or '(无)'}"
+        f"🆔 ID: {row.id}\n"
+        f"👤 用户: {row.username}\n"
+        f"📅 时间: {row.timestamp.astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"🔑 关键词: {row.keyword or '-'}\n"
+        f"🕒 班次: {row.shift or '-'}"
     )
 
     if not confirm:
@@ -255,7 +268,7 @@ async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # 删除 Cloudinary 图片
+    # 删除 Cloudinary 图片（仅在 content 是图片 URL 时）
     deleted_images = 0
     if row.content and "cloudinary.com" in row.content:
         public_id = extract_cloudinary_public_id(row.content)
@@ -269,7 +282,6 @@ async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ 删除成功！\n\n{record_info}\n\n🖼 Cloudinary 图片：{'已删除' if deleted_images else '无/未删除'}"
     )
-
 
 # ===========================
 # /userlogs_lastmonth 命令
