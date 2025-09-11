@@ -65,9 +65,6 @@ def batch_delete_cloudinary(public_ids: list, batch_size=100):
             print(f"❌ 批量删除失败: {e}")
     return deleted_total
 
-import re
-from datetime import datetime
-from sqlalchemy import text
 
 # 去掉班次里的括号部分，比如 I班（15:00-00:00） -> I班
 def strip_shift(shift: str) -> str:
