@@ -594,7 +594,7 @@ def main():
 	
     app.add_handler(CommandHandler("user_list", user_list_cmd))			 # /user_list：查看用户
     app.add_handler(CommandHandler("user_update", user_update_cmd))		 # /user_update：编辑用户
-	app.add_handler(CommandHandler("user_delete", user_delete_cmd))		 # /user_delete：删除用户
+    app.add_handler(CommandHandler("user_delete", user_delete_cmd))		 # /user_delete：删除用户
 
     # ===========================
     # ✅ 注册消息处理器（监听非命令消息）
