@@ -919,12 +919,12 @@ async def commands_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/userlogs_lastmonth` - 查看指定用户上月打卡记录\n\n"
         "📤 导出功能（管理员）\n"
         "`/export` - 导出所有人考勤 Excel\n"
+        "`/exportuser` - 导出个人考勤 Excel\n\n"
         "`/export_images` - 导出图片网址\n"
-        "`/exportuser` - 导出个人考勤\n\n"
         "⏰ 班次管理（管理员）\n"
         "`/list_shifts` - 查看当前班次\n"
         "`/edit_shift` - 添加/修改班次\n"
-        "`/delete_shift` - 删除班次\n"
+        "`/delete_shift` - 删除班次\n\n"
         "👤 用户管理（管理员）\n"
         "`/user_list` - 查看用户\n"
         "`/user_update` - 编辑用户\n"
@@ -933,8 +933,8 @@ async def commands_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/admin_makeup` - 为员工补卡\n"
         "`/transfer` - 用户数据迁移\n\n"
         "🗑 删除记录（管理员）\n"
-        "`/delete_range` - 删除指定时间范围的打卡记录\n"
-        "`/delete_one` - 删除个人单条打卡记录\n\n"
+        "`/delete_one` - 删除个人单条打卡记录\n"
+        "`/delete_range` - 删除指定时间范围的打卡记录\n\n"
     )
 
     await update.message.reply_text(text, parse_mode="Markdown")
