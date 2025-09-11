@@ -30,8 +30,9 @@ from db_pg import (
     set_user_name, get_db, transfer_user_data
 )
 from admin_tools import (
-    delete_range_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd,
-    admin_makeup_cmd, export_cmd, export_images_cmd, exportuser_cmd, userlogs_lastmonth_cmd, delete_one_cmd
+    delete_range_cmd, delete_one_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd,
+    admin_makeup_cmd, export_cmd, export_images_cmd, exportuser_cmd, userlogs_lastmonth_cmd,
+    user_delete_cmd, user_update_cmd, user_list_cmd
 )
 from shift_manager import (
     get_shift_options, get_shift_times, get_shift_times_short,
@@ -574,18 +575,26 @@ def main():
     app.add_handler(CommandHandler("list_shifts", list_shifts_cmd))      # /list_shifts：查看当前班次配置
     app.add_handler(CommandHandler("edit_shift", edit_shift_cmd))        # /edit_shift：管理员添加/修改班次
     app.add_handler(CommandHandler("delete_shift", delete_shift_cmd))    # /delete_shift：管理员删除班次
+	
     app.add_handler(CommandHandler("start", start_cmd))                  # /start：欢迎信息 & 姓名登记
     app.add_handler(CommandHandler("mylogs", mylogs_cmd))                # /mylogs：查看本月打卡记录（分页）
+    app.add_handler(CommandHandler("lastmonth", lastmonth_cmd))			 # /lastmonth：查看上月打卡记录（分页）
+    app.add_handler(CommandHandler("userlogs", userlogs_cmd))            # /userlogs @username：查看指定用户本月打卡记录（管理员）
+    app.add_handler(CommandHandler("userlogs_lastmonth", userlogs_lastmonth_cmd))	# /userlogs_lastmonth @username：查看指定用户上月打卡记录（管理员）
+	
     app.add_handler(CommandHandler("export", export_cmd))                # /export：导出考勤 Excel（管理员）
     app.add_handler(CommandHandler("export_images", export_images_cmd))  # /export_images：导出打卡截图 ZIP（管理员）
+    app.add_handler(CommandHandler("exportuser", exportuser_cmd)) 		 # /exportuser 张三 2025-08-01 2025-08-25  导出个人考勤（管理员）
+	
     app.add_handler(CommandHandler("admin_makeup", admin_makeup_cmd))    # /admin_makeup：管理员为员工补卡
     app.add_handler(CommandHandler("transfer", transfer_cmd))            # /transfer：用户数据迁移（改用户名时用）
+	
     app.add_handler(CommandHandler("delete_range", delete_range_cmd))    # /delete_range：删除指定时间范围的打卡记录（管理员）
-    app.add_handler(CommandHandler("delete_one", delete_one_cmd))    # /delete_range：删除指定时间范围的打卡记录（管理员）
-    app.add_handler(CommandHandler("userlogs", userlogs_cmd))            # /userlogs @username：查看指定用户的考勤记录（管理员）
-    app.add_handler(CommandHandler("exportuser", exportuser_cmd)) # /exportuser 张三 2025-08-01 2025-08-25
-    app.add_handler(CommandHandler("lastmonth", lastmonth_cmd))
-    app.add_handler(CommandHandler("userlogs_lastmonth", userlogs_lastmonth_cmd))
+    app.add_handler(CommandHandler("delete_one", delete_one_cmd))        # /delete_one：删除单条打卡记录（管理员）
+	
+    app.add_handler(CommandHandler("user_list", user_list_cmd))			 # /user_list：查看用户
+    app.add_handler(CommandHandler("user_update", user_update_cmd))		 # /user_update：编辑用户
+	app.add_handler(CommandHandler("user_delete", user_delete_cmd))		 # /user_delete：删除用户
 
     # ===========================
     # ✅ 注册消息处理器（监听非命令消息）
