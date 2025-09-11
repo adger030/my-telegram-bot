@@ -920,7 +920,7 @@ async def commands_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📤 导出功能（管理员）\n"
         "`/export` - 导出所有人考勤 Excel\n"
         "`/export_user` - 导出个人考勤 Excel\n"
-        "`/export_images` - 导出图片网址\n\n"
+        "`/export_images` - 导出所有人图片记录\n\n"
         "⏰ 班次管理（管理员）\n"
         "`/list_shifts` - 查看当前班次\n"
         "`/edit_shift` - 添加/修改班次\n"
