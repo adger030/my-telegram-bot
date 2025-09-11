@@ -706,7 +706,7 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(file_path)
 
 # ===========================
-# /exportuser 指令
+# /export_user 指  令
 # ===========================
 async def exportuser_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -717,8 +717,8 @@ async def exportuser_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) not in (1, 3):
         await update.message.reply_text(
             "⚠️ 用法：\n"
-            "/exportuser 姓名 起始日期 结束日期\n"
-            "📌 例：/exportuser 张三 2025-08-01 2025-08-25\n"
+            "/export_user 姓名 起始日期 结束日期\n"
+            "📌 例：/export_user 张三 2025-08-01 2025-08-25\n"
             "👉 只输入姓名时，默认导出本月 1 日到今天"
         )
         return
