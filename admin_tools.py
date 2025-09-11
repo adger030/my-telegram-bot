@@ -180,6 +180,7 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # 管理员删除命令（支持删除某用户单条记录）
+# 管理员删除命令（支持删除某用户单条记录，自定义名字查询）
 async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ 无权限！仅管理员可执行此命令。")
@@ -189,14 +190,25 @@ async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not args:
         await update.message.reply_text(
             "⚠️ 用法：\n"
-            "/delete_one <username>   # 查看该用户最新10条记录\n"
-            "/delete_one <id> confirm # 删除指定ID的记录"
+            "/delete_one <用户名或自定义名字>   # 查看该用户最新10条记录\n"
+            "/delete_one <id> confirm          # 删除指定ID的记录"
         )
         return
 
-    # ================= 查询模式（输入用户名） =================
+    # ================= 查询模式（输入用户名或自定义名字） =================
     if not args[0].isdigit():
-        username = args[0]
+        input_name = args[0]
+
+        # 先查 users 表，看是否存在自定义名字
+        with engine.begin() as conn:
+            user_row = conn.execute(
+                text("SELECT username FROM users WHERE name = :name"),
+                {"name": input_name}
+            ).fetchone()
+
+        username = user_row.username if user_row else input_name  # 回退到原始 username
+
+        # 查询消息记录
         with engine.begin() as conn:
             result = conn.execute(
                 text(
@@ -213,20 +225,21 @@ async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rows = result.fetchall()
 
         if not rows:
-            await update.message.reply_text(f"❌ 未找到用户 {username} 的记录")
+            await update.message.reply_text(f"❌ 未找到用户 {input_name} 的记录")
             return
 
         preview_text = "\n".join(
             [
                 f"{i+1}. 🆔 {r.id} | "
                 f"{r.timestamp.astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')} | "
-                f"关键词: {r.keyword or '-'} | 班次: {r.shift or '-'}"
+                f"{r.keyword or '-'} | {r.shift or '-'}"
                 for i, r in enumerate(rows)
             ]
         )
 
         await update.message.reply_text(
-            f"👤 用户：{username}\n📑 最新 10 条记录：\n{preview_text}\n\n"
+            f"👤 用户：{input_name} (系统账号: {username})\n"
+            f"📑 最新 10 条记录：\n{preview_text}\n\n"
             f"若要删除，请使用：\n`/delete_one <id> confirm`",
             parse_mode="Markdown"
         )
@@ -252,9 +265,18 @@ async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ 未找到 ID={record_id} 的记录")
         return
 
+    # 尝试从 users 表查自定义名字
+    with engine.begin() as conn:
+        alias_row = conn.execute(
+            text("SELECT name FROM users WHERE username = :username"),
+            {"username": row.username}
+        ).fetchone()
+
+    display_name = alias_row.name if alias_row else row.username
+
     record_info = (
         f"🆔 ID: {row.id}\n"
-        f"👤 用户: {row.username}\n"
+        f"👤 用户: {display_name} (系统账号: {row.username})\n"
         f"📅 时间: {row.timestamp.astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"🔑 关键词: {row.keyword or '-'}\n"
         f"🕒 班次: {row.shift or '-'}"
@@ -280,7 +302,8 @@ async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.execute(text("DELETE FROM messages WHERE id = :id"), {"id": record_id})
 
     await update.message.reply_text(
-        f"✅ 删除成功！\n\n{record_info}\n\n🖼 Cloudinary 图片：{'已删除' if deleted_images else '无/未删除'}"
+        f"✅ 删除成功！\n\n{record_info}\n\n"
+        f"🖼 Cloudinary 图片：{'已删除' if deleted_images else '无/未删除'}"
     )
 
 # ===========================
