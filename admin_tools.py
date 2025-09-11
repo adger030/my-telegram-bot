@@ -65,7 +65,136 @@ def batch_delete_cloudinary(public_ids: list, batch_size=100):
             print(f"❌ 批量删除失败: {e}")
     return deleted_total
 
-# 管理员删除命令（支持删除某用户所有记录）
+import re
+from datetime import datetime
+from sqlalchemy import text
+
+# 去掉班次里的括号部分，比如 I班（15:00-00:00） -> I班
+def strip_shift(shift: str) -> str:
+    if not shift:
+        return "-"
+    return re.sub(r"（.*?）", "", shift)
+
+# 解析输入名：支持自定义姓名 -> 系统账号
+def resolve_username(input_name: str):
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT username, name FROM users WHERE name = :name"),
+            {"name": input_name}
+        ).fetchone()
+    if row:
+        return row.username, row.name
+    return input_name, None  # 没匹配到，直接当作系统账号
+
+
+# 管理员删除命令（支持删除某用户单条记录）
+async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ 无权限！仅管理员可执行此命令。")
+        return
+
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "⚠️ 用法：\n"
+            "/delete_one <username|姓名>   # 查看该用户最新10条记录\n"
+            "/delete_one <id> confirm      # 删除指定ID的记录"
+        )
+        return
+
+    # ================= 查询模式（输入用户名或姓名） =================
+    if not args[0].isdigit():
+        input_name = args[0]
+        username, display_name = resolve_username(input_name)
+
+        with engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    SELECT id, timestamp, keyword, shift
+                    FROM messages
+                    WHERE username = :username
+                    ORDER BY timestamp DESC
+                    LIMIT 10
+                    """
+                ),
+                {"username": username}
+            )
+            rows = result.fetchall()
+
+        if not rows:
+            await update.message.reply_text(f"❌ 未找到用户 {input_name} 的记录")
+            return
+
+        preview_text = "\n".join(
+            [
+                f"{i+1}. 🆔 {r.id} | "
+                f"{r.timestamp.astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')} | "
+                f"{r.keyword or '-'} | {strip_shift(r.shift)}"
+                for i, r in enumerate(rows)
+            ]
+        )
+
+        await update.message.reply_text(
+            f"👤 用户：{display_name or username} (系统账号: {username})\n"
+            f"📑 最新 10 条记录：\n{preview_text}\n\n"
+            f"若要删除，请使用：\n`/delete_one <id> confirm`",
+            parse_mode="Markdown"
+        )
+        return
+
+    # ================= 删除模式（输入 ID） =================
+    record_id = args[0]
+    confirm = len(args) > 1 and args[1].lower() == "confirm"
+
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT id, username, timestamp, keyword, shift, content
+                FROM messages WHERE id = :id
+                """
+            ),
+            {"id": record_id}
+        )
+        row = result.fetchone()
+
+    if not row:
+        await update.message.reply_text(f"❌ 未找到 ID={record_id} 的记录")
+        return
+
+    record_info = (
+        f"🆔 ID: {row.id}\n"
+        f"👤 用户: {row.username}\n"
+        f"📅 时间: {row.timestamp.astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"🔑 关键词: {row.keyword or '-'}\n"
+        f"🕒 班次: {strip_shift(row.shift)}"
+    )
+
+    if not confirm:
+        await update.message.reply_text(
+            f"🔍 预览删除记录：\n\n{record_info}\n\n"
+            f"要确认删除，请使用：\n`/delete_one {record_id} confirm`",
+            parse_mode="Markdown"
+        )
+        return
+
+    # 删除 Cloudinary 图片（仅在 content 是图片 URL 时）
+    deleted_images = 0
+    if row.content and "cloudinary.com" in row.content:
+        public_id = extract_cloudinary_public_id(row.content)
+        if public_id:
+            deleted_images = batch_delete_cloudinary([public_id])
+
+    # 删除数据库记录
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM messages WHERE id = :id"), {"id": record_id})
+
+    await update.message.reply_text(
+        f"✅ 删除成功！\n\n{record_info}\n\n🖼 Cloudinary 图片：{'已删除' if deleted_images else '无/未删除'}"
+    )
+
+# 管理员删除命令（支持删除某用户所有记录 + 自定义姓名）
 async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ 无权限！仅管理员可执行此命令。")
@@ -73,10 +202,12 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     args = context.args
     if len(args) < 1:
-        await update.message.reply_text("⚠️ 用法：\n"
-                                        "/delete_range YYYY-MM-DD YYYY-MM-DD [username] [confirm]\n"
-                                        "或 /delete_range all <username> confirm")
-        return
+        await update.message.reply_text(
+            "⚠️ 用法：\n"
+            "/delete_range YYYY-MM-DD YYYY-MM-DD [用户名/自定义姓名] [confirm]\n"
+            "或 /delete_range all <用户名/自定义姓名> confirm"
+        )
+        return 
 
     username = None
     confirm = False
@@ -85,9 +216,9 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ================= 解析 all 模式 =================
     if args[0].lower() == "all":
         if len(args) < 2:
-            await update.message.reply_text("⚠️ 用法：/delete_range all <username> [confirm]")
+            await update.message.reply_text("⚠️ 用法：/delete_range all <用户名/自定义姓名> [confirm]")
             return
-        username = args[1]
+        username = resolve_username(args[1])
         if len(args) == 3 and args[2].lower() == "confirm":
             confirm = True
 
@@ -98,7 +229,7 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # ================= 日期模式 =================
         if len(args) not in (2, 3, 4):
-            await update.message.reply_text("⚠️ 用法：/delete_range YYYY-MM-DD YYYY-MM-DD [username] [confirm]")
+            await update.message.reply_text("⚠️ 用法：/delete_range YYYY-MM-DD YYYY-MM-DD [用户名/自定义姓名] [confirm]")
             return
 
         start_date, end_date = args[0], args[1]
@@ -106,9 +237,9 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if args[2].lower() == "confirm":
                 confirm = True
             else:
-                username = args[2]
+                username = resolve_username(args[2])
         elif len(args) == 4:
-            username = args[2]
+            username = resolve_username(args[2])
             confirm = args[3].lower() == "confirm"
 
         # 校验日期格式
@@ -177,133 +308,6 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📄 数据库记录：{deleted_count}/{total_count} 条\n"
         f"🖼 Cloudinary 图片：{deleted_images}/{len(public_ids)} 张\n"
         f"📅 范围：{'所有记录' if args[0].lower() == 'all' else start_date + ' ~ ' + end_date}"
-    )
-
-# 管理员删除命令（支持删除某用户单条记录）
-# 管理员删除命令（支持删除某用户单条记录，自定义名字查询）
-async def delete_one_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("⛔ 无权限！仅管理员可执行此命令。")
-        return
-
-    args = context.args
-    if not args:
-        await update.message.reply_text(
-            "⚠️ 用法：\n"
-            "/delete_one <用户名或自定义名字>   # 查看该用户最新10条记录\n"
-            "/delete_one <id> confirm          # 删除指定ID的记录"
-        )
-        return
-
-    # ================= 查询模式（输入用户名或自定义名字） =================
-    if not args[0].isdigit():
-        input_name = args[0]
-
-        # 先查 users 表，看是否存在自定义名字
-        with engine.begin() as conn:
-            user_row = conn.execute(
-                text("SELECT username FROM users WHERE name = :name"),
-                {"name": input_name}
-            ).fetchone()
-
-        username = user_row.username if user_row else input_name  # 回退到原始 username
-
-        # 查询消息记录
-        with engine.begin() as conn:
-            result = conn.execute(
-                text(
-                    """
-                    SELECT id, timestamp, keyword, shift
-                    FROM messages
-                    WHERE username = :username
-                    ORDER BY timestamp DESC
-                    LIMIT 10
-                    """
-                ),
-                {"username": username}
-            )
-            rows = result.fetchall()
-
-        if not rows:
-            await update.message.reply_text(f"❌ 未找到用户 {input_name} 的记录")
-            return
-
-        preview_text = "\n".join(
-            [
-                f"{i+1}. 🆔 {r.id} | "
-                f"{r.timestamp.astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')} | "
-                f"{r.keyword or '-'} | {r.shift or '-'}"
-                for i, r in enumerate(rows)
-            ]
-        )
-
-        await update.message.reply_text(
-            f"👤 用户：{input_name} (系统账号: {username})\n"
-            f"📑 最新 10 条记录：\n{preview_text}\n\n"
-            f"若要删除，请使用：\n`/delete_one <id> confirm`",
-            parse_mode="Markdown"
-        )
-        return
-
-    # ================= 删除模式（输入 ID） =================
-    record_id = args[0]
-    confirm = len(args) > 1 and args[1].lower() == "confirm"
-
-    with engine.begin() as conn:
-        result = conn.execute(
-            text(
-                """
-                SELECT id, username, timestamp, keyword, shift, content
-                FROM messages WHERE id = :id
-                """
-            ),
-            {"id": record_id}
-        )
-        row = result.fetchone()
-
-    if not row:
-        await update.message.reply_text(f"❌ 未找到 ID={record_id} 的记录")
-        return
-
-    # 尝试从 users 表查自定义名字
-    with engine.begin() as conn:
-        alias_row = conn.execute(
-            text("SELECT name FROM users WHERE username = :username"),
-            {"username": row.username}
-        ).fetchone()
-
-    display_name = alias_row.name if alias_row else row.username
-
-    record_info = (
-        f"🆔 ID: {row.id}\n"
-        f"👤 用户: {display_name} (系统账号: {row.username})\n"
-        f"📅 时间: {row.timestamp.astimezone(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"🔑 关键词: {row.keyword or '-'}\n"
-        f"🕒 班次: {row.shift or '-'}"
-    )
-
-    if not confirm:
-        await update.message.reply_text(
-            f"🔍 预览删除记录：\n\n{record_info}\n\n"
-            f"要确认删除，请使用：\n`/delete_one {record_id} confirm`",
-            parse_mode="Markdown"
-        )
-        return
-
-    # 删除 Cloudinary 图片（仅在 content 是图片 URL 时）
-    deleted_images = 0
-    if row.content and "cloudinary.com" in row.content:
-        public_id = extract_cloudinary_public_id(row.content)
-        if public_id:
-            deleted_images = batch_delete_cloudinary([public_id])
-
-    # 删除数据库记录
-    with engine.begin() as conn:
-        conn.execute(text("DELETE FROM messages WHERE id = :id"), {"id": record_id})
-
-    await update.message.reply_text(
-        f"✅ 删除成功！\n\n{record_info}\n\n"
-        f"🖼 Cloudinary 图片：{'已删除' if deleted_images else '无/未删除'}"
     )
 
 # ===========================
