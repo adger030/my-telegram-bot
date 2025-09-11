@@ -306,6 +306,91 @@ async def delete_range_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🖼 Cloudinary 图片：{deleted_images}/{len(public_ids)} 张\n"
         f"📅 范围：{'所有记录' if args[0].lower() == 'all' else start_date + ' ~ ' + end_date}"
     )
+    
+ # 管理员查看 users 表中所有用户
+async def user_list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ 无权限！仅管理员可执行此命令。")
+        return
+
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("SELECT username, name FROM users ORDER BY name ASC")
+        ).fetchall()
+
+    if not result:
+        await update.message.reply_text("📭 当前没有任何用户映射。")
+        return
+
+    # 格式化输出
+    user_list = "\n".join(
+        [f"{i+1}. 📛 {row.name}  (系统账号: {row.username})"
+         for i, row in enumerate(result)]
+    )
+
+    await update.message.reply_text(
+        f"👥 当前用户映射列表：\n\n{user_list}"
+    )
+   
+# 管理员删除 users 表中的用户
+async def user_delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ 无权限！仅管理员可执行此命令。")
+        return
+    
+    args = context.args
+    if len(args) != 1:
+        await update.message.reply_text("⚠️ 用法：/user_delete <username|姓名>")
+        return
+    
+    input_name = args[0]
+    with engine.begin() as conn:
+        # 尝试按用户名删除
+        result = conn.execute(text("DELETE FROM users WHERE username = :name RETURNING username, name"),
+                              {"name": input_name}).fetchone()
+        if not result:
+            # 尝试按姓名删除
+            result = conn.execute(text("DELETE FROM users WHERE name = :name RETURNING username, name"),
+                                  {"name": input_name}).fetchone()
+    
+    if not result:
+        await update.message.reply_text(f"❌ 未找到用户 {input_name}")
+        return
+    
+    await update.message.reply_text(
+        f"✅ 删除成功！\n👤 系统账号: {result.username}\n📛 姓名: {result.name}"
+    )
+
+# 管理员修改 users 表中的姓名
+async def user_update_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ 无权限！仅管理员可执行此命令。")
+        return
+    
+    args = context.args
+    if len(args) != 2:
+        await update.message.reply_text("⚠️ 用法：/user_update <username> <新姓名>")
+        return
+    
+    username, new_name = args
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("UPDATE users SET name = :new_name WHERE username = :username RETURNING username, name"),
+                {"new_name": new_name, "username": username}
+            ).fetchone()
+    except Exception as e:
+        await update.message.reply_text(f"❌ 修改失败：{str(e)}")
+        return
+    
+    if not result:
+        await update.message.reply_text(f"❌ 未找到系统账号 {username}")
+        return
+    
+    await update.message.reply_text(
+        f"✅ 修改成功！\n👤 系统账号: {result.username}\n📛 新姓名: {result.name}"
+    )
+
 
 # ===========================
 # /userlogs_lastmonth 命令
@@ -414,9 +499,6 @@ async def userlogs_page_callback(update: Update, context: ContextTypes.DEFAULT_T
         pages_info["page_index"] += 1
 
     await send_logs_page(update, context, key=prefix)
-
-
-
 
 # ===========================
 # 用户数据迁移命令：/transfer <userA> <userB>
