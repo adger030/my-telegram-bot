@@ -902,20 +902,21 @@ async def export_images_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.remove(html_path)
 
 
-# 管理员查看所有预设指令（带说明按钮版）
+
+# 管理员查看所有预设指令
 async def commands_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔ 无权限！仅管理员可执行此命令。")
         return
 
-    # 命令 + 描述
+    # 指令分组
     commands = [
         ("🌟 基础功能", [
             ("/start", "欢迎信息 & 姓名登记"),
             ("/mylogs", "查看本月打卡记录"),
             ("/lastmonth", "查看上月打卡记录"),
         ]),
-        ("👀 管理员查询", [
+        ("📑 日志查询（管理员）", [
             ("/userlogs", "查看指定用户本月打卡记录"),
             ("/userlogs_lastmonth", "查看指定用户上月打卡记录"),
         ]),
@@ -924,7 +925,7 @@ async def commands_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ("/export_images", "导出图片网址"),
             ("/exportuser", "导出个人考勤"),
         ]),
-        ("🛠 管理员操作", [
+        ("🛠 管理功能（管理员）", [
             ("/admin_makeup", "为员工补卡"),
             ("/transfer", "用户数据迁移"),
         ]),
@@ -944,17 +945,19 @@ async def commands_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]),
     ]
 
-    # 生成按钮（带说明）
     keyboard = []
+    message_lines = ["📋 指令清单\n"]
     for section, cmds in commands:
-        keyboard.append([InlineKeyboardButton(section, callback_data="ignore")])
+        # 分组标题（纯文本，不做按钮）
+        message_lines.append(f"\n{section}")
         for cmd, desc in cmds:
             label = f"{cmd} - {desc}"
+            # 点击按钮后命令会复制到输入框（不带 @机器人名）
             keyboard.append([InlineKeyboardButton(label, switch_inline_query_current_chat=cmd)])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "📋 可用指令列表（点击按钮即可填入输入框）：",
+        "\n".join(message_lines) + "\n\n👉 点击下方按钮可快速复制命令到输入框：",
         reply_markup=reply_markup
     )
