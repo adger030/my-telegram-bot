@@ -586,7 +586,7 @@ def main():
     app.add_handler(CommandHandler("export_images", export_images_cmd))  # /export_images：导出打卡截图 ZIP（管理员）
     app.add_handler(CommandHandler("export_user", exportuser_cmd)) 		 # /export_user 张三 2025-08-01 2025-08-25  导出个人考勤（管理员）
 	
-    app.add_handler(CommandHandler("admin_makeup", admin_makeup_cmd))    # /admin_makeup：管理员为员工补卡
+    app.add_handler(CommandHandler("makeup", admin_makeup_cmd))    		 # /admin_makeup：管理员为员工补卡
     app.add_handler(CommandHandler("transfer", transfer_cmd))            # /transfer：用户数据迁移（改用户名时用）
 	
     app.add_handler(CommandHandler("delete_range", delete_range_cmd))    # /delete_range：删除指定时间范围的打卡记录（管理员）
