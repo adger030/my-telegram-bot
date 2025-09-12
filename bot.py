@@ -18,6 +18,7 @@ from apscheduler.triggers.cron import CronTrigger
 from dateutil.parser import parse
 import logging
 import requests
+from telegram.request import HTTPXRequest
 
 # ===========================
 # 项目内部模块
@@ -565,8 +566,13 @@ def main():
     # ===========================
     # 初始化 Telegram Bot 应用
     # ===========================
+
+	request = HTTPXRequest(
+	    connect_timeout=30.0,   # 连接超时时间
+	    read_timeout=30.0,      # 读取超时时间
+	)
     global app
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).request(request).build()
 
     # ===========================
     # ✅ 注册命令处理器（/命令）
