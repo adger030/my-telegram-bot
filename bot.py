@@ -572,7 +572,7 @@ def main():
     # ✅ 注册命令处理器（/命令）
     # ===========================
 
-    app.add_handler(CommandHandler("list_shifts", list_shifts_cmd))      # /list_shifts：查看当前班次配置
+    app.add_handler(CommandHandler("list_shift", list_shifts_cmd))      # /list_shifts：查看当前班次配置
     app.add_handler(CommandHandler("edit_shift", edit_shift_cmd))        # /edit_shift：管理员添加/修改班次
     app.add_handler(CommandHandler("delete_shift", delete_shift_cmd))    # /delete_shift：管理员删除班次
 	
