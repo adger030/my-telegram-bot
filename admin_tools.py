@@ -911,7 +911,7 @@ async def commands_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "📋 指令清单\n\n"
         "🌟 基础功能（所有人）\n"
-        "`/start` - 欢迎信息 & 姓名登记\n"
+        "`/start` - 使用说明\n"
         "`/mylogs` - 查看本月打卡记录\n"
         "`/lastmonth` - 查看上月打卡记录\n\n"
         "📑 日志查询（管理员）\n"
