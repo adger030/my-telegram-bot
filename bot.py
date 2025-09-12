@@ -89,7 +89,7 @@ async def send_welcome(update_or_msg, name):
     await update_or_msg.reply_text(welcome_text, parse_mode="HTML")
     await asyncio.sleep(1)
     await update_or_msg.reply_photo(
-        photo="https://i.postimg.cc/3xRMBbT4/photo-2025-07-28-15-55-19.jpg",
+        photo="https://res.cloudinary.com/dyt56cle1/image/upload/v1757691918/photo-2025-07-28-15-55-19_m9qaap.jpg",
         caption="#上班打卡",
 		parse_mode="HTML"
     )
