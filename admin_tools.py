@@ -528,7 +528,7 @@ async def transfer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     用法：
-    /admin_makeup @username YYYY-MM-DD 班次代码(F/G/H/I/...) [上班/下班]
+    /makeup @username YYYY-MM-DD 班次代码(F/G/H/I/...) [上班/下班]
     （在你的原代码基础上：补下班卡严格使用班次结束时间整点）
     """
     # 权限校验
@@ -539,7 +539,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 参数检查
     if len(context.args) not in (3, 4):
         await update.message.reply_text(
-            "⚠️ 用法：/admin_makeup @用户名 YYYY-MM-DD 班次代码 [上班/下班]\n"
+            "⚠️ 用法：/makeup @用户名 YYYY-MM-DD 班次代码 [上班/下班]\n"
             "默认补上班，若要补下班需额外指定“下班”。"
         )
         return
@@ -930,7 +930,7 @@ async def commands_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/user_update` - 编辑员工\n"
         "`/user_delete` - 删除员工\n\n"
         "🛠 管理功能（管理员）\n"
-        "`/admin_makeup` - 为员工补卡\n"
+        "`/makeup` - 为员工补卡\n"
         "`/transfer` - 员工数据迁移\n\n"
         "🗑 删除记录（管理员）\n"
         "`/delete_one` - 删除个人单条打卡记录\n"
