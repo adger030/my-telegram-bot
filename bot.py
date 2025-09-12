@@ -567,7 +567,7 @@ def main():
     # 初始化 Telegram Bot 应用
     # ===========================
 
-	request = HTTPXRequest(
+    request = HTTPXRequest(
 	    connect_timeout=30.0,   # 连接超时时间
 	    read_timeout=30.0,      # 读取超时时间
 	)
