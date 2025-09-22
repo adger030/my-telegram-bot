@@ -957,6 +957,7 @@ async def commands_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/delete_shift` - 删除班次\n\n"
         "👤 员工管理（管理员）\n"
         "`/user_list` - 查看员工\n"
+        "`/user_add` - 新增员工\n"
         "`/user_update` - 编辑员工\n"
         "`/user_delete` - 删除员工\n\n"
         "🛠 管理功能（管理员）\n"
