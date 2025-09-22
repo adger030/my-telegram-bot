@@ -390,7 +390,37 @@ async def user_update_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ 修改成功！\n👤 系统账号: {result.username}\n📛 新姓名: {result.name}"
     )
+    
+ # 管理员增加 users 表中的用户  
+async def user_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("⛔ 无权限！仅管理员可执行此命令。")
+        return
 
+    args = context.args
+    if len(args) != 2:
+        await update.message.reply_text("⚠️ 用法：/user_add <username> <姓名>")
+        return
+
+    username, name = args
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("INSERT INTO users (username, name) VALUES (:username, :name) "
+                     "ON CONFLICT (username) DO NOTHING RETURNING username, name"),
+                {"username": username, "name": name}
+            ).fetchone()
+    except Exception as e:
+        await update.message.reply_text(f"❌ 添加失败：{str(e)}")
+        return
+
+    if not result:
+        await update.message.reply_text(f"⚠️ 用户 {username} 已存在，未添加。")
+        return
+
+    await update.message.reply_text(
+        f"✅ 添加成功！\n👤 系统账号: {result.username}\n📛 姓名: {result.name}"
+    )
 
 # ===========================
 # /userlogs_lastmonth 命令
