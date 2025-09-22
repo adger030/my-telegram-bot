@@ -33,7 +33,7 @@ from db_pg import (
 from admin_tools import (
     delete_range_cmd, delete_one_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd,
     admin_makeup_cmd, export_cmd, export_images_cmd, exportuser_cmd, userlogs_lastmonth_cmd,
-    user_delete_cmd, user_update_cmd, user_list_cmd, commands_cmd
+    user_delete_cmd, user_update_cmd, user_list_cmd, user_add_cmd, commands_cmd
 )
 from shift_manager import (
     get_shift_options, get_shift_times, get_shift_times_short,
@@ -566,6 +566,7 @@ def main():
     app.add_handler(CommandHandler("user_list", user_list_cmd))			 # /user_list：查看用户
     app.add_handler(CommandHandler("user_update", user_update_cmd))		 # /user_update：编辑用户
     app.add_handler(CommandHandler("user_delete", user_delete_cmd))		 # /user_delete：删除用户
+    app.add_handler(CommandHandler("user_add", user_add_cmd))		     # /user_add：新增用户
 
     app.add_handler(CommandHandler("commands", commands_cmd))		 	 # /commands：指令菜单
 	
