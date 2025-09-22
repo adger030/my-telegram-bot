@@ -347,12 +347,12 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     light_red_fill = PatternFill(start_color="FFD6D6", end_color="FFD6D6", fill_type="solid")
     for row in stats_sheet.iter_rows(min_row=2):
         try:
-            rest_days = int(row[2].value or 0)
+            rest_days = int(row[1].value or 0)   # 休息/缺勤在第2列 (索引1)
             if rest_days > 4:
-                row[2].fill = light_red_fill
-            abnormal_total = int(row[-1].value or 0)
+                row[1].fill = light_red_fill
+            abnormal_total = int(row[5].value or 0)  # 异常总数在第6列 (索引5)
             if abnormal_total > 2:
-                row[-1].fill = light_red_fill
+                row[5].fill = light_red_fill
         except ValueError:
             pass
     desc_text = "【休息/缺勤：没有打卡记录的天数】\n【异常总数：迟到/早退+补卡+未打下班卡】"
