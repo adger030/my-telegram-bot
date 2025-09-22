@@ -98,7 +98,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = get_user_name(username)
 
     if not name:  # 用户名不在数据库
-        await update.message.reply_text("⚠️ 你还未被管理员添加，无法使用，请联系管理员。")
+        await update.message.reply_text("⚠️ 无法使用，请联系部门助理。")
         return
 
     # 已在数据库，正常欢迎
@@ -125,7 +125,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 🚩 检查数据库里是否有该用户
     name = get_user_name(username)
     if not name:
-        await msg.reply_text("⚠️ 你还未被管理员添加，无法使用，请联系管理员。")
+        await msg.reply_text("⚠️ 无法使用，请联系部门助理。")
         return
 		
     keyword = extract_keyword(text)
@@ -173,7 +173,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 🚩 检查数据库是否登记过
     name = get_user_name(username)
     if not name:
-        await msg.reply_text("⚠️ 你还未被管理员添加，无法使用，请联系管理员。")
+        await msg.reply_text("⚠️ 无法使用，请联系部门助理。")
         return
 
     if not keyword:
