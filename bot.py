@@ -109,10 +109,6 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
     await update.message.reply_text("举个🌰，如上👆", reply_markup=reply_markup)
 
- #   await update.message.reply_sticker(
- #       sticker="CAACAgUAAxkBAAIdqWibWBP7RZ-_Gx_0UznjeAHuiz2HAAKlBwACsCjwVqRGdbv4kuN-NgQ"  # 贴纸 file_id
- #   )
-
 # ===========================
 # 处理纯文本消息
 # ===========================
@@ -518,17 +514,6 @@ def check_existing_instance():
     # 注册退出时清理锁文件
     import atexit
     atexit.register(lambda: os.remove(lock_file) if os.path.exists(lock_file) else None)
-    
-# async def get_sticker_id(update, context):
-#    if not update.message.sticker:
-#        await update.message.reply_text("❌ 请发送一个贴纸")
-#        return
-
-#    file_id = update.message.sticker.file_id
-#    await update.message.reply_text(
-#        f"收到贴纸 file_id：<code>{file_id}</code>",
-#        parse_mode="HTML"
-#    )
         
 def main():
     init_db()  
