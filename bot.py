@@ -54,11 +54,6 @@ logging.getLogger("telegram").setLevel(logging.WARNING)
 logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 
 # ===========================
-# 记录需要输入姓名的用户
-# ===========================
-WAITING_NAME = {}  
-
-# ===========================
 # 提取关键词（例如 #上班打卡、#下班打卡 等）
 # ===========================
 def extract_keyword(text: str):
@@ -100,22 +95,20 @@ async def send_welcome(update_or_msg, name):
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
     username = tg_user.username or f"user{tg_user.id}"
-    if not get_user_name(username):  # 如果没登记过名字
-        WAITING_NAME[username] = True
-        await update.message.reply_text("👤 第一次打卡前请输入你的工作名（大写英文）：")
-        return
     name = get_user_name(username)
+
+    if not name:  # 用户名不在数据库
+        await update.message.reply_text("⚠️ 你还未被管理员添加，无法使用，请联系管理员。")
+        return
+
+    # 已在数据库，正常欢迎
     await send_welcome(update.message, name)
 
-    # 🚀 固定按钮：只保留一个“本月打卡记录”
+    # 固定按钮
     keyboard = [["🗓 本月打卡记录"]]
-
-    reply_markup = ReplyKeyboardMarkup(
-        keyboard,
-        resize_keyboard=True,   # 按钮大小自适应
-        one_time_keyboard=False # False 表示常驻
-    )
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
     await update.message.reply_text("举个🌰，如上👆", reply_markup=reply_markup)
+
  #   await update.message.reply_sticker(
  #       sticker="CAACAgUAAxkBAAIdqWibWBP7RZ-_Gx_0UznjeAHuiz2HAAKlBwACsCjwVqRGdbv4kuN-NgQ"  # 贴纸 file_id
  #   )
@@ -128,32 +121,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = msg.from_user.username or f"user{msg.from_user.id}"
     text = msg.text.strip()
 
-
     # 🚩 如果点击了按钮
     if text == "🗓 本月打卡记录":
         await mylogs_cmd(update, context)
         return
+
+    # 🚩 检查数据库里是否有该用户
+    name = get_user_name(username)
+    if not name:
+        await msg.reply_text("⚠️ 你还未被管理员添加，无法使用，请联系管理员。")
+        return
 		
-    # 🚩 如果用户还没登记姓名
-    if username in WAITING_NAME:
-        if len(text) < 2:
-            await msg.reply_text("❗ 姓名太短，请重新输入：")
-            return
-        try:
-            set_user_name(username, text)
-        except ValueError as e:
-            await msg.reply_text(f"⚠️ {e}")
-            return
-        WAITING_NAME.pop(username)
-        await send_welcome(update.message, text)
-        return
-
-    # 🚩 未登记姓名
-    if not get_user_name(username):
-        WAITING_NAME[username] = True
-        await msg.reply_text("👤 请重新输入工作姓名（英文大写）后再打卡：")
-        return
-
     keyword = extract_keyword(text)
 
     if keyword:
@@ -196,15 +174,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = msg.caption or ""
     keyword = extract_keyword(caption)
 
-    if not get_user_name(username):
-        WAITING_NAME[username] = True
-        await msg.reply_text("👤 请重新输入工作姓名（英文大写）后再打卡：")
+    # 🚩 检查数据库是否登记过
+    name = get_user_name(username)
+    if not name:
+        await msg.reply_text("⚠️ 你还未被管理员添加，无法使用，请联系管理员。")
         return
 
     if not keyword:
         await msg.reply_text("❗ 图片必须附加关键词：#上班打卡 / #下班打卡 / #补卡")
         return
-
+	
     # 下载图片（≤1MB）
     photo = msg.photo[-1]
     file = await photo.get_file()
