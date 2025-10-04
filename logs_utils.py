@@ -57,9 +57,9 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
     all_days = sorted(daily_map.keys())
 
     # ===========================
-    # 统计
+    # 统计（补卡合并到异常）
     # ===========================
-    total_complete = total_abnormal = total_makeup = 0
+    total_complete = total_abnormal = 0
     for day in all_days:
         kw_map = daily_map[day]
         shift_full = str(kw_map.get("shift") or "未选择班次")
@@ -70,22 +70,21 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
         has_down = "#下班打卡" in kw_map
 
         if is_makeup:
-            total_makeup += 1
-            if has_up:
-                pass
-        else:
-            if has_up:
-                if shift_name in get_shift_times_short():
-                    start_time, _ = get_shift_times_short()[shift_name]
-                    if kw_map["#上班打卡"].time() > start_time:
-                        total_abnormal += 1
-                    else:
-                        total_complete += 1
+            total_abnormal += 1   # 🔹 补卡算异常
+            continue
+
+        if has_up:
+            if shift_name in get_shift_times_short():
+                start_time, _ = get_shift_times_short()[shift_name]
+                if kw_map["#上班打卡"].time() > start_time:
+                    total_abnormal += 1
                 else:
                     total_complete += 1
             else:
-                if not has_down:
-                    total_abnormal += 1
+                total_complete += 1
+        else:
+            if not has_down:
+                total_abnormal += 1
         if has_down:
             if shift_name in get_shift_times_short():
                 _, end_time = get_shift_times_short()[shift_name]
@@ -99,7 +98,7 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
             else:
                 total_complete += 1
         else:
-            if not is_makeup and has_up:
+            if has_up:
                 total_abnormal += 1
 
     # ===========================
@@ -110,11 +109,12 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
         "pages": pages,
         "daily_map": daily_map,
         "page_index": 0,
-        "summary": (total_complete, total_abnormal, total_makeup),
+        "summary": (total_complete, total_abnormal),
         "target_name": target_name
     }
 
     await send_logs_page(update, context, key)
+
 
 # ===========================
 # 通用发送分页内容（带秒）
@@ -130,7 +130,7 @@ async def send_logs_page(update, context, key="mylogs"):
         return
 
     pages, daily_map, page_index = data["pages"], data["daily_map"], data["page_index"]
-    total_complete, total_abnormal, total_makeup = data["summary"]
+    total_complete, total_abnormal = data["summary"]
     target_name = data.get("target_name", "本月打卡")
 
     current_page_days = pages[page_index]
@@ -173,19 +173,18 @@ async def send_logs_page(update, context, key="mylogs"):
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M:%S')}{'（补卡）' if is_makeup else ''}{'（迟到）' if has_late else ''}\n"
         else:
-            reply += "   └─ #上班打卡：未打卡 ❌\n"
+            reply += "   └─ #上班打卡：缺卡 ❌\n"
     
         if has_down:
             down_ts = kw_map["#下班打卡"]
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M:%S')}{'（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
         else:
-            reply += "   └─ #下班打卡：未打卡 ❌\n"
+            reply += "   └─ #下班打卡：缺卡 ❌\n"
             
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
-        f"🔴 异常（迟到/缺卡）：{total_abnormal} 次\n"
-        f"🟡 补卡：{total_makeup} 次"
+        f"🔴 异常（迟到/缺卡/补卡）：{total_abnormal} 次"
     )
 
     # 分页按钮
