@@ -171,16 +171,16 @@ async def send_logs_page(update, context, key="mylogs"):
         reply += f"{idx}. {day.strftime('%m月%d日')} - {weekday_str} - {shift_name}\n"
     
         if has_up:
-            reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M:%S')}{'（补卡）' if is_makeup else ''}{'（迟到）' if has_late else ''}\n"
+            reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M:%S')}{' - 补卡 ❌ ' if is_makeup else ''}{' - 迟到 ❌ ' if has_late else ''}\n"
         else:
-            reply += "   └─ #上班打卡：缺卡 ❌\n"
+            reply += "   └─ #上班打卡： - 缺卡 ❌\n"
     
         if has_down:
             down_ts = kw_map["#下班打卡"]
             next_day = down_ts.date() > day
-            reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M:%S')}{'（次日）' if next_day else ''}{'（早退）' if has_early else ''}\n"
+            reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M:%S')}{'（次日）' if next_day else ''}{' - 早退 ❌ ' if has_early else ''}\n"
         else:
-            reply += "   └─ #下班打卡：缺卡 ❌\n"
+            reply += "   └─ #下班打卡： - 缺卡 ❌\n"
             
     reply += (
         f"\n🟢 正常：{total_complete} 次\n"
