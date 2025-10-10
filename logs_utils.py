@@ -30,7 +30,7 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
         if kw == "#下班打卡" and ts.hour < 6:
             date_key = (ts - timedelta(days=1)).date()
 
-        # 🔹 补卡一定算当天
+        # 补卡算当天
         if shift and "（补卡）" in shift:
             date_key = ts.date()
 
@@ -39,6 +39,7 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
             daily_map[date_key]["#上班打卡"] = ts
             if shift and "（补卡）" in shift:
                 daily_map[date_key]["补卡标记"] = True
+
             # 找可能匹配的下班卡
             j = i + 1
             while j < len(logs):
@@ -70,7 +71,7 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
         has_down = "#下班打卡" in kw_map
 
         if is_makeup:
-            total_abnormal += 1   # 🔹 补卡算异常
+            total_abnormal += 1
             continue
 
         if has_up:
@@ -85,6 +86,7 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
         else:
             if not has_down:
                 total_abnormal += 1
+
         if has_down:
             if shift_name in get_shift_times_short():
                 _, end_time = get_shift_times_short()[shift_name]
@@ -130,19 +132,20 @@ async def send_logs_page(update, context, key="mylogs"):
         return
 
     pages, daily_map, page_index = data["pages"], data["daily_map"], data["page_index"]
-    total_complete, total_abnormal = data["summary"]
+    _, total_abnormal = data["summary"]
     target_name = data.get("target_name", "本月打卡")
 
     current_page_days = pages[page_index]
+
     if key == "mylogs":
-        reply = f"🗓️ 本月打卡情况（第 {page_index+1}/{len(pages)} 页）：\n\n"
+        reply = f"🗓️ 本月打卡情况（第 {page_index + 1}/{len(pages)} 页）：\n\n"
     elif key == "lastmonth":
-        reply = f"🗓️ 上月打卡情况（第 {page_index+1}/{len(pages)} 页）：\n\n"
+        reply = f"🗓️ 上月打卡情况（第 {page_index + 1}/{len(pages)} 页）：\n\n"
     elif key == "userlogs_lastmonth":
-        reply = f"🗓️ {target_name} 上月打卡记录（第 {page_index+1}/{len(pages)} 页）：\n\n"
+        reply = f"🗓️ {target_name} 上月打卡记录（第 {page_index + 1}/{len(pages)} 页）：\n\n"
     else:
-        reply = f"🗓️ {target_name} 本月打卡记录（第 {page_index+1}/{len(pages)} 页）：\n\n"
-        
+        reply = f"🗓️ {target_name} 本月打卡记录（第 {page_index + 1}/{len(pages)} 页）：\n\n"
+
     for idx, day in enumerate(current_page_days, start=1 + page_index * LOGS_PER_PAGE):
         kw_map = daily_map[day]
         shift_full = str(kw_map.get("shift") or "未选择班次")
@@ -165,27 +168,33 @@ async def send_logs_page(update, context, key="mylogs"):
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
 
-        weekday_map = ["周一","周二","周三","周四","周五","周六","周日"]
+        weekday_map = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
         weekday_str = weekday_map[day.weekday()]
-    
+
         reply += f"{idx}. {day.strftime('%m月%d日')} - {weekday_str} - {shift_name}\n"
-    
+
         if has_up:
-            reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M:%S')}{' - 补卡 ❌ ' if is_makeup else ''}{' - 迟到 ❌ ' if has_late else ''}\n"
+            reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M:%S')}"
+            if is_makeup:
+                reply += " - 补卡 ❌"
+            if has_late:
+                reply += " - 迟到 ❌"
+            reply += "\n"
         else:
             reply += "   └─ #上班打卡： - 缺卡 ❌\n"
-    
+
         if has_down:
             down_ts = kw_map["#下班打卡"]
             next_day = down_ts.date() > day
-            reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M:%S')}{'（次日）' if next_day else ''}{' - 早退 ❌ ' if has_early else ''}\n"
+            reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M:%S')}{'（次日）' if next_day else ''}"
+            if has_early:
+                reply += " - 早退 ❌"
+            reply += "\n"
         else:
             reply += "   └─ #下班打卡： - 缺卡 ❌\n"
-            
-    reply += (
-        f"\n🟢 正常：{total_complete} 次\n"
-        f"🔴 异常（迟到/缺卡/补卡）：{total_abnormal} 次"
-    )
+
+    # ✅ 仅显示异常次数，不再显示正常次数
+    reply += f"\n🔴 异常（迟到/缺卡/补卡）：{total_abnormal} 次"
 
     # 分页按钮
     buttons = []
