@@ -176,22 +176,22 @@ async def send_logs_page(update, context, key="mylogs"):
         if has_up:
             reply += f"   └─ #上班打卡：{kw_map['#上班打卡'].strftime('%H:%M:%S')}"
             if is_makeup:
-                reply += " - 补卡 ❌"
+                reply += " - 补卡 🔴"
             if has_late:
-                reply += " - 迟到 ❌"
+                reply += " - 迟到 🔴"
             reply += "\n"
         else:
-            reply += "   └─ #上班打卡： - 缺卡 ❌\n"
+            reply += "   └─ #上班打卡： - 缺卡 🔴\n"
 
         if has_down:
             down_ts = kw_map["#下班打卡"]
             next_day = down_ts.date() > day
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M:%S')}{'（次日）' if next_day else ''}"
             if has_early:
-                reply += " - 早退 ❌"
+                reply += " - 早退 🔴"
             reply += "\n"
         else:
-            reply += "   └─ #下班打卡： - 缺卡 ❌\n"
+            reply += "   └─ #下班打卡： - 缺卡 🔴\n"
 
     # ✅ 仅显示异常次数，不再显示正常次数
     reply += f"\n🔴 异常（迟到/缺卡/补卡）：{total_abnormal} 次"
