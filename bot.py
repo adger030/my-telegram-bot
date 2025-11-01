@@ -23,7 +23,7 @@ from telegram.request import HTTPXRequest
 # ===========================
 # 项目内部模块
 # ===========================
-from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, LOGS_PER_PAGE, BEIJING_TZ
+from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, LOGS_PER_PAGE, BEIJING_TZ, REPORT_ADMIN_IDS
 from upload_image import upload_image
 from cleaner import delete_last_month_data
 from db_pg import (
@@ -514,6 +514,33 @@ def check_existing_instance():
     # 注册退出时清理锁文件
     import atexit
     atexit.register(lambda: os.remove(lock_file) if os.path.exists(lock_file) else None)
+
+# ===========================
+# 异步函数发送报表
+# ===========================
+async def send_monthly_report(context):
+    """每月1日06:00自动导出上月考勤报表并发送给指定管理员"""
+    now = datetime.now(BEIJING_TZ)
+    # 计算上月起止时间
+    first_day_this_month = datetime(now.year, now.month, 1, tzinfo=BEIJING_TZ)
+    first_day_last_month = (first_day_this_month - timedelta(days=1)).replace(day=1)
+
+    # 导出 Excel 报表
+    excel_path = export_excel(first_day_last_month, first_day_this_month)
+    month_label = f"{first_day_last_month.year}年{first_day_last_month.month:02d}月"
+
+    for admin_id in REPORT_ADMIN_IDS:
+        try:
+            await context.bot.send_chat_action(chat_id=admin_id, action=ChatAction.UPLOAD_DOCUMENT)
+            await context.bot.send_document(
+                chat_id=admin_id,
+                document=open(excel_path, "rb"),
+                caption=f"📊 {month_label} 打卡统计报表\n自动生成时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            logging.info(f"✅ 已发送 {month_label} 报表给管理员 {admin_id}")
+        except Exception as e:
+            logging.error(f"❌ 发送报表给管理员 {admin_id} 失败: {e}")
+
         
 def main():
     init_db()  
@@ -521,7 +548,14 @@ def main():
 
     os.makedirs(DATA_DIR, exist_ok=True)  
     # ✅ 确保数据存储目录存在，用于导出文件、缓存等
-
+	
+	# ===========================
+	# 定时任务：每月1日06:00发送上月报表给管理员
+	# ===========================
+	scheduler.add_job(
+	    lambda: asyncio.run(send_monthly_report(app.bot)),
+	    CronTrigger(day=1, hour=23, minute=10, timezone=BEIJING_TZ)
+	)
     # ===========================
     # 定时任务：自动清理上个月的数据
     # ===========================
