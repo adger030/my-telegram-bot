@@ -520,8 +520,7 @@ def check_existing_instance():
 # ===========================
 # 异步函数发送报表
 # ===========================
-async def send_monthly_report(context):
-    """每月1日06:00自动导出上月考勤报表并发送给指定管理员"""
+async def send_monthly_report(application):
     now = datetime.now(BEIJING_TZ)
     first_day_this_month = datetime(now.year, now.month, 1, tzinfo=BEIJING_TZ)
     first_day_last_month = (first_day_this_month - timedelta(days=1)).replace(day=1)
@@ -531,7 +530,7 @@ async def send_monthly_report(context):
 
     for admin_id in REPORT_ADMIN_IDS:
         try:
-            await context.bot.send_document(
+            await application.bot.send_document(
                 chat_id=admin_id,
                 document=open(excel_path, "rb"),
                 caption=f"📊 {month_label} 打卡统计报表\n自动生成时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
@@ -553,7 +552,8 @@ def main():
     # ===========================
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app.bot)),
-        CronTrigger(day=1, hour=23, minute=52, timezone=BEIJING_TZ)
+        CronTrigger(day=1, hour=23, minute=52, timezone=BEIJING_TZ),
+		args=[app.application]
     )
     # ===========================
     # 定时任务：自动清理上个月的数据
