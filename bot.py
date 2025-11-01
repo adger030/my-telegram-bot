@@ -566,7 +566,7 @@ def setup_scheduler(app):
     # 每月1日早上6:00执行
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app.application)),
-        CronTrigger(day=2, hour=0, minute=40, timezone=BEIJING_TZ)
+        CronTrigger(day=2, hour=0, minute=41, timezone=BEIJING_TZ)
     )
 
     scheduler.start()
@@ -575,7 +575,14 @@ def setup_scheduler(app):
 def main():
     init_db()  
     # ✅ 初始化数据库（创建表、索引等，确保运行环境准备就绪）
-
+	
+    # ===========================
+    # 初始化 Telegram Bot 应用
+    # ===========================
+    request = HTTPXRequest(
+	    connect_timeout=30.0,   # 连接超时时间
+	    read_timeout=30.0,      # 读取超时时间
+	)
     global app
     app = Application.builder().token(TOKEN).request(request).build()
 	
@@ -595,14 +602,6 @@ def main():
 	
     scheduler.start()
 	
-    # ===========================
-    # 初始化 Telegram Bot 应用
-    # ===========================
-    request = HTTPXRequest(
-	    connect_timeout=30.0,   # 连接超时时间
-	    read_timeout=30.0,      # 读取超时时间
-	)
-
     # ===========================
     # ✅ 注册命令处理器（/命令）
     # ===========================
