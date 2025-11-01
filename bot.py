@@ -552,7 +552,7 @@ def main():
     # ===========================
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app.bot)),
-        CronTrigger(day=1, hour=23, minute=52, timezone=BEIJING_TZ),
+        CronTrigger(day=2, hour=0, minute=31, timezone=BEIJING_TZ),
 		args=[app.application]
     )
     # ===========================
