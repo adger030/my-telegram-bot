@@ -531,8 +531,8 @@ async def send_monthly_report(context):
 
     for admin_id in REPORT_ADMIN_IDS:
         try:
-            # ✅ 修正：新版 Telegram 要求 action 参数为字符串
-            await context.bot.send_chat_action(admin_id, action="upload_document")
+            # ✅ 修正版：必须带 chat_id=
+            await context.bot.send_chat_action(chat_id=admin_id, action="upload_document")
 
             await context.bot.send_document(
                 chat_id=admin_id,
@@ -542,6 +542,7 @@ async def send_monthly_report(context):
             logging.info(f"✅ 已发送 {month_label} 报表给管理员 {admin_id}")
         except Exception as e:
             logging.error(f"❌ 发送报表给管理员 {admin_id} 失败: {e}")
+
 
         
 def main():
@@ -556,7 +557,7 @@ def main():
     # ===========================
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app.bot)),
-        CronTrigger(day=1, hour=23, minute=33, timezone=BEIJING_TZ)
+        CronTrigger(day=1, hour=23, minute=38, timezone=BEIJING_TZ)
     )
     # ===========================
     # 定时任务：自动清理上个月的数据
