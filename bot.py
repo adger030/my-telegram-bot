@@ -548,14 +548,14 @@ def main():
 
     os.makedirs(DATA_DIR, exist_ok=True)  
     # ✅ 确保数据存储目录存在，用于导出文件、缓存等
-	
-	# ===========================
-	# 定时任务：每月1日06:00发送上月报表给管理员
-	# ===========================
-	scheduler.add_job(
-	    lambda: asyncio.run(send_monthly_report(app.bot)),
-	    CronTrigger(day=1, hour=23, minute=10, timezone=BEIJING_TZ)
-	)
+
+    # ===========================
+    # 定时任务：每月1日06:00发送上月报表给管理员
+    # ===========================
+    scheduler.add_job(
+        lambda: asyncio.run(send_monthly_report(app.bot)),
+        CronTrigger(day=1, hour=23, minute=10, timezone=BEIJING_TZ)
+    )
     # ===========================
     # 定时任务：自动清理上个月的数据
     # ===========================
