@@ -533,7 +533,7 @@ async def send_monthly_report(context):
 
     for admin_id in REPORT_ADMIN_IDS:
         try:
-            await context.bot.send_chat_action(chat_id=admin_id, action=ChatAction.UPLOAD_DOCUMENT)
+			await context.bot.send_chat_action(admin_id, ChatAction.UPLOAD_DOCUMENT)
             await context.bot.send_document(
                 chat_id=admin_id,
                 document=open(excel_path, "rb"),
@@ -556,7 +556,7 @@ def main():
     # ===========================
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app.bot)),
-        CronTrigger(day=1, hour=23, minute=21, timezone=BEIJING_TZ)
+        CronTrigger(day=1, hour=23, minute=25, timezone=BEIJING_TZ)
     )
     # ===========================
     # 定时任务：自动清理上个月的数据
