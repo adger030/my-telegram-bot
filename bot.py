@@ -565,12 +565,9 @@ def setup_scheduler(app):
 
     # 每月1日早上6:00执行
     scheduler.add_job(
-        lambda: asyncio.run(send_monthly_report(app.application)),
-        CronTrigger(day=2, hour=0, minute=41, timezone=BEIJING_TZ)
+        lambda: asyncio.run(send_monthly_report(app)),
+        CronTrigger(day=2, hour=0, minute=48, timezone=BEIJING_TZ)
     )
-
-    scheduler.start()
-    logging.info("✅ 每月自动考勤报表任务已启动")
 	
 def main():
     init_db()  
