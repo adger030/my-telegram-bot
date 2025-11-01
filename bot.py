@@ -531,9 +531,7 @@ async def send_monthly_report(context):
 
     for admin_id in REPORT_ADMIN_IDS:
         try:
-            # ✅ 修正为 send_action()（v20 正确写法）
-            await context.bot.send_action(chat_id=admin_id, action="upload_document")
-
+            # ⚙️ 去掉 chat_action，这在 v21+ 中已弃用
             await context.bot.send_document(
                 chat_id=admin_id,
                 document=open(excel_path, "rb"),
@@ -542,7 +540,6 @@ async def send_monthly_report(context):
             logging.info(f"✅ 已发送 {month_label} 报表给管理员 {admin_id}")
         except Exception as e:
             logging.error(f"❌ 发送报表给管理员 {admin_id} 失败: {e}")
-
 
         
 def main():
@@ -557,7 +554,7 @@ def main():
     # ===========================
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app.bot)),
-        CronTrigger(day=1, hour=23, minute=43, timezone=BEIJING_TZ)
+        CronTrigger(day=1, hour=23, minute=47, timezone=BEIJING_TZ)
     )
     # ===========================
     # 定时任务：自动清理上个月的数据
