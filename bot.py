@@ -40,6 +40,7 @@ from shift_manager import (
     list_shifts_cmd, edit_shift_cmd, delete_shift_cmd
 )
 from logs_utils import build_and_send_logs, send_logs_page
+from export import export_excel
 
 app = None  # 全局声明，初始为空
 
@@ -554,7 +555,7 @@ def main():
     # ===========================
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app.bot)),
-        CronTrigger(day=1, hour=23, minute=10, timezone=BEIJING_TZ)
+        CronTrigger(day=1, hour=23, minute=16, timezone=BEIJING_TZ)
     )
     # ===========================
     # 定时任务：自动清理上个月的数据
