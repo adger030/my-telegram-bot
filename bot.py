@@ -531,8 +531,8 @@ async def send_monthly_report(context):
 
     for admin_id in REPORT_ADMIN_IDS:
         try:
-            # ✅ 修正点：不再使用 chat_id=
-            await context.bot.send_chat_action(admin_id, ChatAction.UPLOAD_DOCUMENT)
+            # ✅ 修正：新版 Telegram 要求 action 参数为字符串
+            await context.bot.send_chat_action(admin_id, action="upload_document")
 
             await context.bot.send_document(
                 chat_id=admin_id,
@@ -556,7 +556,7 @@ def main():
     # ===========================
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app.bot)),
-        CronTrigger(day=1, hour=23, minute=28, timezone=BEIJING_TZ)
+        CronTrigger(day=1, hour=23, minute=33, timezone=BEIJING_TZ)
     )
     # ===========================
     # 定时任务：自动清理上个月的数据
