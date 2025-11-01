@@ -531,7 +531,6 @@ async def send_monthly_report(context):
 
     for admin_id in REPORT_ADMIN_IDS:
         try:
-            # ⚙️ 去掉 chat_action，这在 v21+ 中已弃用
             await context.bot.send_document(
                 chat_id=admin_id,
                 document=open(excel_path, "rb"),
@@ -554,7 +553,7 @@ def main():
     # ===========================
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app.bot)),
-        CronTrigger(day=1, hour=23, minute=47, timezone=BEIJING_TZ)
+        CronTrigger(day=1, hour=23, minute=52, timezone=BEIJING_TZ)
     )
     # ===========================
     # 定时任务：自动清理上个月的数据
