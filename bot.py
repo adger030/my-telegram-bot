@@ -19,6 +19,7 @@ from dateutil.parser import parse
 import logging
 import requests
 from telegram.request import HTTPXRequest
+from telegram.constants import ChatAction
 
 # ===========================
 # 项目内部模块
@@ -555,7 +556,7 @@ def main():
     # ===========================
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app.bot)),
-        CronTrigger(day=1, hour=23, minute=16, timezone=BEIJING_TZ)
+        CronTrigger(day=1, hour=23, minute=21, timezone=BEIJING_TZ)
     )
     # ===========================
     # 定时任务：自动清理上个月的数据
