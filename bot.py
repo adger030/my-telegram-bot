@@ -531,8 +531,8 @@ async def send_monthly_report(context):
 
     for admin_id in REPORT_ADMIN_IDS:
         try:
-            # ✅ 修正版：必须带 chat_id=
-            await context.bot.send_chat_action(chat_id=admin_id, action="upload_document")
+            # ✅ 修正为 send_action()（v20 正确写法）
+            await context.bot.send_action(chat_id=admin_id, action="upload_document")
 
             await context.bot.send_document(
                 chat_id=admin_id,
@@ -557,7 +557,7 @@ def main():
     # ===========================
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app.bot)),
-        CronTrigger(day=1, hour=23, minute=38, timezone=BEIJING_TZ)
+        CronTrigger(day=1, hour=23, minute=43, timezone=BEIJING_TZ)
     )
     # ===========================
     # 定时任务：自动清理上个月的数据
