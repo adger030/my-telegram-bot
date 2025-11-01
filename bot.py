@@ -558,16 +558,6 @@ async def send_monthly_report(application):
     except Exception as e:
         logging.exception(f"❌ 生成或发送月报失败: {e}")
 
-
-def setup_scheduler(app):
-    """设置定时任务"""
-    scheduler = BackgroundScheduler(timezone=BEIJING_TZ)
-
-    # 每月1日早上6:00执行
-    scheduler.add_job(
-        lambda: asyncio.run(send_monthly_report(app)),
-        CronTrigger(day=2, hour=0, minute=48, timezone=BEIJING_TZ)
-    )
 	
 def main():
     init_db()  
@@ -589,7 +579,8 @@ def main():
     # ===========================
     # 定时任务：每月1日06:00发送上月报表给管理员
     # ===========================
-    setup_scheduler(app)
+    # 每月1日早上6:00执行
+    scheduler.add_job(lambda: asyncio.run(send_monthly_report(app)),CronTrigger(day=2, hour=0, minute=53, timezone=BEIJING_TZ))
 	
     # ===========================
     # 定时任务：自动清理上个月的数据
