@@ -552,8 +552,7 @@ def main():
     # ===========================
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app.bot)),
-        CronTrigger(day=2, hour=0, minute=31, timezone=BEIJING_TZ),
-		args=[app.application]
+        CronTrigger(day=2, hour=0, minute=31, timezone=BEIJING_TZ)
     )
     # ===========================
     # 定时任务：自动清理上个月的数据
