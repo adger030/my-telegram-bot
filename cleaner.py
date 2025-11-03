@@ -6,7 +6,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sqlalchemy import text
 from db_pg import engine
-from cloudinary import api as cloudinary_api
+import cloudinary
+import cloudinary.api
+
 
 # ===========================
 # 入口：删除上月数据（定时任务）
@@ -96,15 +98,12 @@ def delete_messages_and_images(start_date: str, end_date: str, batch_size: int =
 def batch_delete_cloudinary_images(public_id_list):
     """
     使用 Cloudinary API 一次性删除最多 100 张图片
-    :param public_id_list: public_id 列表
-    :return: 实际删除成功的数量
     """
     try:
-        response = cloudinary.api.delete_resources(public_id_list)
+        response = cloudinary.api.delete_resources(public_id_list, resource_type="image")
         deleted = response.get("deleted", {})
         failed = response.get("failed", {})
 
-        # 输出结果日志
         for pid, status in deleted.items():
             if status == "deleted":
                 print(f"🗑 已删除图片: {pid}")
