@@ -542,18 +542,18 @@ async def send_monthly_report(bot):
 def setup_scheduler(bot):
     scheduler = BackgroundScheduler(timezone=BEIJING_TZ)
 
-    # 每月1日 06:00 自动发送上月报表
+    # 每月1日 11:00 自动发送上月报表
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(bot)),
-        CronTrigger(day=1, hour=6, minute=0, timezone=BEIJING_TZ),
+        CronTrigger(day=3, hour=22, minute=42, timezone=BEIJING_TZ),
         id="send_report",
         replace_existing=True,
     )
 
-    # 每月2日 03:00 自动清理上月数据
+    # 每月3日 11:00 自动清理上月数据
     scheduler.add_job(
         delete_last_month_data,
-        CronTrigger(day=2, hour=3, minute=0, timezone=BEIJING_TZ),
+        CronTrigger(day=3, hour=11, minute=0, timezone=BEIJING_TZ),
         id="clean_data",
         replace_existing=True,
     )
