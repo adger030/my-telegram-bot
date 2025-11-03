@@ -559,7 +559,7 @@ def setup_scheduler(app):
     # 每月1日早上6点触发
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(app)),
-        CronTrigger(day=3, hour=17, minute=30, timezone=BEIJING_TZ)
+        CronTrigger(day=3, hour=17, minute=45, timezone=BEIJING_TZ)
     )
 
     scheduler.start()
@@ -592,7 +592,7 @@ def main():
     # ===========================
     # 定时任务：自动清理上个月的数据
     # ===========================
-    scheduler.add_job( delete_last_month_data,CronTrigger(day=3, hour=16, minute=59, timezone=BEIJING_TZ))
+    scheduler.add_job( delete_last_month_data,CronTrigger(day=2, hour=11, minute=0, timezone=BEIJING_TZ))
     # 每月2号早上11点，执行 delete_last_month_data 清理旧数据
 	
     scheduler.start()
