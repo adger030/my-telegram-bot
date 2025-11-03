@@ -50,6 +50,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 
+logger = logging.getLogger(__name__)
+
 # ===========================
 # 提取关键词（例如 #上班打卡、#下班打卡 等）
 # ===========================
