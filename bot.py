@@ -573,9 +573,10 @@ def main():
     # ===========================
     # 初始化 Telegram Bot 应用
     # ===========================
-    request = HTTPXRequest(
-	    connect_timeout=30.0,   # 连接超时时间
-	    read_timeout=30.0,      # 读取超时时间
+	request = HTTPXRequest(
+	    connect_timeout=30.0,
+	    read_timeout=30.0,
+	    pool_limits=(50, 20)  # ← 增大连接池限制
 	)
     global app
     app = Application.builder().token(TOKEN).request(request).build()
