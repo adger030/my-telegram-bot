@@ -45,11 +45,6 @@ from export import export_excel
 
 app = None  # 全局声明，初始为空
 
-# ===========================
-# 全局定时任务调度器
-# ===========================
-scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
-
 # 仅保留 WARNING 及以上的日志
 logging.getLogger("httpx").setLevel(logging.WARNING)  
 logging.getLogger("telegram").setLevel(logging.WARNING)
@@ -518,65 +513,66 @@ def check_existing_instance():
     atexit.register(lambda: os.remove(lock_file) if os.path.exists(lock_file) else None)
 
 # ===========================
-# 异步函数发送报表
+# 生成并发送上月报表
 # ===========================
-async def send_monthly_report(app):
-    """每月1日早上06:00自动导出上月考勤报表并发送给指定管理员"""
+async def send_monthly_report(bot):
     now = datetime.now(BEIJING_TZ)
     first_day_this_month = datetime(now.year, now.month, 1, tzinfo=BEIJING_TZ)
     first_day_last_month = (first_day_this_month - timedelta(days=1)).replace(day=1)
 
-    try:
-        # 生成 Excel 报表
-        excel_path = export_excel(first_day_last_month, first_day_this_month)
-        month_label = f"{first_day_last_month.year}年{first_day_last_month.month:02d}月"
+    excel_path = export_excel(first_day_last_month, first_day_this_month)
+    month_label = f"{first_day_last_month.year}年{first_day_last_month.month:02d}月"
 
-        for admin_id in REPORT_ADMIN_IDS:
-            try:
-                # 发送文本消息
-                await app.bot.send_message(
-                    chat_id=admin_id,
-                    text=f"📊 {month_label} 考勤报表已生成，请查收👇"
-                )
-                # 发送报表文件
-                await app.bot.send_document(
-                    chat_id=admin_id,
-                    document=open(excel_path, "rb"),
-                    caption=f"📅 自动生成时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
-                )
-                logging.info(f"✅ 已发送 {month_label} 报表给管理员 {admin_id}")
-            except Exception as e:
-                logging.error(f"❌ 无法发送报表给管理员 {admin_id}: {e}")
+    for admin_id in REPORT_ADMIN_IDS:
+        try:
+            await bot.send_document(
+                chat_id=admin_id,
+                document=open(excel_path, "rb"),
+                caption=f"📊 {month_label} 打卡统计报表\n生成时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            logger.info(f"✅ 已发送 {month_label} 报表给管理员 {admin_id}")
+        except Exception as e:
+            logger.error(f"❌ 发送报表给管理员 {admin_id} 失败: {e}")
 
-    except Exception as e:
-        logging.exception(f"❌ 报表生成或发送失败: {e}")
-
-
-def setup_scheduler(app):
-    """设置每月定时任务"""
+# ===========================
+# 调度任务设置
+# ===========================
+def setup_scheduler(bot):
     scheduler = BackgroundScheduler(timezone=BEIJING_TZ)
 
-    # 每月1日早上6点触发
+    # 每月1日 06:00 自动发送上月报表
     scheduler.add_job(
-        lambda: asyncio.run(send_monthly_report(app)),
-        CronTrigger(day=3, hour=17, minute=45, timezone=BEIJING_TZ)
+        lambda: asyncio.run(send_monthly_report(bot)),
+        CronTrigger(day=1, hour=6, minute=0, timezone=BEIJING_TZ),
+        id="send_report",
+        replace_existing=True,
+    )
+
+    # 每月2日 03:00 自动清理上月数据
+    scheduler.add_job(
+        delete_last_month_data,
+        CronTrigger(day=2, hour=3, minute=0, timezone=BEIJING_TZ),
+        id="clean_data",
+        replace_existing=True,
     )
 
     scheduler.start()
-    logging.info("✅ 每月自动发送报表任务已启动")
+    logger.info("✅ 调度器已启动（报表发送 + 数据清理）")
+    return scheduler
+
 
 	
 def main():
     init_db()  
     # ✅ 初始化数据库（创建表、索引等，确保运行环境准备就绪）
-	from telegram.request import HTTPXRequest
+	
     # ===========================
     # 初始化 Telegram Bot 应用
     # ===========================
     request = HTTPXRequest(
-        connect_timeout=30.0,
-        read_timeout=30.0,
-        write_timeout=30.0,
+        connect_timeout=10.0,
+        read_timeout=20.0,
+        write_timeout=20.0,
         pool_timeout=10.0
     )
     global app
@@ -585,19 +581,8 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)  
     # ✅ 确保数据存储目录存在，用于导出文件、缓存等
 
-    # ===========================
-    # 定时任务：每月1日06:00发送上月报表给管理员
-    # ===========================
-    # 每月1日早上6:00执行
-    setup_scheduler(app)
-	
-    # ===========================
-    # 定时任务：自动清理上个月的数据
-    # ===========================
-    scheduler.add_job( delete_last_month_data,CronTrigger(day=2, hour=11, minute=0, timezone=BEIJING_TZ))
-    # 每月2号早上11点，执行 delete_last_month_data 清理旧数据
-	
-    scheduler.start()
+    # 启动调度器
+    setup_scheduler(app.bot)
 	
     # ===========================
     # ✅ 注册命令处理器（/命令）
