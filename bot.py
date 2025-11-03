@@ -545,7 +545,7 @@ def setup_scheduler(bot):
     # 每月1日 11:00 自动发送上月报表
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(bot)),
-        CronTrigger(day=3, hour=22, minute=47, timezone=BEIJING_TZ),
+        CronTrigger(day=1, hour=11, minute=00, timezone=BEIJING_TZ),
         id="send_report",
         replace_existing=True,
     )
