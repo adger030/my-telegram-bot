@@ -569,7 +569,7 @@ def setup_scheduler(app):
 def main():
     init_db()  
     # ✅ 初始化数据库（创建表、索引等，确保运行环境准备就绪）
-	
+	from telegram.request import HTTPXRequest
     # ===========================
     # 初始化 Telegram Bot 应用
     # ===========================
