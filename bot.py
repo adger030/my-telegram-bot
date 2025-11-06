@@ -578,10 +578,10 @@ def main():
     # 初始化 Telegram Bot 应用
     # ===========================
     request = HTTPXRequest(
-        connect_timeout=10.0,
-        read_timeout=20.0,
-        write_timeout=20.0,
-        pool_timeout=10.0
+        connect_timeout=30.0,
+        read_timeout=60.0,
+        write_timeout=60.0,
+        pool_timeout=30.0
     )
     global app
     app = Application.builder().token(TOKEN).request(request).build()
