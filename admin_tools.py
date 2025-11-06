@@ -599,7 +599,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = get_user_name(username) or username
 
     # 获取班次时间（从内存 map）
-    shift_name = shift_options[shift_code] + "（补卡）"
+    shift_name = shift_options[shift_code]
     shift_short = shift_name.split("（")[0]
     shift_times_map = get_shift_times_short()
     if shift_short not in shift_times_map:
