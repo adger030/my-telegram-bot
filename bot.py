@@ -522,7 +522,7 @@ async def send_monthly_report(bot):
     first_day_this_month = datetime(now.year, now.month, 1, tzinfo=BEIJING_TZ)
     first_day_last_month = (first_day_this_month - timedelta(days=1)).replace(day=1)
 
-    excel_path = await export_cmd(first_day_last_month, first_day_this_month)
+    excel_path = export_excel(first_day_last_month, first_day_this_month)
     month_label = f"{first_day_last_month.year}年{first_day_last_month.month:02d}月"
 
     for admin_id in REPORT_ADMIN_IDS:
@@ -545,7 +545,7 @@ def setup_scheduler(bot):
     # 每月1日 11:00 自动发送上月报表
     scheduler.add_job(
         lambda: asyncio.run(send_monthly_report(bot)),
-        CronTrigger(day=6, hour=19, minute=38, timezone=BEIJING_TZ),
+        CronTrigger(day=6, hour=20, minute=5, timezone=BEIJING_TZ),
         id="send_report",
         replace_existing=True,
     )
