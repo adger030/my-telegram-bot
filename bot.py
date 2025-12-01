@@ -541,29 +541,30 @@ async def send_monthly_report(bot):
 # 调度任务设置
 # ===========================
 def setup_scheduler(bot):
-    # 使用 AsyncIOScheduler，而不是 BackgroundScheduler
     scheduler = AsyncIOScheduler(timezone=BEIJING_TZ)
 
-    # 直接把 async 函数丢给 APScheduler，它会自动在主 event loop 里运行
     scheduler.add_job(
-        send_monthly_report,    # 直接传 async 函数本体
-        trigger=CronTrigger(day=1, hour=14, minute=15, timezone=BEIJING_TZ),
-        args=[bot],             # 传 bot 作为参数
+        send_monthly_report,
+        CronTrigger(day=1, hour=14, minute=19, timezone=BEIJING_TZ),
+        args=[bot],
         id="send_report",
         replace_existing=True,
     )
 
-    # 清理任务 —— 同步函数保持原样即可
     scheduler.add_job(
         delete_last_month_data,
-        trigger=CronTrigger(day=3, hour=11, minute=0, timezone=BEIJING_TZ),
+        CronTrigger(day=3, hour=11, minute=0, timezone=BEIJING_TZ),
         id="clean_data",
         replace_existing=True,
     )
 
+    return scheduler   # ❗注意：不 start()
+
+async def on_startup(app: Application):
+    # 此时 event loop 已经运行
+    scheduler = setup_scheduler(app.bot)
     scheduler.start()
-    logger.info("✅ 调度器已启动（AsyncIOScheduler）")
-    return scheduler
+    logger.info("✅ APScheduler 已启动（在 event loop 运行后）")
 	
 def main():
     init_db()  
@@ -579,7 +580,7 @@ def main():
         pool_timeout=30.0
     )
     global app
-    app = Application.builder().token(TOKEN).request(request).build()
+	app = Application.builder().token(TOKEN).request(request).post_init(on_startup).build()
 	
     os.makedirs(DATA_DIR, exist_ok=True)  
     # ✅ 确保数据存储目录存在，用于导出文件、缓存等
