@@ -14,6 +14,7 @@ import calendar
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ApplicationBuilder
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dateutil.parser import parse
 import logging
@@ -540,35 +541,29 @@ async def send_monthly_report(bot):
 # 调度任务设置
 # ===========================
 def setup_scheduler(bot):
-    scheduler = BackgroundScheduler(timezone=BEIJING_TZ)
+    # 使用 AsyncIOScheduler，而不是 BackgroundScheduler
+    scheduler = AsyncIOScheduler(timezone=BEIJING_TZ)
 
-    # ✅ 修复：不要用 asyncio.run()，而是用 create_task()
-    def send_report_job():
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(send_monthly_report(bot))
-        else:
-            asyncio.run(send_monthly_report(bot))
-
+    # 直接把 async 函数丢给 APScheduler，它会自动在主 event loop 里运行
     scheduler.add_job(
-        send_report_job,
-        CronTrigger(day=1, hour=11, minute=0, timezone=BEIJING_TZ),
+        send_monthly_report,    # 直接传 async 函数本体
+        trigger=CronTrigger(day=1, hour=14, minute=15, timezone=BEIJING_TZ),
+        args=[bot],             # 传 bot 作为参数
         id="send_report",
         replace_existing=True,
     )
 
+    # 清理任务 —— 同步函数保持原样即可
     scheduler.add_job(
         delete_last_month_data,
-        CronTrigger(day=3, hour=11, minute=0, timezone=BEIJING_TZ),
+        trigger=CronTrigger(day=3, hour=11, minute=0, timezone=BEIJING_TZ),
         id="clean_data",
         replace_existing=True,
     )
 
     scheduler.start()
-    logger.info("✅ 调度器已启动（报表发送 + 数据清理）")
+    logger.info("✅ 调度器已启动（AsyncIOScheduler）")
     return scheduler
-
-
 	
 def main():
     init_db()  
