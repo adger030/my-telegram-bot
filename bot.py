@@ -564,7 +564,7 @@ async def send_monthly_report(bot):
         day=1, hour=2, minute=0, second=0, microsecond=0
     )
 
-    title = f"{first_day_last_month.year}年{first_day_last_month.month:02d}月报表（精确到秒）"
+    title = f"{first_day_last_month.year}年{first_day_last_month.month:02d}月报表"
 
     await send_custom_report(
         bot,
@@ -581,7 +581,7 @@ def setup_scheduler(bot):
 
     scheduler.add_job(
         send_monthly_report,
-        CronTrigger(day=1, hour=15, minute=15, timezone=BEIJING_TZ),
+        CronTrigger(day=1, hour=11, minute=00, timezone=BEIJING_TZ),
         args=[bot],
         id="send_report",
         replace_existing=True,
