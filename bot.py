@@ -545,7 +545,7 @@ def setup_scheduler(bot):
 
     scheduler.add_job(
         send_monthly_report,
-        CronTrigger(day=1, hour=14, minute=19, timezone=BEIJING_TZ),
+        CronTrigger(day=1, hour=14, minute=22, timezone=BEIJING_TZ),
         args=[bot],
         id="send_report",
         replace_existing=True,
@@ -580,7 +580,7 @@ def main():
         pool_timeout=30.0
     )
     global app
-	app = Application.builder().token(TOKEN).request(request).post_init(on_startup).build()
+    app = Application.builder().token(TOKEN).request(request).post_init(on_startup).build()
 	
     os.makedirs(DATA_DIR, exist_ok=True)  
     # ✅ 确保数据存储目录存在，用于导出文件、缓存等
