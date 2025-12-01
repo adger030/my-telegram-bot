@@ -518,24 +518,60 @@ def check_existing_instance():
 # ===========================
 # 生成并发送上月报表
 # ===========================
-async def send_monthly_report(bot):
+async def send_custom_report(bot, start_dt, end_dt, title=None):
+    """
+    通用报表发送函数（支持 datetime 精确到秒）
+    start_dt / end_dt 需为 datetime，并包含 tzinfo（BEIJING_TZ）
+    """
+
+    # 安全检查：如果没 tzinfo，自动补北京时区
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=BEIJING_TZ)
+    if end_dt.tzinfo is None:
+        end_dt = end_dt.replace(tzinfo=BEIJING_TZ)
+
+    # 标题自动生成
+    if title is None:
+        title = f"{start_dt.strftime('%Y-%m-%d %H:%M:%S')} ~ {end_dt.strftime('%Y-%m-%d %H:%M:%S')} 报表"
+
     now = datetime.now(BEIJING_TZ)
-    first_day_this_month = datetime(now.year, now.month, 1, tzinfo=BEIJING_TZ)
-    first_day_last_month = (first_day_this_month - timedelta(days=1)).replace(day=1)
 
-    excel_path = export_excel(first_day_last_month, first_day_this_month)
-    month_label = f"{first_day_last_month.year}年{first_day_last_month.month:02d}月"
+    # ⬇ 核心：导出精确到秒的区间报表
+    excel_path = export_excel(start_dt, end_dt)
 
+    # 群发给管理员
     for admin_id in REPORT_ADMIN_IDS:
         try:
             await bot.send_document(
                 chat_id=admin_id,
                 document=open(excel_path, "rb"),
-                caption=f"📊 {month_label} 打卡统计报表\n生成时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
+                caption=f"📊 {title}\n生成时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
             )
-            logger.info(f"✅ 已发送 {month_label} 报表给管理员 {admin_id}")
+            logger.info(f"✅ 已发送 {title} 给管理员 {admin_id}")
         except Exception as e:
             logger.error(f"❌ 发送报表给管理员 {admin_id} 失败: {e}")
+
+async def send_monthly_report(bot):
+    now = datetime.now(BEIJING_TZ)
+
+    # 本月 1 号 01:00:00
+    first_day_this_month = datetime(
+        now.year, now.month, 1, 1, 0, 0, tzinfo=BEIJING_TZ
+    )
+
+    # 上个月 1 号 02:00:00
+    first_day_last_month = (first_day_this_month - timedelta(days=1)).replace(
+        day=1, hour=2, minute=0, second=0, microsecond=0
+    )
+
+    title = f"{first_day_last_month.year}年{first_day_last_month.month:02d}月报表（精确到秒）"
+
+    await send_custom_report(
+        bot,
+        start_dt=first_day_last_month,
+        end_dt=first_day_this_month,
+        title=title
+    )
 
 # ===========================
 # 调度任务设置
@@ -545,7 +581,7 @@ def setup_scheduler(bot):
 
     scheduler.add_job(
         send_monthly_report,
-        CronTrigger(day=1, hour=14, minute=22, timezone=BEIJING_TZ),
+        CronTrigger(day=1, hour=15, minute=15, timezone=BEIJING_TZ),
         args=[bot],
         id="send_report",
         replace_existing=True,
@@ -558,7 +594,7 @@ def setup_scheduler(bot):
         replace_existing=True,
     )
 
-    return scheduler   # ❗注意：不 start()
+    return scheduler 
 
 async def on_startup(app: Application):
     # 此时 event loop 已经运行
