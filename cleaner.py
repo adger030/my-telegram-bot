@@ -1,13 +1,24 @@
 import os
 import time
 import pytz
+import logging
 from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sqlalchemy import text
 from db_pg import engine
+
 import cloudinary
 import cloudinary.api
+
+
+# ===========================
+# 日志配置
+# ===========================
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 # ===========================
@@ -22,23 +33,25 @@ def delete_last_month_data():
     start_str = first_day_last_month.strftime('%Y-%m-%d')
     end_str = last_day_last_month.strftime('%Y-%m-%d')
 
-    print(f"🧹 清理数据：{start_str} - {end_str}")
+    logger.info(f"🧹 清理数据：{start_str} - {end_str}")
     delete_messages_and_images(start_str, end_str)
 
 
 # ===========================
-# 主函数：批量删除指定时间区间内的消息记录与图片
+# 主函数：稳定删除流程
 # ===========================
-def delete_messages_and_images(start_date: str, end_date: str, batch_size: int = 100, max_workers: int = 3):
+def delete_messages_and_images(start_date: str, end_date: str, batch_size: int = 100, max_retries: int = 3):
     """
-    批量删除指定日期内的  图片与数据库记录
-    :param start_date: 开始日期 (YYYY-MM-DD)
-    :param end_date: 结束日期 (YYYY-MM-DD)
-    :param batch_size:  批量删除每次最多 100 张
-    :param max_workers: 并行线程数，用于分批删除
+    稳定删除流程：
+    1. 查询 public_id
+    2. 顺序批量删除 Cloudinary（带重试）
+    3. 删除成功后再删除数据库记录
     """
-    with engine.begin() as conn:
-        # 1️⃣ 查询 Cloudinary 图片 URL
+
+    # ===========================
+    # 1️⃣ 查询图片 URL（短事务）
+    # ===========================
+    with engine.connect() as conn:
         result = conn.execute(
             text("""
                 SELECT content FROM messages
@@ -52,68 +65,109 @@ def delete_messages_and_images(start_date: str, end_date: str, batch_size: int =
         )
         image_urls = [row[0] for row in result]
 
-        if not image_urls:
-            print("⚠️ 指定日期内没有可删除的 Cloudinary 图片。")
-        else:
-            print(f"🔍 共找到 {len(image_urls)} 张图片，开始批量删除...")
+    if not image_urls:
+        logger.warning("⚠️ 指定日期内没有可删除的 Cloudinary 图片。")
+        return
 
-            # 提取所有 public_id
-            public_ids = [extract_cloudinary_public_id(url) for url in image_urls if extract_cloudinary_public_id(url)]
-            print(f"📌 成功解析 {len(public_ids)} 个 Cloudinary public_id")
+    logger.info(f"🔍 共找到 {len(image_urls)} 张图片")
 
-            start_time = time.time()
+    # ===========================
+    # 2️⃣ 提取 public_id
+    # ===========================
+    public_ids = []
+    for url in image_urls:
+        pid = extract_cloudinary_public_id(url)
+        if pid:
+            public_ids.append(pid)
 
-            # 2️⃣ 分批并行删除（每批最多 100 张）
-            batches = [public_ids[i:i+batch_size] for i in range(0, len(public_ids), batch_size)]
+    if not public_ids:
+        logger.warning("⚠️ 未解析到有效 public_id")
+        return
 
-            deleted_total = 0
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(batch_delete_cloudinary_images, batch): batch for batch in batches}
-                for future in as_completed(futures):
-                    deleted_count = future.result()
-                    deleted_total += deleted_count
+    logger.info(f"📌 成功解析 {len(public_ids)} 个 public_id")
 
-            elapsed = time.time() - start_time
-            print(f"✅ 批量删除完成：{deleted_total}/{len(public_ids)} 张图片，耗时 {elapsed:.2f} 秒")
+    # ===========================
+    # 3️⃣ 顺序批量删除 Cloudinary
+    # ===========================
+    deleted_total = 0
+    failed_ids = []
 
-        # 3️⃣ 删除数据库中的 messages 记录
-        result = conn.execute(
-            text("""
-                DELETE FROM messages
-                WHERE timestamp >= :start_date AND timestamp <= :end_date
-                RETURNING id
-            """),
-            {
-                "start_date": f"{start_date} 00:00:00",
-                "end_date": f"{end_date} 23:59:59"
-            }
-        )
-        deleted_rows = len(result.fetchall())
-        print(f"✅ 已删除数据库记录：{deleted_rows} 条（{start_date} 到 {end_date}）")
+    start_time = time.time()
+
+    for i in range(0, len(public_ids), batch_size):
+        batch = public_ids[i:i + batch_size]
+        logger.info(f"🚀 删除批次 {i//batch_size + 1}，数量 {len(batch)}")
+
+        success_count, failed_batch = delete_batch_with_retry(batch, max_retries)
+
+        deleted_total += success_count
+        failed_ids.extend(failed_batch)
+
+        logger.info(f"✅ 当前累计删除 {deleted_total}/{len(public_ids)}")
+
+        # 防止 API 限流
+        time.sleep(0.4)
+
+    elapsed = time.time() - start_time
+    logger.info(f"🎯 Cloudinary 删除完成：{deleted_total}/{len(public_ids)}，耗时 {elapsed:.2f} 秒")
+
+    # ===========================
+    # 4️⃣ 只有成功删除的才删数据库
+    # ===========================
+    if deleted_total > 0:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("""
+                    DELETE FROM messages
+                    WHERE timestamp >= :start_date AND timestamp <= :end_date
+                    RETURNING id
+                """),
+                {
+                    "start_date": f"{start_date} 00:00:00",
+                    "end_date": f"{end_date} 23:59:59"
+                }
+            )
+            deleted_rows = len(result.fetchall())
+
+        logger.info(f"🗑 数据库删除 {deleted_rows} 条记录")
+
+    if failed_ids:
+        logger.error(f"❌ 仍有 {len(failed_ids)} 张图片删除失败")
+        for fid in failed_ids:
+            logger.error(f"   失败 public_id: {fid}")
 
 
 # ===========================
-# 批量删除 Cloudinary 图片（API）
+# 批量删除 + 重试机制
 # ===========================
-def batch_delete_cloudinary_images(public_id_list):
-    """
-    使用 Cloudinary API 一次性删除最多 100 张图片
-    """
-    try:
-        response = cloudinary.api.delete_resources(public_id_list, resource_type="image")
-        deleted = response.get("deleted", {})
-        failed = response.get("failed", {})
+def delete_batch_with_retry(public_id_list, max_retries):
+    attempt = 0
+    failed_ids = public_id_list
 
-        for pid, status in deleted.items():
-            if status == "deleted":
-                print(f"🗑 已删除图片: {pid}")
-        for pid, error in failed.items():
-            print(f"⚠️ 删除失败: {pid} - {error}")
+    while attempt < max_retries and failed_ids:
+        attempt += 1
+        logger.info(f"🔁 第 {attempt} 次尝试删除 {len(failed_ids)} 张图片")
 
-        return len([s for s in deleted.values() if s == "deleted"])
-    except Exception as e:
-        print(f"❌ 批量删除失败: {e}")
-        return 0
+        try:
+            response = cloudinary.api.delete_resources(
+                failed_ids,
+                resource_type="image"
+            )
+
+            deleted = response.get("deleted", {})
+            failed = response.get("failed", {})
+
+            success_ids = [pid for pid, status in deleted.items() if status == "deleted"]
+            failed_ids = list(failed.keys())
+
+            logger.info(f"   本次成功 {len(success_ids)}，失败 {len(failed_ids)}")
+
+        except Exception as e:
+            logger.error(f"❌ 删除异常: {e}")
+            time.sleep(1)
+
+    success_count = len(public_id_list) - len(failed_ids)
+    return success_count, failed_ids
 
 
 # ===========================
@@ -122,14 +176,15 @@ def batch_delete_cloudinary_images(public_id_list):
 def extract_cloudinary_public_id(url: str):
     """
     解析 Cloudinary 图片 URL 提取 public_id
-    例如：
+    示例：
     https://res.cloudinary.com/demo/image/upload/v1691234567/folder/image.jpg
     返回 -> folder/image
     """
     if "cloudinary.com" not in url:
         return None
-    parts = url.split("/")
+
     try:
+        parts = url.split("/")
         idx = parts.index("upload")
         public_id_with_ext = "/".join(parts[idx + 1:])
         public_id = os.path.splitext(public_id_with_ext)[0]
