@@ -589,7 +589,7 @@ def setup_scheduler(bot):
 
     scheduler.add_job(
         delete_last_month_data,
-        CronTrigger(day=3, hour=22, minute=50, timezone=BEIJING_TZ),
+        CronTrigger(day=3, hour=18, minute=00, timezone=BEIJING_TZ),
         id="clean_data",
         replace_existing=True,
     )
