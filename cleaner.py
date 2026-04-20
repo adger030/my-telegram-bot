@@ -20,6 +20,32 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ===========================
+# 入口：删除3个月前的数据（定时任务）
+# ===========================
+def delete_last_3months_data():
+    now = datetime.now(pytz.timezone("Asia/Shanghai"))
+
+    # 当前月1号
+    first_day_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # ⭐ 计算“3个月前的月初”
+    month = first_day_this_month.month - 3
+    year = first_day_this_month.year
+
+    if month <= 0:
+        month += 12
+        year -= 1
+
+    cutoff_date = datetime(year, month, 1, tzinfo=first_day_this_month.tzinfo)
+
+    start_str = "1970-01-01"
+    end_str = (cutoff_date - timedelta(seconds=1)).strftime('%Y-%m-%d')
+
+    logger.info(f"🧹 清理3个月前数据：<= {end_str}")
+
+    delete_messages_and_images(start_str, end_str)
+
 
 # ===========================
 # 入口：删除上月数据（定时任务）
