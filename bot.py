@@ -27,7 +27,7 @@ from telegram.constants import ChatAction
 # ===========================
 from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, LOGS_PER_PAGE, BEIJING_TZ, REPORT_ADMIN_IDS
 from upload_image import upload_image
-from cleaner import delete_last_month_data
+from cleaner import delete_last_month_data, delete_last_3months_data
 from db_pg import (
     init_db, save_message, get_user_logs, save_shift, get_user_name, 
     set_user_name, get_db, transfer_user_data
@@ -588,8 +588,8 @@ def setup_scheduler(bot):
     )
 
     scheduler.add_job(
-        delete_last_month_data,
-        CronTrigger(day=3, hour=18, minute=00, timezone=BEIJING_TZ),
+        delete_last_3months_data,
+        CronTrigger(day=2, hour=11, minute=00, timezone=BEIJING_TZ),
         id="clean_data",
         replace_existing=True,
     )
