@@ -88,10 +88,6 @@ async def send_welcome(update_or_msg, name):
         caption="#上班打卡",
 		parse_mode="HTML"
     )
-    await update_or_msg.reply_text(
-        "举个🌰，如上👆",
-        reply_markup=reply_markup
-    )
 
 # ===========================
 # /start 命令：首次提示输入姓名，否则直接发送欢迎说明
