@@ -11,7 +11,7 @@ import calendar
 # ===========================
 # 第三方库
 # ===========================
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ApplicationBuilder
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -103,6 +103,10 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 已在数据库，正常欢迎
     await send_welcome(update.message, name)
+    await update.message.reply_text(
+        "举个例子⬆️",
+        reply_markup=ReplyKeyboardRemove()  # 👈 强制清理历史键盘
+    )
 
 # ===========================
 # 处理纯文本消息
