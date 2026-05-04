@@ -74,7 +74,7 @@ async def send_welcome(update_or_msg, name):
         "2️⃣ 上班打卡需要选择你的班次，提示打卡成功完成打卡；\n"
         "3️⃣ 若忘记上班打卡，请发送“#补卡”并附带IP截图（无法补下班卡）；\n"
         "4️⃣ 请务必在班次后1小时内完成下班打卡，超时无法打卡；\n"
-	    "5️⃣ 重新发送/start指令，输入框下方展示打卡记录按钮；\n\n"
+	    "5️⃣ 若打错卡，请及时联系部门助理处理；\n\n"
         "IP截图必须包含以下信息\n"
         "① 设备编码：本机序列号\n"
         "② 实时IP：指定网站内显示的IP\n"
@@ -88,6 +88,7 @@ async def send_welcome(update_or_msg, name):
         caption="#上班打卡",
 		parse_mode="HTML"
     )
+	await update.message.reply_text("举个🌰，如上👆", reply_markup=reply_markup)
 
 # ===========================
 # /start 命令：首次提示输入姓名，否则直接发送欢迎说明
@@ -104,11 +105,6 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 已在数据库，正常欢迎
     await send_welcome(update.message, name)
 
-    # 固定按钮
-    keyboard = [["🗓 本月打卡记录"]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-    await update.message.reply_text("举个🌰，如上👆", reply_markup=reply_markup)
-
 # ===========================
 # 处理纯文本消息
 # ===========================
@@ -116,11 +112,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     username = msg.from_user.username or f"user{msg.from_user.id}"
     text = msg.text.strip()
-
-    # 🚩 如果点击了按钮
-    if text == "🗓 本月打卡记录":
-        await mylogs_cmd(update, context)
-        return
 
     # 🚩 检查数据库里是否有该用户
     name = get_user_name(username)
