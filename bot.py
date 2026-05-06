@@ -305,7 +305,7 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #    if query.message.text != new_text:
 #       await query.edit_message_text(new_text)
 
-	new_text = f"✅ 上班打卡成功！班次：{shift_name}"
+    new_text = f"✅ 上班打卡成功！班次：{shift_name}"
 	
 	buttons = [
 	    [InlineKeyboardButton("🔄 修改班次", callback_data="change_shift")]
