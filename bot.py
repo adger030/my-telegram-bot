@@ -344,14 +344,23 @@ async def change_shift_to_callback(update: Update, context: ContextTypes.DEFAULT
 
     # 🚨 限制2：只允许 5 分钟内修改
     last_checkin = None
-    for ts, kw, _ in reversed(logs):
+    current_shift = None  # 👈 新增
+
+    for ts, kw, shift in reversed(logs):
         if kw in ("#上班打卡", "#补卡"):
             last_checkin = ts
+            current_shift = shift   # 👈 记录当前班次
             break
 
     if last_checkin:
         if (now - last_checkin).total_seconds() > 300:
-            await query.edit_message_text("⚠️ 超过5分钟，不能修改班次。")
+
+            msg = "⚠️ 超过5分钟，不能修改班次。"
+
+            if current_shift:
+                msg += f"\n当前班次：{current_shift}"
+
+            await query.edit_message_text(msg)
             return
 
     # ✅ 更新数据库
