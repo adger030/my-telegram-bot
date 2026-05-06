@@ -30,7 +30,7 @@ from upload_image import upload_image
 from cleaner import delete_last_month_data, delete_last_3months_data
 from db_pg import (
     init_db, save_message, get_user_logs, save_shift, get_user_name, 
-    set_user_name, get_db, transfer_user_data
+    set_user_name, get_db, transfer_user_data, update_today_shift 
 )
 from admin_tools import (
     delete_range_cmd, delete_one_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd,
