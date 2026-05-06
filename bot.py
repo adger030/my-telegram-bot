@@ -299,22 +299,18 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     shift_code = query.data.split(":")[1]
     shift_name = get_shift_options()[shift_code]
 
-    save_shift(username, shift_name)  # 保存班次
-
-#    new_text = f"✅ 上班打卡成功！班次：{shift_name}"
-#    if query.message.text != new_text:
-#       await query.edit_message_text(new_text)
+    save_shift(username, shift_name)
 
     new_text = f"✅ 上班打卡成功！班次：{shift_name}"
-	
-	buttons = [
-	    [InlineKeyboardButton("🔄 修改班次", callback_data="change_shift")]
-	]
-	
-	await query.edit_message_text(
-	    new_text,
-	    reply_markup=InlineKeyboardMarkup(buttons)
-	)
+
+    buttons = [
+        [InlineKeyboardButton("🔄 修改班次", callback_data="change_shift")]
+    ]
+
+    await query.edit_message_text(
+        new_text,
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
 async def change_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
