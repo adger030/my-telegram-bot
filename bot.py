@@ -301,9 +301,67 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     save_shift(username, shift_name)  # 保存班次
 
-    new_text = f"✅ 上班打卡成功！班次：{shift_name}"
-    if query.message.text != new_text:
-        await query.edit_message_text(new_text)
+#    new_text = f"✅ 上班打卡成功！班次：{shift_name}"
+#    if query.message.text != new_text:
+#       await query.edit_message_text(new_text)
+
+	new_text = f"✅ 上班打卡成功！班次：{shift_name}"
+	
+	buttons = [
+	    [InlineKeyboardButton("🔄 修改班次", callback_data="change_shift")]
+	]
+	
+	await query.edit_message_text(
+	    new_text,
+	    reply_markup=InlineKeyboardMarkup(buttons)
+	)
+
+async def change_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    keyboard = [
+        [InlineKeyboardButton(v, callback_data=f"change_shift_to:{k}")]
+        for k, v in get_shift_options().items()
+    ]
+
+    await query.edit_message_text(
+        "请选择新的班次：",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def change_shift_to_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    username = query.from_user.username or f"user{query.from_user.id}"
+    shift_code = query.data.split(":")[1]
+    shift_name = get_shift_options()[shift_code]
+
+    # 🚨 限制1：如果已经打了下班卡 → 禁止修改
+    now = datetime.now(BEIJING_TZ)
+    logs = get_user_logs(username, now - timedelta(days=1), now)
+
+    if any(kw == "#下班打卡" for _, kw, _ in logs):
+        await query.edit_message_text("⚠️ 已完成下班打卡，不能修改班次。")
+        return
+
+    # 🚨 限制2：只允许 5 分钟内修改
+    last_checkin = None
+    for ts, kw, _ in reversed(logs):
+        if kw in ("#上班打卡", "#补卡"):
+            last_checkin = ts
+            break
+
+    if last_checkin:
+        if (now - last_checkin).total_seconds() > 300:
+            await query.edit_message_text("⚠️ 超过5分钟，不能修改班次。")
+            return
+
+    # ✅ 更新数据库
+    update_today_shift(username, shift_name)
+
+    await query.edit_message_text(f"✅ 班次修改成功！新班次：{shift_name}")
 
 # ===========================
 # 检查用户当天是否已经打过指定关键词的卡（最终版）
@@ -665,6 +723,8 @@ def main():
     app.add_handler(CallbackQueryHandler(logs_page_callback, pattern="^(mylogs|lastmonth)_(prev|next)$")) # 用户点击“我的打卡记录”翻页按钮
     app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^(userlogs|userlogs_lastmonth)_(prev|next)$")) # 管理员查看“指定用户打卡记录”翻页按钮
     app.add_handler(CallbackQueryHandler(mylogs_cmd, pattern="^mylogs_open$"))
+	app.add_handler(CallbackQueryHandler(change_shift_callback, pattern="^change_shift$"))
+	app.add_handler(CallbackQueryHandler(change_shift_to_callback, pattern="^change_shift_to:"))
 
     # ===========================
     # 启动 Bot
