@@ -285,3 +285,27 @@ def transfer_user_data(user_a, user_b):
 
             conn.commit()
             print(f"✅ 数据已从 {user_a} 转移至 {user_b}")
+
+
+def update_today_shift(username, new_shift):
+    """
+    修改当天最后一条 上班打卡/补卡 的班次
+    """
+    now = datetime.now(BEIJING_TZ)
+    today = now.date()
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE messages
+                SET shift = %s
+                WHERE id = (
+                    SELECT id FROM messages
+                    WHERE username = %s
+                      AND keyword IN ('#上班打卡', '#补卡')
+                      AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai') = %s
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                )
+            """, (new_shift, username, today))
+            conn.commit()
