@@ -74,7 +74,7 @@ async def send_welcome(update_or_msg, name):
         "2️⃣ 上班打卡需要选择你的班次，提示打卡成功完成打卡；\n"
         "3️⃣ 若忘记上班打卡，请发送“#补卡”并附带IP截图（无法补下班卡）；\n"
         "4️⃣ 请务必在班次后1小时内完成下班打卡，超时无法打卡；\n"
-	    "5️⃣ 若打错卡，请及时联系部门助理处理；\n\n"
+	    "5️⃣ 若打错卡，5分钟内可以修改班次；\n\n"
         "IP截图必须包含以下信息\n"
         "① 设备编码：本机序列号\n"
         "② 实时IP：指定网站内显示的IP\n"
@@ -304,7 +304,7 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_text = f"✅ 上班打卡成功！班次：{shift_name}"
 
     buttons = [
-        [InlineKeyboardButton("🔄 修改班次", callback_data="change_shift")]
+        [InlineKeyboardButton("🔄 修改班次（仅限5分钟内）", callback_data="change_shift")]
     ]
 
     await query.edit_message_text(
@@ -355,10 +355,10 @@ async def change_shift_to_callback(update: Update, context: ContextTypes.DEFAULT
     if last_checkin:
         if (now - last_checkin).total_seconds() > 300:
 
-            msg = "⚠️ 超过5分钟，不能修改班次。"
+            msg = "⚠️ 已超过5分钟，不能修改班次，"
 
             if current_shift:
-                msg += f"\n当前班次：{current_shift}"
+                msg += f"当前班次：{current_shift}"
 
             await query.edit_message_text(msg)
             return
