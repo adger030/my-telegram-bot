@@ -287,6 +287,21 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         markup = InlineKeyboardMarkup(buttons)
         await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift}", reply_markup=markup)
 
+# ===========================
+# 自动移除按钮函数
+# ===========================
+async def remove_change_shift_button(bot, chat_id, message_id):
+    await asyncio.sleep(300)  # 5分钟
+
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=None
+        )
+    except Exception:
+        pass
+
 
 # ===========================
 # 选择上班班次回调
@@ -310,6 +325,15 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         new_text,
         reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+    # ✅ 5分钟后自动移除按钮
+    asyncio.create_task(
+        remove_change_shift_button(
+            context.bot,
+            query.message.chat_id,
+            query.message.message_id
+        )
     )
 
 async def change_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
