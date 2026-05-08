@@ -72,7 +72,7 @@ async def send_welcome(update_or_msg, name):
         f"您好，{name}！\n\n"
         "📌 使用说明：\n"
         "1️⃣ 向机器人发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
-        "2️⃣ 上班打卡后选择你的班次，提示打卡成功完成打卡；\n"
+        "2️⃣ 上班打卡后选择你的班次（超时1分钟无效），提示打卡成功完成打卡；\n"
         "3️⃣ 忘记上班打卡，请发送“#补卡”并附带IP截图（无法补下班卡）；\n"
         "4️⃣ 上班选错班次，5分钟内可以修改班次；\n"
 	    "5️⃣ 请务必在班次后1小时内完成下班打卡，超时无法打卡；\n\n"
@@ -534,7 +534,7 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_text = f"✅ 上班打卡成功！班次：{shift_name}"
 
     buttons = [
-        [InlineKeyboardButton("🔄 修改班次", callback_data="change_shift")]
+        [InlineKeyboardButton("🔄 修改班次（仅限5分钟内）", callback_data="change_shift")]
     ]
 
     await query.edit_message_text(
