@@ -682,18 +682,27 @@ def has_user_checked_keyword_today_fixed(username, keyword):
 async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()  # 先应答按钮点击事件
-    data = context.user_data.get("makeup_data")  # 从上下文中取补卡信息
-    if not data:
-        await query.edit_message_text("⚠️ 补卡信息丢失，请重新发送“#补卡”。")
+ 
+    try:
+        _, pending_id, shift_code = query.data.split(":")
+    except ValueError:
+        await query.edit_message_text("⚠️ 数据异常，请重新发送“#补卡”。")
         return
-
-    shift_code = query.data.split(":")[1]  # 从回调数据中取班次代码
+ 
+    pending_makeups = context.user_data.get("pending_makeups", {})
+    data = pending_makeups.get(pending_id)
+ 
+    if not data:
+        await query.edit_message_text("⚠️ 补卡已超时或失效，请重新发送“#补卡”。")
+        return
+ 
+    # shift_code 已从 callback_data 中解析
     shift_name = get_shift_options()[shift_code]  # 转换为完整班次名
     shift_short = shift_name.split("（")[0]  # 提取班次简称（F班/I班等）
-
+ 
     # 当前时间（北京时间）
     now = datetime.now(BEIJING_TZ)
-
+ 
     # 🚫 时间窗口限制
     if shift_short == "I班" and (6 <= now.hour < 15):
         await query.edit_message_text("⚠️ 当前时间段禁止补 I 班（06:00-15:00 不能补卡）。")
@@ -701,11 +710,11 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if shift_short == "F班" and now.hour < 12:
         await query.edit_message_text("⚠️ 当前时间段禁止补 F 班（12:00 之前不能补卡）。")
         return
-
+ 
     # 获取班次上班时间
     start_time, _ = get_shift_times_short()[shift_short]
     punch_dt = datetime.combine(data["date"], start_time, tzinfo=BEIJING_TZ)
-
+ 
     # 保存补卡信息
     save_message(
         username=data["username"],
@@ -715,10 +724,10 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
         keyword="#上班打卡",
         shift=shift_name + "（补卡）"
     )
-
+ 
     # 成功提示并清除上下文补卡信息
     await query.edit_message_text(f"✅ 补卡成功！班次：{shift_name}")
-    context.user_data.pop("makeup_data", None)
+    pending_makeups.pop(pending_id, None)
 
 # ===========================
 # /lastmonth 命令
