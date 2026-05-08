@@ -4,6 +4,7 @@
 import os
 import sys
 import asyncio
+import uuid
 from datetime import datetime, timedelta, time
 from collections import defaultdict
 import calendar
@@ -154,6 +155,36 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text("❗️请附带IP截图完成下班打卡。")
 
 
+# ========= CALLBACK =========
+async def cancel_pending_checkin(context, chat_id, pending_id):
+    await asyncio.sleep(60)  # 1分钟超时
+
+    pending_checkins = context.user_data.get("pending_checkins", {})
+
+    if pending_id in pending_checkins:
+        pending_checkins.pop(pending_id, None)
+
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="⚠️ 超过1分钟未选择班次，本次打卡已失效，请重新打卡。"
+            )
+        except Exception:
+            pass
+
+
+async def remove_change_shift_button(bot, chat_id, message_id):
+    await asyncio.sleep(300)  # 5分钟后移除按钮
+
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=None
+        )
+    except Exception:
+        pass
+		
 
 # ===========================
 # 处理带图片的打卡消息（保留原功能，新增 I班限制）
@@ -173,74 +204,172 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not keyword:
         await msg.reply_text("❗ 图片必须附加关键词：#上班打卡 / #下班打卡 / #补卡")
         return
-	
+
     # 下载图片（≤1MB）
     photo = msg.photo[-1]
     file = await photo.get_file()
+
     if file.file_size > 1024 * 1024:
         await msg.reply_text("❗ 图片太大，不能超过1MB。")
         return
 
     today_str = datetime.now(BEIJING_TZ).strftime("%Y-%m-%d")
     tmp_path = f"/tmp/{today_str}_{username}_{keyword}.jpg"
+
     await file.download_to_drive(tmp_path)
+
     image_url = upload_image(tmp_path)
+
     os.remove(tmp_path)
 
-    name = get_user_name(username)
     now = datetime.now(BEIJING_TZ)
 
-    # ================== 根据关键词处理 ==================
+    # ==========================
+    # 上班打卡
+    # ==========================
     if keyword == "#上班打卡":
-        # 原有：当天是否已打上班/补卡
+
+        # 今日已打上班卡
         if has_user_checked_keyword_today_fixed(username, "#上班打卡"):
             await msg.reply_text("⚠️ 今天已经打过上班卡了。")
             return
 
-        # 🔒 新增限制（I班跨天）：凌晨 0–6 点禁止再次打上班卡（视为前一日已上班）
+        # I班跨天限制
         if 0 <= now.hour < 6:
             await msg.reply_text("⚠️ 已经打过上班卡，请勿重复。")
             return
 
-        # 原有：立即保存上班卡，随后让用户选择班次
-        save_message(username=username, name=name, content=image_url,
-                     timestamp=now, keyword=keyword)
-        keyboard = [[InlineKeyboardButton(v, callback_data=f"shift:{k}")]
-                    for k, v in get_shift_options().items()]
-        await msg.reply_text("请选择今天的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
+        # ==========================
+        # 创建待确认任务（企业级）
+        # ==========================
+        pending_id = str(uuid.uuid4())
 
+        if "pending_checkins" not in context.user_data:
+            context.user_data["pending_checkins"] = {}
+
+        context.user_data["pending_checkins"][pending_id] = {
+            "username": username,
+            "name": name,
+            "image_url": image_url,
+            "timestamp": now,
+            "keyword": keyword
+        }
+
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    v,
+                    callback_data=f"shift:{pending_id}:{k}"
+                )
+            ]
+            for k, v in get_shift_options().items()
+        ]
+
+        await msg.reply_text(
+            "请选择今天的班次：",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+        # 1分钟超时自动失效
+        asyncio.create_task(
+            cancel_pending_checkin(
+                context,
+                msg.chat_id,
+                pending_id
+            )
+        )
+
+        return
+
+    # ==========================
+    # 补卡
+    # ==========================
     elif keyword == "#补卡":
-        # 原有：上班已有/补卡已有 的限制
+
+        # 今日已有上班卡
         if has_user_checked_keyword_today_fixed(username, "#上班打卡"):
             await msg.reply_text("⚠️ 今天已有上班卡，不能再补卡。")
             return
+
+        # 今日已补卡
         if has_user_checked_keyword_today_fixed(username, "#补卡"):
             await msg.reply_text("⚠️ 今天已经补过卡了。")
             return
 
-        # 原有：凌晨补卡算前一天
-        target_date = (now - timedelta(days=1)).date() if now.hour < 6 else now.date()
-        context.user_data["makeup_data"] = {
+        # 凌晨补卡算前一天
+        target_date = (
+            (now - timedelta(days=1)).date()
+            if now.hour < 6
+            else now.date()
+        )
+
+        # ==========================
+        # 创建补卡待确认任务
+        # ==========================
+        pending_id = str(uuid.uuid4())
+
+        if "pending_makeups" not in context.user_data:
+            context.user_data["pending_makeups"] = {}
+
+        context.user_data["pending_makeups"][pending_id] = {
             "username": username,
             "name": name,
             "image_url": image_url,
-            "date": target_date
+            "date": target_date,
+            "timestamp": now,
+            "keyword": keyword
         }
-        keyboard = [[InlineKeyboardButton(v, callback_data=f"makeup_shift:{k}")]
-                    for k, v in get_shift_options().items()]
-        await msg.reply_text("请选择要补卡的班次：", reply_markup=InlineKeyboardMarkup(keyboard))
 
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    v,
+                    callback_data=f"makeup_shift:{pending_id}:{k}"
+                )
+            ]
+            for k, v in get_shift_options().items()
+        ]
+
+        await msg.reply_text(
+            "请选择要补卡的班次：",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+        # 1分钟超时自动失效
+        asyncio.create_task(
+            cancel_pending_makeup(
+                context,
+                msg.chat_id,
+                pending_id
+            )
+        )
+
+        return
+
+    # ==========================
+    # 下班打卡
+    # ==========================
     elif keyword == "#下班打卡":
-        # 🚫 必须先有上班卡或补卡
-        if not (has_user_checked_keyword_today_fixed(username, "#上班打卡") or
-                has_user_checked_keyword_today_fixed(username, "#补卡")):
+
+        # 必须先有上班卡或补卡
+        if not (
+            has_user_checked_keyword_today_fixed(username, "#上班打卡")
+            or
+            has_user_checked_keyword_today_fixed(username, "#补卡")
+        ):
             await msg.reply_text("❗ 今天还没有上班打卡，请先打卡或补卡。")
             return
 
-        # 找到最近的上班/补卡记录，获取班次
-        logs = get_user_logs(username, now - timedelta(days=1), now)
+        # 获取最近一次上班记录
+        logs = get_user_logs(
+            username,
+            now - timedelta(days=1),
+            now
+        )
+
         last_shift = None
         last_check_in = None
+
         for ts, kw, shift in reversed(logs):
             if kw in ("#上班打卡", "#补卡"):
                 last_check_in = ts if isinstance(ts, datetime) else parse(ts)
@@ -251,41 +380,100 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text("⚠️ 未找到有效的班次，无法下班打卡。")
             return
 
-        # ================= 固定的时间校验 =================
+        # ==========================
+        # 班次时间限制
+        # ==========================
         today = last_check_in.date()
+
         if last_shift == "F班":
-            # F班下班 22:00 截止
-            deadline = datetime.combine(today, time(22, 0), tzinfo=BEIJING_TZ)
-            shift_start = datetime.combine(today, time(12, 0), tzinfo=BEIJING_TZ)
-            shift_end   = deadline
+
+            deadline = datetime.combine(
+                today,
+                time(22, 0),
+                tzinfo=BEIJING_TZ
+            )
+
+            shift_start = datetime.combine(
+                today,
+                time(12, 0),
+                tzinfo=BEIJING_TZ
+            )
+
+            shift_end = deadline
+
         elif last_shift == "I班":
-            # I班下班 次日 01:00 截止
-            deadline = datetime.combine(today + timedelta(days=1), time(1, 0), tzinfo=BEIJING_TZ)
-            shift_start = datetime.combine(today, time(15, 0), tzinfo=BEIJING_TZ)
-            shift_end   = deadline
+
+            deadline = datetime.combine(
+                today + timedelta(days=1),
+                time(1, 0),
+                tzinfo=BEIJING_TZ
+            )
+
+            shift_start = datetime.combine(
+                today,
+                time(15, 0),
+                tzinfo=BEIJING_TZ
+            )
+
+            shift_end = deadline
+
         else:
             await msg.reply_text("⚠️ 班次信息错误，无法下班打卡。")
             return
 
+        # 超时
         if now > deadline:
             await msg.reply_text("⚠️ 已超过允许下班打卡时间（超过1小时），打卡无效。")
             return
-        # ================= 时间校验结束 =================
 
-        # 🚩 重复限制：仅在该班次范围内检查
-        logs_for_shift = get_user_logs(username, shift_start, shift_end)
-        if any(kw2 == "#下班打卡" and shift2 == last_shift for _, kw2, shift2 in logs_for_shift):
+        # 当前班次内是否已打下班卡
+        logs_for_shift = get_user_logs(
+            username,
+            shift_start,
+            shift_end
+        )
+
+        if any(
+            kw2 == "#下班打卡" and shift2 == last_shift
+            for _, kw2, shift2 in logs_for_shift
+        ):
             await msg.reply_text(f"⚠️ {last_shift} 已经打过下班卡了。")
             return
 
         # 保存下班卡
-        save_message(username=username, name=name, content=image_url,
-                     timestamp=now, keyword=keyword, shift=last_shift)
+        save_message(
+            username=username,
+            name=name,
+            content=image_url,
+            timestamp=now,
+            keyword=keyword,
+            shift=last_shift
+        )
 
-        # 追加按钮
-        buttons = [[InlineKeyboardButton("🗓 查看打卡记录", callback_data="mylogs_open")]]
+        # 查看记录按钮
+        buttons = [
+            [
+                InlineKeyboardButton(
+                    "🗓 查看打卡记录",
+                    callback_data="mylogs_open"
+                )
+            ]
+        ]
+
         markup = InlineKeyboardMarkup(buttons)
-        await msg.reply_text(f"✅ 下班打卡成功！班次：{last_shift}", reply_markup=markup)
+
+        await msg.reply_text(
+            f"✅ 下班打卡成功！班次：{last_shift}",
+            reply_markup=markup
+        )
+
+        return
+
+    # ==========================
+    # 未知关键词
+    # ==========================
+    else:
+        await msg.reply_text("⚠️ 未知打卡类型")
 
 # ===========================
 # 自动移除按钮函数
@@ -311,15 +499,42 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     username = query.from_user.username or f"user{query.from_user.id}"
-    shift_code = query.data.split(":")[1]
+
+    try:
+        _, pending_id, shift_code = query.data.split(":")
+    except ValueError:
+        await query.edit_message_text("⚠️ 数据异常，请重新打卡。")
+        return
+
+    pending_checkins = context.user_data.get("pending_checkins", {})
+    pending = pending_checkins.get(pending_id)
+
+    # 超时 or 已失效
+    if not pending:
+        await query.edit_message_text(
+            "⚠️ 打卡已超时或失效，请重新打卡。"
+        )
+        return
+
     shift_name = get_shift_options()[shift_code]
 
-    save_shift(username, shift_name)
+    # ✅ 正式保存数据库
+    save_message(
+        username=pending["username"],
+        name=pending["name"],
+        content=pending["image_url"],
+        timestamp=pending["timestamp"],
+        keyword=pending["keyword"],
+        shift=shift_name
+    )
+
+    # 删除待确认
+    pending_checkins.pop(pending_id, None)
 
     new_text = f"✅ 上班打卡成功！班次：{shift_name}"
 
     buttons = [
-        [InlineKeyboardButton("🔄 修改班次（仅限5分钟内）", callback_data="change_shift")]
+        [InlineKeyboardButton("🔄 修改班次", callback_data="change_shift")]
     ]
 
     await query.edit_message_text(
@@ -327,7 +542,7 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-    # ✅ 5分钟后自动移除按钮
+    # 5分钟后自动移除修改按钮
     asyncio.create_task(
         remove_change_shift_button(
             context.bot,
