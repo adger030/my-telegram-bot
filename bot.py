@@ -172,6 +172,18 @@ async def cancel_pending_checkin(context, chat_id, pending_id):
         except Exception:
             pass
 
+async def cancel_pending_makeup(context, chat_id, pending_id):
+    await asyncio.sleep(60)
+
+    pending = context.user_data.get("pending_makeups", {})
+
+    if pending_id in pending:
+        del pending[pending_id]
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="⏰ 补卡超时，已自动失效。"
+        )
 
 async def remove_change_shift_button(bot, chat_id, message_id):
     await asyncio.sleep(300)  # 5分钟后移除按钮
