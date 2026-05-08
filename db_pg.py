@@ -288,24 +288,48 @@ def transfer_user_data(user_a, user_b):
 
 
 def update_today_shift(username, new_shift):
-    """
-    修改当天最后一条 上班打卡/补卡 的班次
-    """
-    now = datetime.now(BEIJING_TZ)
-    today = now.date()
+    conn = get_db()
+    cur = conn.cursor()
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE messages
-                SET shift = %s
-                WHERE id = (
-                    SELECT id FROM messages
-                    WHERE username = %s
-                      AND keyword IN ('#上班打卡', '#补卡')
-                      AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai') = %s
-                    ORDER BY timestamp DESC
-                    LIMIT 1
-                )
-            """, (new_shift, username, today))
-            conn.commit()
+    today = datetime.now(BEIJING_TZ).date()
+
+    # 先获取旧班次
+    cur.execute("""
+        SELECT shift
+        FROM messages
+        WHERE username=%s
+          AND keyword IN ('#上班打卡', '#补卡')
+          AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai')=%s
+        ORDER BY timestamp DESC
+        LIMIT 1
+    """, (username, today))
+
+    row = cur.fetchone()
+
+    old_shift = row[0] if row else None
+
+    # 更新班次
+    cur.execute("""
+        UPDATE messages
+        SET shift=%s
+        WHERE id = (
+            SELECT id
+            FROM messages
+            WHERE username=%s
+              AND keyword IN ('#上班打卡', '#补卡')
+              AND DATE(timestamp AT TIME ZONE 'Asia/Shanghai')=%s
+            ORDER BY timestamp DESC
+            LIMIT 1
+        )
+    """, (new_shift, username, today))
+
+    conn.commit()
+
+    # ✅ 新增日志
+    print(
+        f"[SHIFT_CHANGE] {username}: "
+        f"{old_shift} -> {new_shift}"
+    )
+
+    cur.close()
+    conn.close()
