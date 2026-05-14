@@ -582,42 +582,80 @@ async def change_shift_to_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
 
     username = query.from_user.username or f"user{query.from_user.id}"
-    shift_code = query.data.split(":")[1]
-    shift_name = get_shift_options()[shift_code]
 
-    # 🚨 限制1：如果已经打了下班卡 → 禁止修改
-    now = datetime.now(BEIJING_TZ)
-    logs = get_user_logs(username, now - timedelta(days=1), now)
-
-    if any(kw == "#下班打卡" for _, kw, _ in logs):
-        await query.edit_message_text("⚠️ 已完成下班打卡，不能修改班次。")
+    try:
+        shift_code = query.data.split(":")[1]
+    except Exception:
+        await query.edit_message_text("⚠️ 班次数据异常，请重新操作。")
         return
 
-    # 🚨 限制2：只允许 5 分钟内修改
+    shift_name = get_shift_options()[shift_code]
+
+    now = datetime.now(BEIJING_TZ)
+
+    # =========================
+    # 只查询“今天”的记录（修复误判）
+    # =========================
+    today_start = datetime.combine(
+        now.date(),
+        time.min,
+        tzinfo=BEIJING_TZ
+    )
+
+    logs = get_user_logs(
+        username,
+        today_start,
+        now
+    )
+
+    # =========================
+    # 已下班 → 禁止修改班次
+    # =========================
+    if any(kw == "#下班打卡" for _, kw, _ in logs):
+        await query.edit_message_text(
+            "⚠️ 已完成下班打卡，不能修改班次。"
+        )
+        return
+
+    # =========================
+    # 只允许5分钟内修改
+    # =========================
     last_checkin = None
-    current_shift = None  # 👈 新增
+    current_shift = None
 
     for ts, kw, shift in reversed(logs):
         if kw in ("#上班打卡", "#补卡"):
             last_checkin = ts
-            current_shift = shift   # 👈 记录当前班次
+            current_shift = shift
             break
 
-    if last_checkin:
-        if (now - last_checkin).total_seconds() > 300:
+    # 未找到上班记录
+    if not last_checkin:
+        await query.edit_message_text(
+            "⚠️ 未找到今日上班记录。"
+        )
+        return
 
-            msg = "⚠️ 已超过5分钟，不能修改班次，"
+    # 超过5分钟
+    if (now - last_checkin).total_seconds() > 300:
 
-            if current_shift:
-                msg += f"当前班次：{current_shift}"
+        current_shift_text = current_shift or "未知"
 
-            await query.edit_message_text(msg)
-            return
+        await query.edit_message_text(
+            f"⚠️ 超过5分钟，不能修改班次。\n"
+            f"当前班次：{current_shift_text}"
+        )
+        return
 
-    # ✅ 更新数据库
+    # =========================
+    # 更新班次
+    # =========================
     update_today_shift(username, shift_name)
 
-    await query.edit_message_text(f"✅ 班次修改成功！新班次：{shift_name}")
+    await query.edit_message_text(
+        f"✅ 班次修改成功！\n"
+        f"新班次：{shift_name}"
+    )
 
 # ===========================
 # 检查用户当天是否已经打过指定关键词的卡（最终版）
