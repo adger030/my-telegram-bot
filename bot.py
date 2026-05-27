@@ -611,10 +611,10 @@ async def change_shift_to_callback(update: Update, context: ContextTypes.DEFAULT
     # =========================
     # 已下班 → 禁止修改班次
     # =========================
-	if any(
+    if any(
 	    kw == "#下班打卡" and ts.astimezone(BEIJING_TZ).hour >= 6
 	    for ts, kw, _ in logs
-	):
+    ):
 	    await query.edit_message_text("⚠️ 已完成下班打卡，不能修改班次。")
 	    return
     # =========================
