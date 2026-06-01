@@ -788,7 +788,7 @@ async def lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_day_this = datetime(now.year, now.month, 1, tzinfo=BEIJING_TZ)
 
     # 查询范围：上个月 1号 00:00 → 本月 1号 01:00
-    start = first_day_prev.replace(hour=0, minute=0, second=0, microsecond=0)
+    start = first_day_prev.replace(hour=1, minute=0, second=0, microsecond=0)
     end = first_day_this.replace(hour=1, minute=0, second=0, microsecond=0)
 
     logs = get_user_logs(username, start, end) if username else None
