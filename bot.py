@@ -80,6 +80,7 @@ async def send_welcome(update_or_msg, name):
         "① 设备编码：本机序列号\n"
         "② 实时IP：指定网站内显示的IP\n"
         "③ 本地时间：电脑任务栏时间（需含月、日、时、分）\n\n"
+		"举个例子⬇️\n\n"
         "<a href='https://www.ipaddress.my'>点击这里查看你的IP地址</a>\n\n"
     )
     await update_or_msg.reply_text(welcome_text, parse_mode="HTML")
@@ -105,7 +106,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 已在数据库，正常欢迎
     await send_welcome(update.message, name)
     await update.message.reply_text(
-        "举个例子⬆️\n\n查看你的打卡记录⬇️",
+        "查看你的打卡记录：",
         reply_markup=InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("📅 本月打卡记录", callback_data="mylogs_open"),
