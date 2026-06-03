@@ -1006,8 +1006,6 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)  
     # ✅ 确保数据存储目录存在，用于导出文件、缓存等
 
-    # 启动调度器
-    setup_scheduler(app.bot)
 	
     # ===========================
     # ✅ 注册命令处理器（/命令）
