@@ -105,8 +105,13 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 已在数据库，正常欢迎
     await send_welcome(update.message, name)
     await update.message.reply_text(
-        "举个例子⬆️",
-        reply_markup=ReplyKeyboardRemove()  # 👈 强制清理历史键盘
+        "查看你的打卡记录：",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📅 本月记录", callback_data="mylogs_open"),
+                InlineKeyboardButton("📆 上月记录", callback_data="lastmonth_open"),
+            ]
+        ])
     )
 
 # ===========================
@@ -122,7 +127,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not name:
         await msg.reply_text("⚠️ 无法使用，请联系部门助理。")
         return
-		
+
     keyword = extract_keyword(text)
 
     if keyword:
@@ -1026,6 +1031,7 @@ def main():
     app.add_handler(CallbackQueryHandler(logs_page_callback, pattern="^(mylogs|lastmonth)_(prev|next)$")) # 用户点击“我的打卡记录”翻页按钮
     app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^(userlogs|userlogs_lastmonth)_(prev|next)$")) # 管理员查看“指定用户打卡记录”翻页按钮
     app.add_handler(CallbackQueryHandler(mylogs_cmd, pattern="^mylogs_open$"))
+    app.add_handler(CallbackQueryHandler(lastmonth_cmd, pattern="^lastmonth_open$"))
     app.add_handler(CallbackQueryHandler(change_shift_callback, pattern="^change_shift$"))
     app.add_handler(CallbackQueryHandler(change_shift_to_callback, pattern="^change_shift_to:"))
 
