@@ -105,11 +105,11 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 已在数据库，正常欢迎
     await send_welcome(update.message, name)
     await update.message.reply_text(
-        "查看你的打卡记录：",
+        "举个例子⬆️\n\n也可以查看你的打卡记录：",
         reply_markup=InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("📅 本月记录", callback_data="mylogs_open"),
-                InlineKeyboardButton("📆 上月记录", callback_data="lastmonth_open"),
+                InlineKeyboardButton("📅 本月打卡记录", callback_data="mylogs_open"),
+                InlineKeyboardButton("📆 上月打卡记录", callback_data="lastmonth_open"),
             ]
         ])
     )
@@ -832,6 +832,22 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ===========================
+# 🔙 返回主菜单（打卡记录入口）
+# ===========================
+async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "请选择要查看的打卡记录：",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📅 本月打卡记录", callback_data="mylogs_open"),
+                InlineKeyboardButton("📆 上月打卡记录", callback_data="lastmonth_open"),
+            ]
+        ])
+    )
+
+# ===========================
 # 发送分页内容
 # ===========================	
 async def logs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1032,6 +1048,7 @@ def main():
     app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^(userlogs|userlogs_lastmonth)_(prev|next)$")) # 管理员查看“指定用户打卡记录”翻页按钮
     app.add_handler(CallbackQueryHandler(mylogs_cmd, pattern="^mylogs_open$"))
     app.add_handler(CallbackQueryHandler(lastmonth_cmd, pattern="^lastmonth_open$"))
+    app.add_handler(CallbackQueryHandler(back_to_menu_callback, pattern="^back_to_menu$"))
     app.add_handler(CallbackQueryHandler(change_shift_callback, pattern="^change_shift$"))
     app.add_handler(CallbackQueryHandler(change_shift_to_callback, pattern="^change_shift_to:"))
 
