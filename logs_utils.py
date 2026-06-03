@@ -202,7 +202,14 @@ async def send_logs_page(update, context, key="mylogs"):
         buttons.append(InlineKeyboardButton("⬅ 上一页", callback_data=f"{key}_prev"))
     if page_index < len(pages) - 1:
         buttons.append(InlineKeyboardButton("➡ 下一页", callback_data=f"{key}_next"))
-    markup = InlineKeyboardMarkup([buttons]) if buttons else None
+
+    rows = [buttons] if buttons else []
+
+    # 仅用户自己的记录显示返回按钮
+    if key in ("mylogs", "lastmonth"):
+        rows.append([InlineKeyboardButton("🔙 返回", callback_data="back_to_menu")])
+
+    markup = InlineKeyboardMarkup(rows) if rows else None
 
     if update.callback_query:
         await update.callback_query.edit_message_text(reply, reply_markup=markup)
