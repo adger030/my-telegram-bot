@@ -105,7 +105,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 已在数据库，正常欢迎
     await send_welcome(update.message, name)
     await update.message.reply_text(
-        "举个例子⬆️\n\n也可以查看你的打卡记录：",
+        "举个例子⬆️\n\n查看你的打卡记录⬇️",
         reply_markup=InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("📅 本月打卡记录", callback_data="mylogs_open"),
