@@ -261,43 +261,43 @@ def delete_messages_and_images(start_date: str, end_date: str, batch_size: int =
 # ===========================
 def delete_batch_with_retry(public_id_list, max_retries):
     attempt = 0
-    failed_ids = public_id_list
+    remaining = public_id_list
+    total_success = 0
 
-    while attempt < max_retries and failed_ids:
+    while attempt < max_retries and remaining:
         attempt += 1
-        logger.info(f"🔁 第 {attempt} 次尝试删除 {len(failed_ids)} 张图片")
-
+        logger.info(f"🔁 第 {attempt} 次尝试删除 {len(remaining)} 张图片")
         try:
-            response = cloudinary.api.delete_resources(
-                failed_ids,
-                resource_type="image"
-            )
-
+            response = cloudinary.api.delete_resources(remaining, resource_type="image")
             deleted = response.get("deleted", {})
-            failed = response.get("failed", {})
 
             success_ids = [pid for pid, status in deleted.items() if status == "deleted"]
-            failed_ids = list(failed.keys())
+            not_found_ids = [pid for pid, status in deleted.items() if status == "not_found"]
+            failed_ids = list(response.get("failed", {}).keys())
 
-            logger.info(f"   本次成功 {len(success_ids)}，失败 {len(failed_ids)}")
+            total_success += len(success_ids)
+            logger.info(f"   本次成功 {len(success_ids)}，not_found {len(not_found_ids)}，失败 {len(failed_ids)}")
 
+            remaining = failed_ids  # not_found 不重试，只重试真正失败的
         except Exception as e:
             logger.error(f"❌ 删除异常: {e}")
             time.sleep(1)
 
-    success_count = len(public_id_list) - len(failed_ids)
-    return success_count, failed_ids
-
+    return total_success, remaining
 
 # ===========================
 # 提取 Cloudinary public_id
 # ===========================
+import re
+
 def extract_cloudinary_public_id(url: str):
     """
     解析 Cloudinary 图片 URL 提取 public_id
     示例：
     https://res.cloudinary.com/demo/image/upload/v1691234567/folder/image.jpg
     返回 -> folder/image
+    也兼容没有版本号的情况：
+    https://res.cloudinary.com/demo/image/upload/folder/image.jpg
     """
     if "cloudinary.com" not in url:
         return None
@@ -305,7 +305,13 @@ def extract_cloudinary_public_id(url: str):
     try:
         parts = url.split("/")
         idx = parts.index("upload")
-        public_id_with_ext = "/".join(parts[idx + 1:])
+        rest = parts[idx + 1:]
+
+        # 去掉版本号段，例如 v1691234567
+        if rest and re.fullmatch(r"v\d+", rest[0]):
+            rest = rest[1:]
+
+        public_id_with_ext = "/".join(rest)
         public_id = os.path.splitext(public_id_with_ext)[0]
         return public_id
     except Exception:
