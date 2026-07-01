@@ -966,15 +966,15 @@ def setup_scheduler(bot):
 
     scheduler.add_job(
         delete_last_3months_data,
-        CronTrigger(day=1, hour=11, minute=30, timezone=BEIJING_TZ),
+        CronTrigger(day=1, hour=14, minute=00, timezone=BEIJING_TZ),
         id="clean_data",
         replace_existing=True,
     )
 
-    # 每月1日 11:30 删除上个月的图片（仅清空 image_url，保留打卡记录）
+    # 每月1日 13:00 删除上个月的图片（仅清空 image_url，保留打卡记录）
     scheduler.add_job(
         delete_last_month_images,
-        CronTrigger(day=1, hour=15, minute=45, timezone=BEIJING_TZ),
+        CronTrigger(day=1, hour=13, minute=00, timezone=BEIJING_TZ),
         id="clean_images",
         replace_existing=True,
     )
