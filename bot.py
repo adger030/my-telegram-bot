@@ -859,7 +859,7 @@ async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        "请选择要查看的打卡记录：",
+        "查看你的打卡记录：",
         reply_markup=InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("📅 本月打卡记录", callback_data="mylogs_open"),
