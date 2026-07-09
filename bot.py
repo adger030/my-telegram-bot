@@ -69,8 +69,8 @@ def extract_keyword(text: str):
 # ===========================
 async def send_welcome(update_or_msg, name):
     welcome_text = (
-        f"您好，{name}！\n\n"
-        "📌 使用说明：\n"
+        f"您好，{name} \n\n"
+        "📌 使用说明：\n\n"
         "1️⃣ 向机器人发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
         "2️⃣ 上班打卡后选择班次（超时1分钟无效），提示打卡成功完成打卡；\n"
         "3️⃣ 上班选错班次，5分钟内可以修改班次；\n"
