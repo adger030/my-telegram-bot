@@ -105,6 +105,18 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 已在数据库，正常欢迎
     await send_welcome(update.message, name)
+
+# ===========================
+# /logs 命令：单独查看打卡记录（本月/上月按钮）
+# ===========================
+async def logs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tg_user = update.effective_user
+    username = tg_user.username or f"user{tg_user.id}"
+    name = get_user_name(username)
+    if not name:  # 用户名不在数据库
+        await update.message.reply_text("⚠️ 无法使用，请联系部门助理。")
+        return
+
     await update.message.reply_text(
         "查看你的打卡记录：",
         reply_markup=InlineKeyboardMarkup([
@@ -525,27 +537,16 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     pending_checkins = context.user_data.get("pending_checkins", {})
-    processed_checkins = context.user_data.setdefault("processed_checkins", {})
     pending = pending_checkins.get(pending_id)
 
     # 超时 or 已失效
     if not pending:
-        # 🔁 快速连续点击：该按钮此前已经被成功处理过，避免误报"超时/失效"
-        if pending_id in processed_checkins:
-            shift_name = processed_checkins[pending_id]
-            await query.edit_message_text(
-                f"✅ 上班打卡成功！班次：{shift_name}\n（请勿重复点击）"
-            )
-        else:
-            await query.edit_message_text(
-                "⚠️ 打卡已超时或失效，请重新打卡。"
-            )
+        await query.edit_message_text(
+            "⚠️ 打卡已超时或失效，请重新打卡。"
+        )
         return
 
     shift_name = get_shift_options()[shift_code]
-
-    # 🔒 立即从待确认字典中移除，防止并发/连点导致重复保存
-    pending_checkins.pop(pending_id, None)
 
     # ✅ 正式保存数据库
     save_message(
@@ -557,8 +558,8 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         shift=shift_name
     )
 
-    # 记录已处理结果，供重复点击时展示友好提示
-    processed_checkins[pending_id] = shift_name
+    # 删除待确认
+    pending_checkins.pop(pending_id, None)
 
     new_text = f"✅ 上班打卡成功！班次：{shift_name}"
 
@@ -745,18 +746,10 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
  
     pending_makeups = context.user_data.get("pending_makeups", {})
-    processed_makeups = context.user_data.setdefault("processed_makeups", {})
     data = pending_makeups.get(pending_id)
  
     if not data:
-        # 🔁 快速连续点击：已成功处理过，避免误报"超时/失效"
-        if pending_id in processed_makeups:
-            shift_name = processed_makeups[pending_id]
-            await query.edit_message_text(
-                f"✅ 补卡成功！班次：{shift_name}\n（请勿重复点击）"
-            )
-        else:
-            await query.edit_message_text("⚠️ 补卡已超时或失效，请重新发送“#补卡”。")
+        await query.edit_message_text("⚠️ 补卡已超时或失效，请重新发送“#补卡”。")
         return
  
     # shift_code 已从 callback_data 中解析
@@ -778,9 +771,6 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     start_time, _ = get_shift_times_short()[shift_short]
     punch_dt = datetime.combine(data["date"], start_time, tzinfo=BEIJING_TZ)
  
-    # 🔒 立即从待确认字典中移除，防止并发/连点导致重复保存
-    pending_makeups.pop(pending_id, None)
-
     # 保存补卡信息
     save_message(
         username=data["username"],
@@ -791,9 +781,9 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
         shift=shift_name + "（补卡）"
     )
  
-    # 成功提示并记录已处理结果
+    # 成功提示并清除上下文补卡信息
     await query.edit_message_text(f"✅ 补卡成功！班次：{shift_name}")
-    processed_makeups[pending_id] = shift_name
+    pending_makeups.pop(pending_id, None)
 
 # ===========================
 # /lastmonth 命令
@@ -1038,6 +1028,7 @@ def main():
     app.add_handler(CommandHandler("delete_shift", delete_shift_cmd))    # /delete_shift：管理员删除班次
 	
     app.add_handler(CommandHandler("start", start_cmd))                  # /start：欢迎信息 & 姓名登记
+    app.add_handler(CommandHandler("logs", logs_cmd))                    # /logs：单独查看打卡记录（本月/上月按钮）
     app.add_handler(CommandHandler("mylogs", mylogs_cmd))                # /mylogs：查看本月打卡记录（分页）
     app.add_handler(CommandHandler("lastmonth", lastmonth_cmd))			 # /lastmonth：查看上月打卡记录（分页）
     app.add_handler(CommandHandler("userlogs", userlogs_cmd))            # /userlogs @username：查看指定用户本月打卡记录（管理员）
