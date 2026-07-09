@@ -481,11 +481,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         # 查看记录按钮
+        # 跨月下班（如 7月31日上班、8月1日凌晨下班）时，
+        # 该记录实际归属于“上个月”的班次，此时应跳转到“上月打卡记录”，
+        # 否则按“本月”查询会因为时间范围不匹配而查不到、点击无反应。
+        if today.year == now.year and today.month == now.month:
+            log_callback = "mylogs_open"
+        else:
+            log_callback = "lastmonth_open"
+
         buttons = [
             [
                 InlineKeyboardButton(
                     "🗓 查看打卡记录",
-                    callback_data="mylogs_open"
+                    callback_data=log_callback
                 )
             ]
         ]
