@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import timedelta
+from datetime import timedelta, datetime
 from dateutil.parser import parse
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from shift_manager import get_shift_times_short
@@ -107,10 +107,24 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
     # 分页
     # ===========================
     pages = [all_days[i:i + LOGS_PER_PAGE] for i in range(0, len(all_days), LOGS_PER_PAGE)]
+
+    # 默认定位到“今天”所在的那一页；如果今天还没有记录，
+    # 就定位到不晚于今天的最近一天所在的页（比如查上月记录时，就是最近的那一天）
+    today = datetime.now(BEIJING_TZ).date()
+    default_page_index = 0
+    idx_today = None
+    for i, d in enumerate(all_days):
+        if d <= today:
+            idx_today = i
+        else:
+            break
+    if idx_today is not None:
+        default_page_index = idx_today // LOGS_PER_PAGE
+
     context.user_data[f"{key}_pages"] = {
         "pages": pages,
         "daily_map": daily_map,
-        "page_index": 0,
+        "page_index": default_page_index,
         "summary": (total_complete, total_abnormal),
         "target_name": target_name
     }
