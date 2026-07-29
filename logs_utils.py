@@ -44,7 +44,7 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs", 
         reply = f"📭 {target_name} 暂无记录。"
         missing_days = _compute_missing_days(period_start, period_end, {})
         if missing_days:
-            missing_str = "，".join(d.strftime("%m月%d日") for d in missing_days)
+            missing_str = "，".join(d.strftime("%d日") for d in missing_days)
             reply += f"\n\n🟡 休息/缺勤：{missing_str}"
         await update.message.reply_text(reply)
         return
@@ -251,7 +251,7 @@ async def send_logs_page(update, context, key="mylogs"):
 
     # 🟡 完全没有打卡记录的天（休息/缺勤）
     if missing_days:
-        missing_str = "，".join(d.strftime("%m月%d日") for d in missing_days)
+        missing_str = "，".join(d.strftime("%d日") for d in missing_days)
         reply += f"\n🟡 休息/缺勤：{missing_str}"
 
     # 分页按钮
