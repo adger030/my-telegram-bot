@@ -6,12 +6,47 @@ from shift_manager import get_shift_times_short
 from config import BEIJING_TZ, LOGS_PER_PAGE
 
 
+def _as_date(value):
+    """把 datetime 或 date 统一转换成 date 对象"""
+    if value is None:
+        return None
+    return value.date() if hasattr(value, "date") else value
+
+
+def _compute_missing_days(period_start, period_end, daily_map):
+    """
+    计算 [period_start, period_end) 区间内、daily_map 里完全没有记录的天数。
+    period_end 是“下一周期第一天”（不含），所以实际最后一天是 period_end - 1 天。
+    今天（以及今天之后）不算“缺勤”，因为今天可能还没到打卡时间。
+    """
+    start_date = _as_date(period_start)
+    end_date = _as_date(period_end)
+    if not start_date or not end_date:
+        return []
+
+    today = datetime.now(BEIJING_TZ).date()
+    last_day = min(end_date - timedelta(days=1), today - timedelta(days=1))
+
+    missing = []
+    d = start_date
+    while d <= last_day:
+        if d not in daily_map:
+            missing.append(d)
+        d += timedelta(days=1)
+    return missing
+
+
 # ===========================
 # 通用日志构建函数
 # ===========================
-async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
+async def build_and_send_logs(update, context, logs, target_name, key="mylogs", period_start=None, period_end=None):
     if not logs:
-        await update.message.reply_text(f"📭 {target_name} 暂无记录。")
+        reply = f"📭 {target_name} 暂无记录。"
+        missing_days = _compute_missing_days(period_start, period_end, {})
+        if missing_days:
+            missing_str = "，".join(d.strftime("%m月%d日") for d in missing_days)
+            reply += f"\n\n🟡 休息/缺勤：{missing_str}"
+        await update.message.reply_text(reply)
         return
 
     # 转换时区 & 排序
@@ -121,12 +156,15 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs"):
     if idx_today is not None:
         default_page_index = idx_today // LOGS_PER_PAGE
 
+    missing_days = _compute_missing_days(period_start, period_end, daily_map)
+
     context.user_data[f"{key}_pages"] = {
         "pages": pages,
         "daily_map": daily_map,
         "page_index": default_page_index,
         "summary": (total_complete, total_abnormal),
-        "target_name": target_name
+        "target_name": target_name,
+        "missing_days": missing_days,
     }
 
     await send_logs_page(update, context, key)
@@ -148,6 +186,7 @@ async def send_logs_page(update, context, key="mylogs"):
     pages, daily_map, page_index = data["pages"], data["daily_map"], data["page_index"]
     _, total_abnormal = data["summary"]
     target_name = data.get("target_name", "本月打卡")
+    missing_days = data.get("missing_days", [])
 
     current_page_days = pages[page_index]
 
@@ -209,6 +248,11 @@ async def send_logs_page(update, context, key="mylogs"):
 
     # ✅ 仅显示异常次数，不再显示正常次数
     reply += f"\n🔴 异常（迟到/缺卡/补卡）：{total_abnormal} 次"
+
+    # 🟡 完全没有打卡记录的天（休息/缺勤）
+    if missing_days:
+        missing_str = "，".join(d.strftime("%m月%d日") for d in missing_days)
+        reply += f"\n🟡 休息/缺勤：{missing_str}"
 
     # 分页按钮
     buttons = []
