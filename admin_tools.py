@@ -462,7 +462,8 @@ async def userlogs_lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_T
     # ✅ 统一 key（不要拼接用户名）
     await build_and_send_logs(update, context, logs,
                               f"{target_key} 上月打卡",
-                              key="userlogs_lastmonth")
+                              key="userlogs_lastmonth",
+                              period_start=start, period_end=end)
 
 
 # ===========================
@@ -499,7 +500,8 @@ async def userlogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ✅ 统一 key
     await build_and_send_logs(update, context, logs,
                               target_key,
-                              key="userlogs")
+                              key="userlogs",
+                              period_start=start, period_end=end)
 
 
 # ===========================
