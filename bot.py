@@ -821,7 +821,7 @@ async def lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not logs:
         logs = get_user_logs(fallback_username, start, end)
 
-    await build_and_send_logs(update, context, logs, "上月打卡", key="lastmonth")
+    await build_and_send_logs(update, context, logs, "上月打卡", key="lastmonth", period_start=start, period_end=end)
 
 
 # ===========================
@@ -848,7 +848,7 @@ async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not logs:
         logs = get_user_logs(fallback_username, start, end)
 
-    await build_and_send_logs(update, context, logs, "本月打卡", key="mylogs")
+    await build_and_send_logs(update, context, logs, "本月打卡", key="mylogs", period_start=start, period_end=end)
 
 
 
