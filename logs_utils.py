@@ -13,6 +13,21 @@ def _as_date(value):
     return value.date() if hasattr(value, "date") else value
 
 
+def _time_to_minutes(t) -> int:
+    return t.hour * 60 + t.minute
+
+
+def _in_shift_window(ts_time, start_time, end_time, margin: int = 30) -> bool:
+    """打卡时间是否落在【班次开始前margin分钟，班次结束后margin分钟】这个窗口内（环形计算，兼容跨天班次）"""
+    t = _time_to_minutes(ts_time)
+    s = (_time_to_minutes(start_time) - margin) % 1440
+    e = (_time_to_minutes(end_time) + margin) % 1440
+    if s <= e:
+        return s <= t <= e
+    else:
+        return t >= s or t <= e
+
+
 def _compute_missing_days(period_start, period_end, daily_map):
     """
     计算 [period_start, period_end) 区间内、daily_map 里完全没有记录的天数。
@@ -138,6 +153,14 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs", 
             if has_up:
                 total_abnormal += 1
 
+        # 签到异常：打卡时间不在【班次开始前30分钟，班次结束后30分钟】窗口内（与迟到/早退独立计数）
+        if shift_name in get_shift_times_short():
+            start_time, end_time = get_shift_times_short()[shift_name]
+            if has_up and not _in_shift_window(kw_map["#上班打卡"].time(), start_time, end_time):
+                total_abnormal += 1
+            if has_down and not _in_shift_window(kw_map["#下班打卡"].time(), start_time, end_time):
+                total_abnormal += 1
+
     # ===========================
     # 分页
     # ===========================
@@ -209,17 +232,22 @@ async def send_logs_page(update, context, key="mylogs"):
         has_down = "#下班打卡" in kw_map
 
         has_late = has_early = False
+        checkin_abnormal = checkout_abnormal = False
         if has_up and shift_name in get_shift_times_short():
-            start_time, _ = get_shift_times_short()[shift_name]
+            start_time, end_time = get_shift_times_short()[shift_name]
             if kw_map["#上班打卡"].time() > start_time:
                 has_late = True
+            if not _in_shift_window(kw_map["#上班打卡"].time(), start_time, end_time):
+                checkin_abnormal = True
         if has_down and shift_name in get_shift_times_short():
-            _, end_time = get_shift_times_short()[shift_name]
+            start_time, end_time = get_shift_times_short()[shift_name]
             down_ts = kw_map["#下班打卡"]
             if shift_name == "I班" and down_ts.date() == day:
                 has_early = True
             elif shift_name != "I班" and down_ts.time() < end_time:
                 has_early = True
+            if not _in_shift_window(down_ts.time(), start_time, end_time):
+                checkout_abnormal = True
 
         weekday_map = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
         weekday_str = weekday_map[day.weekday()]
@@ -232,6 +260,8 @@ async def send_logs_page(update, context, key="mylogs"):
                 reply += " - 补卡 🔴"
             if has_late:
                 reply += " - 迟到 🔴"
+            if checkin_abnormal:
+                reply += " - 签到异常 🔴"
             reply += "\n"
         else:
             reply += "   └─ #上班打卡： - 缺卡 🔴\n"
@@ -242,12 +272,14 @@ async def send_logs_page(update, context, key="mylogs"):
             reply += f"   └─ #下班打卡：{down_ts.strftime('%H:%M:%S')}{'（次日）' if next_day else ''}"
             if has_early:
                 reply += " - 早退 🔴"
+            if checkout_abnormal:
+                reply += " - 签到异常 🔴"
             reply += "\n"
         else:
             reply += "   └─ #下班打卡： - 缺卡 🔴\n"
 
     # ✅ 仅显示异常次数，不再显示正常次数
-    reply += f"\n🔴 异常（迟到/缺卡/补卡）：{total_abnormal} 次"
+    reply += f"\n🔴 考勤异常（迟到/缺卡/补卡/签到异常）：{total_abnormal} 次"
 
     # 🟡 完全没有打卡记录的天（休息/缺勤）
     if missing_days:
