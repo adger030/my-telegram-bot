@@ -26,6 +26,31 @@ def safe_filename(name: str) -> str:
     return re.sub(r'[\\/*?:"<>|]', "_", str(name))
 
 # ===========================
+# 迟到分钟数 / 签到异常窗口判断（均按“时分”做环形计算，不依赖日期，兼容跨天班次）
+# ===========================
+def _time_to_minutes(t) -> int:
+    return t.hour * 60 + t.minute
+
+def _late_minutes(ts_time, start_time) -> int:
+    """打卡时间相对班次开始时间晚了多少分钟（环形计算，兼容跨天）"""
+    return (_time_to_minutes(ts_time) - _time_to_minutes(start_time)) % 1440
+
+def _in_shift_window(ts_time, start_time, end_time, margin: int = 30) -> bool:
+    """打卡时间是否落在【班次开始前margin分钟，班次结束后margin分钟】这个窗口内（环形计算，兼容跨天班次）"""
+    t = _time_to_minutes(ts_time)
+    s = (_time_to_minutes(start_time) - margin) % 1440
+    e = (_time_to_minutes(end_time) + margin) % 1440
+    if s <= e:
+        return s <= t <= e
+    else:
+        return t >= s or t <= e
+
+def _late_tag(ts_time, start_time) -> str:
+    """根据迟到分钟数生成迟到分档标签"""
+    minutes = _late_minutes(ts_time, start_time)
+    return "迟到（≥15分钟）" if minutes >= 15 else "迟到（<15分钟）"
+
+# ===========================
 # 上传文件到 Cloudinary
 # ===========================
 def upload_to_cloudinary(file_path: str) -> str | None:
@@ -195,18 +220,25 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
                 if shift_name in get_shift_times_short():
                     start_time, end_time = get_shift_times_short()[shift_name]
                     ts_time = ts.time()
+                    tags = []
 
                     if keyword == "#上班打卡" and ts_time > start_time:
-                        group_df.at[idx, "remark"] = "迟到"
+                        tags.append(_late_tag(ts_time, start_time))
                     elif keyword == "#下班打卡":
                         if shift_name == "I班":
                             if not (ts.hour == 0):
                                 if 15 <= ts.hour <= 23:
-                                    group_df.at[idx, "remark"] = "早退"
+                                    tags.append("早退")
                         else:
                             if not (0 <= ts.hour <= 1):
                                 if ts_time < end_time:
-                                    group_df.at[idx, "remark"] = "早退"
+                                    tags.append("早退")
+
+                    if keyword in ("#上班打卡", "#下班打卡") and not _in_shift_window(ts_time, start_time, end_time):
+                        tags.append("签到异常")
+
+                    if tags:
+                        group_df.at[idx, "remark"] = "；".join(tags)
 
             group_df = group_df.sort_values(["name", "timestamp"], na_position="last")
             slim_df = group_df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
@@ -236,6 +268,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
     yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
     blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")
     purple_fill_light = PatternFill(start_color="E6CCFF", end_color="E6CCFF", fill_type="solid")
+    orange_fill_light = PatternFill(start_color="FFDCB0", end_color="FFDCB0", fill_type="solid")
     thin_border = Border(
         left=Side(style="thin", color="000000"),
         right=Side(style="thin", color="000000"),
@@ -275,6 +308,9 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             elif "未打下班卡" in remark_val:
                 for cell in row[1:]:
                     cell.fill = purple_fill_light
+            if "签到异常" in remark_val and "迟到" not in remark_val and "早退" not in remark_val:
+                for cell in row[1:]:
+                    cell.fill = orange_fill_light
 
         # 合并姓名列
         name_col = 1
@@ -297,7 +333,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
             )
 
     # ======================== 异常统计 ========================
-    stats = {u: {"休息/缺勤": 0, "迟到/早退": 0, "补卡": 0, "未打下班卡": 0} for u in all_user_names}
+    stats = {u: {"休息/缺勤": 0, "迟到<15分钟": 0, "迟到≥15分钟": 0, "早退": 0, "签到异常": 0, "补卡": 0, "未打下班卡": 0} for u in all_user_names}
     for sheet in wb.worksheets:
         if sheet.title in ["统计", "异常统计"]:
             continue
@@ -315,16 +351,26 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         for name, g in df_sheet.groupby("姓名"):
             if not name or name not in stats:
                 continue
-            stats[name]["补卡"] += int(g["备注"].str.count("补卡").sum())
-            stats[name]["迟到/早退"] += int(g["备注"].str.count("迟到").sum() + g["备注"].str.count("早退").sum())
-            stats[name]["休息/缺勤"] += int(g["备注"].str.count("休息/缺勤").sum())
-            stats[name]["未打下班卡"] += int(g["备注"].str.count("未打下班卡").sum())
+            remarks = g["备注"]
+            stats[name]["补卡"] += int(remarks.apply(lambda s: s.count("补卡")).sum())
+            stats[name]["迟到<15分钟"] += int(remarks.apply(lambda s: s.count("迟到（<15分钟）")).sum())
+            stats[name]["迟到≥15分钟"] += int(remarks.apply(lambda s: s.count("迟到（≥15分钟）")).sum())
+            stats[name]["早退"] += int(remarks.apply(lambda s: s.count("早退")).sum())
+            stats[name]["签到异常"] += int(remarks.apply(lambda s: s.count("签到异常")).sum())
+            stats[name]["休息/缺勤"] += int(remarks.apply(lambda s: s.count("休息/缺勤")).sum())
+            stats[name]["未打下班卡"] += int(remarks.apply(lambda s: s.count("未打下班卡")).sum())
 
     summary_df = pd.DataFrame([
-        {"姓名": u, **v, "异常总数": v["迟到/早退"] + v["补卡"] + v["未打下班卡"]}
+        {
+            "姓名": u,
+            **v,
+            "异常总数": v["迟到<15分钟"] + v["迟到≥15分钟"] + v["早退"] + v["签到异常"] + v["补卡"] + v["未打下班卡"],
+        }
         for u, v in stats.items()
     ])
-    summary_df = summary_df[["姓名", "休息/缺勤", "迟到/早退", "补卡", "未打下班卡", "异常总数"]].sort_values(by="姓名", ascending=True)
+    summary_df = summary_df[
+        ["姓名", "休息/缺勤", "迟到<15分钟", "迟到≥15分钟", "早退", "签到异常", "补卡", "未打下班卡", "异常总数"]
+    ].sort_values(by="姓名", ascending=True)
 
     if "统计" in [s.title for s in wb.worksheets]:
         del wb["统计"]
@@ -332,7 +378,7 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         del wb["异常统计"]
 
     stats_sheet = wb.create_sheet("异常统计", 0)
-    headers = ["姓名", "休息/缺勤", "迟到/早退", "补卡", "未打下班卡", "异常总数"]
+    headers = ["姓名", "休息/缺勤", "迟到<15分钟", "迟到≥15分钟", "早退", "签到异常", "补卡", "未打下班卡", "异常总数"]
     for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
         for c_idx, value in enumerate(row, 1):
             stats_sheet.cell(row=r_idx, column=c_idx, value=value)
@@ -345,20 +391,26 @@ def export_excel(start_datetime: datetime, end_datetime: datetime):
         cell.font = header_font
         cell.alignment = center_align
     light_red_fill = PatternFill(start_color="FFD6D6", end_color="FFD6D6", fill_type="solid")
+    total_col_idx = len(headers)  # 异常总数所在列（1-based）
     for row in stats_sheet.iter_rows(min_row=2):
         try:
             rest_days = int(row[1].value or 0)   # 休息/缺勤在第2列 (索引1)
             if rest_days > 4:
                 row[1].fill = light_red_fill
-            abnormal_total = int(row[5].value or 0)  # 异常总数在第6列 (索引5)
+            abnormal_total = int(row[total_col_idx - 1].value or 0)  # 异常总数在最后一列
             if abnormal_total > 2:
-                row[5].fill = light_red_fill
+                row[total_col_idx - 1].fill = light_red_fill
         except ValueError:
             pass
-    desc_text = "【休息/缺勤：没有打卡记录的天数】\n【异常总数：迟到/早退+补卡+未打下班卡】"
+    desc_text = (
+        "【休息/缺勤：没有打卡记录的天数】\n"
+        "【迟到<15分钟 / 迟到≥15分钟：按迟到时长分档统计】\n"
+        "【签到异常：打卡时间不在班次开始前30分钟至班次结束后30分钟的窗口内】\n"
+        "【异常总数：迟到<15分钟+迟到≥15分钟+早退+签到异常+补卡+未打下班卡】"
+    )
     start_row = summary_df.shape[0] + 3
-    end_row = start_row + 2
-    stats_sheet.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=6)
+    end_row = start_row + 3
+    stats_sheet.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=total_col_idx)
     cell = stats_sheet.cell(row=start_row, column=1, value=desc_text)
     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     cell.fill = PatternFill(fill_type="solid", fgColor="FFFF00")
@@ -439,18 +491,25 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         if shift_name in get_shift_times_short():
             start_time, end_time = get_shift_times_short()[shift_name]
             ts_time = ts.time()
+            tags = []
 
             if keyword == "#上班打卡" and ts_time > start_time:
-                df.at[idx, "remark"] = "迟到"
+                tags.append(_late_tag(ts_time, start_time))
             elif keyword == "#下班打卡":
                 if shift_name == "I班":
                     if not (ts.hour == 0):
                         if 15 <= ts.hour <= 23:
-                            df.at[idx, "remark"] = "早退"
+                            tags.append("早退")
                 else:
                     if not (0 <= ts.hour <= 1):
                         if ts_time < end_time:
-                            df.at[idx, "remark"] = "早退"
+                            tags.append("早退")
+
+            if keyword in ("#上班打卡", "#下班打卡") and not _in_shift_window(ts_time, start_time, end_time):
+                tags.append("签到异常")
+
+            if tags:
+                df.at[idx, "remark"] = "；".join(tags)
 
     # ======================== 处理 I 班跨日下班卡 ========================
     i_shift_mask = (
@@ -531,6 +590,7 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
     blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")
     purple_fill = PatternFill(start_color="e6ccff", end_color="e6ccff", fill_type="solid")
+    orange_fill = PatternFill(start_color="ffdcb0", end_color="ffdcb0", fill_type="solid")
     thin_border = Border(
         left=Side(style="thin", color="000000"),
         right=Side(style="thin", color="000000"),
@@ -577,6 +637,10 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         elif "未打下班卡" in remark_val:
             for cell in row[2:]:
                 cell.fill = purple_fill
+
+        if "签到异常" in remark_val and "迟到" not in remark_val and "早退" not in remark_val:
+            for cell in row[2:]:
+                cell.fill = orange_fill
 
     # 列宽自适应
     for col in ws.columns:
