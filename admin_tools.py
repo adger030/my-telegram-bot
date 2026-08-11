@@ -461,7 +461,7 @@ async def userlogs_lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_T
 
     # ✅ 统一 key（不要拼接用户名）
     await build_and_send_logs(update, context, logs,
-                              f"{target_key} 上月打卡",
+                              target_key,
                               key="userlogs_lastmonth",
                               period_start=start, period_end=end)
 
