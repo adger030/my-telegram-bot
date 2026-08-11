@@ -451,11 +451,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text("⚠️ 班次信息错误，无法下班打卡。")
             return
 
-        # 超时
-        if now > deadline:
-            await msg.reply_text("⚠️ 已超过允许下班打卡时间（超过1小时），打卡无效。")
-            return
-
         # 当前班次内是否已打下班卡
         logs_for_shift = get_user_logs(
             username,
