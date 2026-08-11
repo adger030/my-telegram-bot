@@ -105,6 +105,17 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs", 
                 daily_map[date_key]["shift"] = shift or "未选择班次"
             i += 1
 
+    # 过滤掉不属于本统计周期的日期：
+    # I班等跨天班次的下班卡会被归到“前一天”，如果这一天本身早于查询周期的
+    # 起始日期，说明它对应的上班卡不在本周期内，属于上一个周期的“漏网记录”，
+    # 应当剔除，不能算作本周期缺卡/异常。
+    period_start_date = _as_date(period_start)
+    period_end_date = _as_date(period_end)
+    if period_start_date and period_end_date:
+        for day in list(daily_map.keys()):
+            if day < period_start_date or day >= period_end_date:
+                del daily_map[day]
+
     all_days = sorted(daily_map.keys())
 
     # ===========================
