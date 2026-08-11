@@ -73,9 +73,9 @@ async def send_welcome(update_or_msg, name):
         "📌 使用说明：\n\n"
         "1️⃣ 向机器人发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
         "2️⃣ 上班打卡后选择班次（超时1分钟无效），提示打卡成功完成打卡；\n"
-        "3️⃣ 上班选错班次，5分钟内可以修改班次；\n"
+        "3️⃣ 上班选错班次，10分钟内可以修改班次；\n"
         "4️⃣ 忘记上班打卡，请发送“#补卡”并附带IP截图（无法补下班卡）；\n"
-	    "5️⃣ 请务必在班次后1小时内完成下班打卡，超时无法打卡；\n\n"
+	    "5️⃣ 打卡需要在班次前、后30分钟内完成，超时按照异常处理；\n\n"
         "IP截图必须包含以下信息\n"
         "① 设备编码：本机序列号\n"
         "② 实时IP：指定网站内显示的IP\n"
@@ -662,13 +662,13 @@ async def change_shift_to_callback(update: Update, context: ContextTypes.DEFAULT
         )
         return
 
-    # 超过5分钟
-    if (now - last_checkin).total_seconds() > 300:
+    # 超过10分钟
+    if (now - last_checkin).total_seconds() > 600:
 
         current_shift_text = current_shift or "未知"
 
         await query.edit_message_text(
-            f"⚠️ 超过5分钟，不能修改班次。\n"
+            f"⚠️ 超过10分钟，不能修改班次。\n"
             f"当前班次：{current_shift_text}"
         )
         return
