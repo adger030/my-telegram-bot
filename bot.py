@@ -74,7 +74,7 @@ async def send_welcome(update_or_msg, name):
         "1️⃣ 向机器人发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
         "2️⃣ 上班打卡后选择班次（超时1分钟无效），提示打卡成功完成打卡；\n"
         "3️⃣ 上班选错班次，10分钟内可以修改班次；\n"
-        "4️⃣ 迟到超过15分钟请发送“#补卡”并附带IP截图（每月最多补卡2次）；\n"
+        "4️⃣ 迟到超过15分钟请发送“#补卡”并附带IP截图；\n"
 	    "5️⃣ 打卡需要在班次前、后30分钟内完成，超时按照异常处理；\n\n"
         "IP截图必须包含以下信息\n"
         "① 设备编码：本机序列号\n"
@@ -157,10 +157,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             if has_user_checked_keyword_today_fixed(username, "#补卡"):
                 await msg.reply_text("⚠️ 今天已经补过卡了。")
-                return
-            now = datetime.now(BEIJING_TZ)
-            if count_makeup_this_month(username, now) >= MONTHLY_MAKEUP_LIMIT:
-                await msg.reply_text(f"⚠️ 本月补卡次数已达上限（{MONTHLY_MAKEUP_LIMIT}次），无法再补卡。")
                 return
             await msg.reply_text("📌 请发送“#补卡”并附IP截图完成补卡。")
 
@@ -328,11 +324,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 今日已补卡
         if has_user_checked_keyword_today_fixed(username, "#补卡"):
             await msg.reply_text("⚠️ 今天已经补过卡了。")
-            return
-
-        # 🚫 本月补卡次数已达上限
-        if count_makeup_this_month(username, now) >= MONTHLY_MAKEUP_LIMIT:
-            await msg.reply_text(f"⚠️ 本月补卡次数已达上限（{MONTHLY_MAKEUP_LIMIT}次），无法再补卡。")
             return
 
         # 凌晨补卡算前一天
@@ -745,29 +736,6 @@ def has_user_checked_keyword_today_fixed(username, keyword):
     return False
 
 # ===========================
-# 统计本月已成功补卡次数（仅统计用户自助补卡，即 shift 带"（补卡）"标记的上班卡）
-# ===========================
-MONTHLY_MAKEUP_LIMIT = 2
-
-def count_makeup_this_month(username, ref_time):
-    month_start = ref_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT COUNT(*)
-            FROM messages
-            WHERE username=%s
-              AND keyword=%s
-              AND shift LIKE %s
-              AND timestamp >= %s
-              AND timestamp < %s
-        """, (username, "#上班打卡", "%（补卡）%", month_start, ref_time))
-        row = cur.fetchone()
-
-    return row[0] if row else 0
-
-# ===========================
 # 处理补卡回调按钮（用户选择班次后执行）
 # ===========================
 async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -793,13 +761,7 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
  
     # 当前时间（北京时间）
     now = datetime.now(BEIJING_TZ)
-
-    # 🚫 本月补卡次数已达上限（兜底校验，防止确认按钮点击前的时间差导致超限）
-    if count_makeup_this_month(data["username"], now) >= MONTHLY_MAKEUP_LIMIT:
-        await query.edit_message_text(f"⚠️ 本月补卡次数已达上限（{MONTHLY_MAKEUP_LIMIT}次），无法再补卡。")
-        pending_makeups.pop(pending_id, None)
-        return
-
+ 
     # 🚫 时间窗口限制
     if shift_short == "I班" and (6 <= now.hour < 15):
         await query.edit_message_text("⚠️ 当前时间段禁止补 I 班（06:00-15:00 不能补卡）。")
