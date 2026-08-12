@@ -619,15 +619,16 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tzinfo=BEIJING_TZ
         )
 
-    # 生成打卡时间（确保精确到班次时分，秒=0，微秒=0）
+    # 生成打卡时间（班次整点 +5分钟，避免精确卡在整点上）
+    MAKEUP_TIME_OFFSET = timedelta(minutes=5)
     if punch_type == "上班":
-        punch_dt = build_shift_datetime(makeup_date, start_time, add_day=False)
+        punch_dt = build_shift_datetime(makeup_date, start_time, add_day=False) + MAKEUP_TIME_OFFSET
         keyword = "#上班打卡"
         check_days = 1
     else:
         # 下班：若 end_time <= start_time 视为跨天，时间设为 次日 end_time
         is_cross_day = (end_time <= start_time)
-        punch_dt = build_shift_datetime(makeup_date, end_time, add_day=is_cross_day)
+        punch_dt = build_shift_datetime(makeup_date, end_time, add_day=is_cross_day) + MAKEUP_TIME_OFFSET
         keyword = "#下班打卡"
         check_days = 2 if is_cross_day else 1
 
