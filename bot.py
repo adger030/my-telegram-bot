@@ -782,7 +782,7 @@ async def cancel_checkin_callback(update: Update, context: ContextTypes.DEFAULT_
     remaining = max(DAILY_CANCEL_LIMIT - (used + 1), 0)
     await query.answer("✅ 已取消本次上班打卡")
     await query.edit_message_text(
-        f"✅ 已取消本次上班打卡，你可以重新发送“#上班打卡”。\n今日取消名额剩余：{remaining} 次。"
+        f"✅ 已取消本次上班打卡，今日取消剩余：{remaining} 次。"
     )
 
 
