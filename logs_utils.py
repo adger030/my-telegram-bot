@@ -69,6 +69,19 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs", 
     logs = [(ts.astimezone(BEIJING_TZ), kw, shift) for ts, kw, shift in logs]
     logs = sorted(logs, key=lambda x: x[0])
 
+    # 只保留真正的打卡类记录（#上班打卡 / #下班打卡），
+    # 过滤掉 #取消打卡 等其他审计类关键词，避免被误判为下班打卡
+    logs = [(ts, kw, shift) for ts, kw, shift in logs if kw in ("#上班打卡", "#下班打卡")]
+
+    if not logs:
+        reply = f"📭 {target_name} 暂无记录。"
+        missing_days = _compute_missing_days(period_start, period_end, {})
+        if missing_days:
+            missing_str = "，".join(d.strftime("%d日") for d in missing_days)
+            reply += f"\n\n🟡 休息/缺勤：{missing_str}"
+        await update.message.reply_text(reply)
+        return
+
     # 按天组合
     daily_map = defaultdict(dict)
     i = 0
