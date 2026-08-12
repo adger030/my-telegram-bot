@@ -61,7 +61,10 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs", 
         if missing_days:
             missing_str = "，".join(d.strftime("%d日") for d in missing_days)
             reply += f"\n\n🟡 休息/缺勤：{missing_str}"
-        await update.message.reply_text(reply)
+        if update.callback_query:
+            await update.callback_query.edit_message_text(reply)
+        else:
+            await update.message.reply_text(reply)
         return
 
     # 转换时区 & 排序
@@ -79,7 +82,10 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs", 
         if missing_days:
             missing_str = "，".join(d.strftime("%d日") for d in missing_days)
             reply += f"\n\n🟡 休息/缺勤：{missing_str}"
-        await update.message.reply_text(reply)
+        if update.callback_query:
+            await update.callback_query.edit_message_text(reply)
+        else:
+            await update.message.reply_text(reply)
         return
 
     # 按天组合
@@ -130,6 +136,20 @@ async def build_and_send_logs(update, context, logs, target_name, key="mylogs", 
                 del daily_map[day]
 
     all_days = sorted(daily_map.keys())
+
+    # 过滤掉“取消打卡”记录、以及不属于本周期的漏网记录后，
+    # 如果已经没有任何有效打卡记录，直接提示暂无记录，避免后面 pages[0] 越界报错
+    if not all_days:
+        missing_days = _compute_missing_days(period_start, period_end, {})
+        reply = f"📭 {target_name} 暂无记录。"
+        if missing_days:
+            missing_str = "，".join(d.strftime("%d日") for d in missing_days)
+            reply += f"\n\n🟡 休息/缺勤：{missing_str}"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(reply)
+        else:
+            await update.message.reply_text(reply)
+        return
 
     # ===========================
     # 统计（补卡合并到异常）
