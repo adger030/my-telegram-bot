@@ -569,7 +569,7 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         buttons.append([
             InlineKeyboardButton(
-                f"❌ 取消打卡（今日剩余{remaining_cancels}次）",
+                f"❌ 取消打卡",
                 callback_data=f"cancel_checkin:{checkin_id}"
             )
         ])
