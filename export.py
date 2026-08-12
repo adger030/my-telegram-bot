@@ -1,1196 +1,660 @@
-# ===========================
-# 标准库
-# ===========================
 import os
-import sys
-import asyncio
-import uuid
-from datetime import datetime, timedelta, time
-from collections import defaultdict
-import calendar
-
-# ===========================
-# 第三方库
-# ===========================
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ApplicationBuilder
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
-from dateutil.parser import parse
+import re
+import pandas as pd
+import pytz
 import logging
-import requests
-from telegram.request import HTTPXRequest
-from telegram.constants import ChatAction
+from datetime import datetime, timedelta
+from config import DATA_DIR, DATABASE_URL, BEIJING_TZ
+import cloudinary
+import cloudinary.uploader
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from shift_manager import get_shift_times_short
+from sqlalchemy import create_engine
+from db_pg import get_conn 
+
 
 # ===========================
-# 项目内部模块
+# 基础配置
 # ===========================
-from config import TOKEN, KEYWORDS, ADMIN_IDS, DATA_DIR, LOGS_PER_PAGE, BEIJING_TZ, REPORT_ADMIN_IDS
-from upload_image import upload_image
-from cleaner import delete_last_month_data, delete_last_3months_data, delete_last_month_images
-from db_pg import (
-    init_db, save_message, get_user_logs, save_shift, get_user_name, 
-    set_user_name, get_db, transfer_user_data, update_today_shift
-)
-from admin_tools import (
-    delete_range_cmd, delete_one_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd,
-    admin_makeup_cmd, export_cmd, export_images_cmd, exportuser_cmd, userlogs_lastmonth_cmd,
-    user_delete_cmd, user_update_cmd, user_list_cmd, user_add_cmd, commands_cmd
-)
-from shift_manager import (
-    get_shift_options, get_shift_times, get_shift_times_short,
-    list_shifts_cmd, edit_shift_cmd, delete_shift_cmd
-)
-from logs_utils import build_and_send_logs, send_logs_page
-from export import export_excel
-
-app = None  # 全局声明，初始为空
-
-# 仅保留 WARNING 及以上的日志
-logging.getLogger("httpx").setLevel(logging.WARNING)  
-logging.getLogger("telegram").setLevel(logging.WARNING)
-logging.getLogger("telegram.ext").setLevel(logging.WARNING)
-
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
 
 # ===========================
-# 提取关键词（例如 #上班打卡、#下班打卡 等）
+# 文件名安全化（去除非法字符）
 # ===========================
-def extract_keyword(text: str):
-    text = text.strip().replace(" ", "")  # 去除空格
-    for kw in KEYWORDS:
-        if kw in text:
-            return kw
-    return None
+def safe_filename(name: str) -> str:
+    return re.sub(r'[\\/*?:"<>|]', "_", str(name))
 
 # ===========================
-# 发送欢迎信息和操作指南
+# 迟到分钟数 / 签到异常窗口判断（均按“时分”做环形计算，不依赖日期，兼容跨天班次）
 # ===========================
-async def send_welcome(update_or_msg, name):
-    welcome_text = (
-        f"您好，{name} \n\n"
-        "📌 使用说明：\n\n"
-        "1️⃣ 向机器人发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
-        "2️⃣ 上班打卡后选择班次（超时1分钟无效），提示打卡成功完成打卡；\n"
-        "3️⃣ 上班打卡后，10分钟内可以修改班次或取消打卡；\n"
-        "4️⃣ 迟到超过15分钟（未打卡情况）请发送“#补卡”并附带IP截图；\n"
-	    "5️⃣ 打卡需要在班次前、后30分钟内完成，超时按照异常处理；\n\n"
-        "IP截图必须包含以下信息\n"
-        "① 设备编码：本机序列号\n"
-        "② 实时IP：指定网站内显示的IP\n"
-        "③ 本地时间：电脑任务栏时间（需含月、日、时、分）\n\n"
-		"举个例子⬇️\n\n"
-        "<a href='https://www.ipaddress.my'>点击这里查看你的IP地址</a>\n\n"
-    )
-    await update_or_msg.reply_text(welcome_text, parse_mode="HTML")
-    await asyncio.sleep(1)
-    await update_or_msg.reply_photo(
-        photo="https://res.cloudinary.com/dyt56cle1/image/upload/v1757691918/photo-2025-07-28-15-55-19_m9qaap.jpg",
-        caption="#上班打卡",
-		parse_mode="HTML"
-    )
+def _time_to_minutes(t) -> int:
+    return t.hour * 60 + t.minute
+
+def _late_minutes(ts_time, start_time) -> int:
+    """打卡时间相对班次开始时间晚了多少分钟（环形计算，兼容跨天）"""
+    return (_time_to_minutes(ts_time) - _time_to_minutes(start_time)) % 1440
+
+def _in_shift_window(ts_time, start_time, end_time, margin: int = 30) -> bool:
+    """打卡时间是否落在【班次开始前margin分钟，班次结束后margin分钟】这个窗口内（环形计算，兼容跨天班次）"""
+    t = _time_to_minutes(ts_time)
+    s = (_time_to_minutes(start_time) - margin) % 1440
+    e = (_time_to_minutes(end_time) + margin) % 1440
+    if s <= e:
+        return s <= t <= e
+    else:
+        return t >= s or t <= e
+
+def _late_tag(ts_time, start_time) -> str:
+    """根据迟到分钟数生成迟到分档标签"""
+    minutes = _late_minutes(ts_time, start_time)
+    return "迟到（≥15分钟）" if minutes >= 15 else "迟到（<15分钟）"
 
 # ===========================
-# /start 命令：首次提示输入姓名，否则直接发送欢迎说明
+# 上传文件到 Cloudinary
 # ===========================
-async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tg_user = update.effective_user
-    username = tg_user.username or f"user{tg_user.id}"
-    name = get_user_name(username)
-
-    if not name:  # 用户名不在数据库
-        await update.message.reply_text("⚠️ 无法使用，请联系部门助理。")
-        return
-
-    # 已在数据库，正常欢迎
-    await send_welcome(update.message, name)
-
-# ===========================
-# /logs 命令：单独查看打卡记录（本月/上月按钮）
-# ===========================
-async def logs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tg_user = update.effective_user
-    username = tg_user.username or f"user{tg_user.id}"
-    name = get_user_name(username)
-    if not name:  # 用户名不在数据库
-        await update.message.reply_text("⚠️ 无法使用，请联系部门助理。")
-        return
-
-    await update.message.reply_text(
-        "查看你的打卡记录：",
-        reply_markup=InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("📅 本月打卡记录", callback_data="mylogs_open"),
-                InlineKeyboardButton("📆 上月打卡记录", callback_data="lastmonth_open"),
-            ]
-        ])
-    )
+def upload_to_cloudinary(file_path: str) -> str | None:
+    try:
+        result = cloudinary.uploader.upload(
+            file_path,
+            resource_type="raw",
+            folder="telegram_exports",
+            public_id=os.path.splitext(os.path.basename(file_path))[0]
+        )
+        return result.get("secure_url")
+    except Exception as e:
+        logging.error(f"❌ Cloudinary 上传失败: {e}")
+        return None
 
 # ===========================
-# 处理纯文本消息
+# 读取数据库数据到 DataFrame
 # ===========================
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    username = msg.from_user.username or f"user{msg.from_user.id}"
-    text = msg.text.strip()
+def _fetch_data(start_datetime: datetime, end_datetime: datetime) -> pd.DataFrame:
+    try:
+        engine = create_engine(DATABASE_URL)
+        query = """
+        SELECT username, name, content, timestamp, keyword, shift 
+        FROM messages 
+        WHERE timestamp BETWEEN %(start)s AND %(end)s
+        """
+        params = {
+            "start": start_datetime.astimezone(pytz.UTC),
+            "end": end_datetime.astimezone(pytz.UTC)
+        }
+        # 分块读取（避免大数据内存溢出）
+        df_iter = pd.read_sql_query(query, engine, params=params, chunksize=50000)
+        df = pd.concat(df_iter, ignore_index=True)
+        logging.info(f"✅ 数据读取完成，共 {len(df)} 条记录")
+    except Exception as e:
+        logging.error(f"❌ 无法连接数据库或读取数据: {e}")
+        return pd.DataFrame()
 
-    # 🚩 检查数据库里是否有该用户
-    name = get_user_name(username)
-    if not name:
-        await msg.reply_text("⚠️ 无法使用，请联系部门助理。")
-        return
+    if df.empty:
+        return df
 
-    keyword = extract_keyword(text)
+    # 时间转为北京时区
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True).dt.tz_convert(BEIJING_TZ)
+    df = df.dropna(subset=["timestamp"]).copy()
 
-    if keyword:
-        if keyword == "#上班打卡":
-            if has_user_checked_keyword_today_fixed(username, "#上班打卡"):
-                await msg.reply_text("⚠️ 今天已经打过上班卡了。")
-                return
-            await msg.reply_text("❗️请附带IP截图完成上班打卡。")
+    # 只保留真正的打卡类记录，过滤掉 #取消打卡 等审计类关键词
+    df = df[df["keyword"].isin(["#上班打卡", "#下班打卡"])].copy()
 
-        elif keyword == "#补卡":
-            # 🚫 已有上班卡，禁止补卡
-            if has_user_checked_keyword_today_fixed(username, "#上班打卡"):
-                await msg.reply_text("⚠️ 今天已有上班卡，不能再补卡。")
-                return
-            if has_user_checked_keyword_today_fixed(username, "#补卡"):
-                await msg.reply_text("⚠️ 今天已经补过卡了。")
-                return
-            await msg.reply_text("📌 请发送“#补卡”并附IP截图完成补卡。")
+    return df
 
-        elif keyword == "#下班打卡":
-            # 🚫 重复下班卡
-            if has_user_checked_keyword_today_fixed(username, "#下班打卡"):
-                await msg.reply_text("⚠️ 今天已经打过下班卡了。")
-                return
-            # 🚫 没有上班卡/补卡
-            if not (has_user_checked_keyword_today_fixed(username, "#上班打卡") or
-                    has_user_checked_keyword_today_fixed(username, "#补卡")):
-                await msg.reply_text("❗ 今天还没有上班打卡，请先打卡或补卡。")
-                return
-            await msg.reply_text("❗️请附带IP截图完成下班打卡。")
+# 获取所有用户姓名
+def get_all_user_names():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM users;")
+            return [row[0] for row in cur.fetchall()]
 
+# 导出打卡记录
+def export_excel(start_datetime: datetime, end_datetime: datetime):
+    df = _fetch_data(start_datetime, end_datetime)
+    if df.empty:
+        logging.warning("⚠️ 指定日期内没有数据")
+        export_dir = os.path.join(DATA_DIR, f"excel_{start_datetime:%Y-%m-%d}_{end_datetime - pd.Timedelta(seconds=1):%Y-%m-%d}")
+        os.makedirs(export_dir, exist_ok=True)
+        excel_path = os.path.join(export_dir, f"打卡记录_{start_datetime:%Y-%m-%d}_{end_datetime - pd.Timedelta(seconds=1):%Y-%m-%d}.xlsx")
+        with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+            pd.DataFrame(columns=["姓名", "打卡时间", "关键词", "班次", "备注"]).to_excel(writer, sheet_name="空表", index=False)
+        return excel_path
 
-# ========= CALLBACK =========
-async def cancel_pending_checkin(context, chat_id, pending_id):
-    await asyncio.sleep(60)  # 1分钟超时
-
-    pending_checkins = context.user_data.get("pending_checkins", {})
-
-    if pending_id in pending_checkins:
-        pending_checkins.pop(pending_id, None)
-
+    # ======================== 时间处理 ========================
+    if pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
         try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="⚠️ 超过1分钟未选择班次，本次打卡已失效，请重新打卡。"
-            )
-        except Exception:
+            df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+        except AttributeError:
             pass
 
-async def cancel_pending_makeup(context, chat_id, pending_id):
-    await asyncio.sleep(60)
+    df["date"] = df["timestamp"].dt.strftime("%Y-%m-%d")
+    start_str = start_datetime.strftime("%Y-%m-%d")
+    end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
 
-    pending = context.user_data.get("pending_makeups", {})
+    export_dir = os.path.join(DATA_DIR, f"excel_{start_str}_{end_str}")
+    os.makedirs(export_dir, exist_ok=True)
+    excel_path = os.path.join(export_dir, f"打卡记录_{start_str}_{end_str}.xlsx")
 
-    if pending_id in pending:
-        del pending[pending_id]
+    all_user_names = get_all_user_names()
 
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="⏰ 补卡超时，已自动失效。"
-        )
+    def format_shift(shift):
+        if pd.isna(shift):
+            return shift
+        shift_text = str(shift)
+        if re.search(r'（\d{2}:\d{2}-\d{2}:\d{2}）', shift_text):
+            return shift_text
+        shift_name = shift_text.split("（")[0]
+        if shift_name in get_shift_times_short():
+            start, end = get_shift_times_short()[shift_name]
+            return f"{shift_text}（{start.strftime('%H:%M')}-{end.strftime('%H:%M')}）"
+        return shift_text
 
+    missed_days_count = {u: 0 for u in all_user_names}
 
-# ===========================
-# 处理带图片的打卡消息（保留原功能，新增 I班限制）
-# ===========================
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    username = msg.from_user.username or f"user{msg.from_user.id}"
-    caption = msg.caption or ""
-    keyword = extract_keyword(caption)
+    # 过滤掉当天 sheet 的 I班凌晨下班卡（次日）
+    i_shift_mask = (
+        (df["keyword"] == "#下班打卡") &
+        (df["shift"].notna()) &
+        (df["shift"].astype(str).str.startswith("I班")) &
+        (df["timestamp"].dt.hour < 6)
+    )
+    cross_df = df[i_shift_mask].copy()
+    df = df[~i_shift_mask]
+    cross_df["remark"] = cross_df.get("remark", "") + "（次日）"
+    cross_df["date"] = (cross_df["timestamp"] - pd.Timedelta(days=1)).dt.strftime("%Y-%m-%d")
+    df = pd.concat([df, cross_df], ignore_index=True)
 
-    # 🚩 检查数据库是否登记过
-    name = get_user_name(username)
-    if not name:
-        await msg.reply_text("⚠️ 无法使用，请联系部门助理。")
-        return
+    with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+        sheet_written = False
 
-    if not keyword:
-        await msg.reply_text("❗ 图片必须附加关键词：#上班打卡 / #下班打卡 / #补卡")
-        return
+        for day, group_df in sorted(df.groupby("date"), key=lambda x: x[0], reverse=True):
+            group_df = group_df.copy()
+            if "remark" not in group_df.columns:
+                group_df["remark"] = ""
 
-    # 下载图片（≤1MB）
-    photo = msg.photo[-1]
-    file = await photo.get_file()
+            # 当日已打上班 / 下班的用户
+            checked_users = set(group_df.loc[group_df["keyword"] == "#上班打卡", "name"].unique())
+            down_checked_users = set(group_df.loc[group_df["keyword"] == "#下班打卡", "name"].unique())
 
-    if file.file_size > 1024 * 1024:
-        await msg.reply_text("❗ 图片太大，不能超过1MB。")
-        return
+            missed_users = []
+            day_date = datetime.strptime(day, "%Y-%m-%d").date()
 
-    today_str = datetime.now(BEIJING_TZ).strftime("%Y-%m-%d")
-    tmp_path = f"/tmp/{today_str}_{username}_{keyword}.jpg"
+            for u in all_user_names:
+                if u not in checked_users:
+                    missed_users.append(u)
+                    missed_days_count[u] += 1
+                elif u not in down_checked_users:
+                    group_df = pd.concat([
+                        group_df,
+                        pd.DataFrame([{
+                            "name": u,
+                            "timestamp": pd.NaT,
+                            "keyword": "#下班打卡",
+                            "shift": None,
+                            "remark": "未打下班卡"
+                        }])
+                    ], ignore_index=True)
 
-    await file.download_to_drive(tmp_path)
+            if missed_users:
+                missed_df = pd.DataFrame({
+                    "name": missed_users,
+                    "timestamp": pd.NaT,
+                    "keyword": None,
+                    "shift": None,
+                    "remark": "休息/缺勤"
+                })
+                group_df = pd.concat([group_df, missed_df], ignore_index=True)
 
-    image_url = upload_image(tmp_path)
+            # ======================== 迟到/早退/补卡 ========================
+            for idx, row in group_df.iterrows():
+                shift_val = row["shift"]
+                keyword = row["keyword"]
+                ts = row["timestamp"]
 
-    os.remove(tmp_path)
+                if not shift_val or pd.isna(ts):
+                    continue
 
-    now = datetime.now(BEIJING_TZ)
+                shift_text = str(shift_val).strip()
+                shift_name = re.split(r'[（(]', shift_text)[0]
 
-    # ==========================
-    # 上班打卡
-    # ==========================
-    if keyword == "#上班打卡":
+                if "补卡" in shift_text:
+                    group_df.at[idx, "remark"] = "补卡"
+                    continue
 
-        # 今日已打上班卡
-        if has_user_checked_keyword_today_fixed(username, "#上班打卡"):
-            await msg.reply_text("⚠️ 今天已经打过上班卡了。")
-            return
+                if shift_name in get_shift_times_short():
+                    start_time, end_time = get_shift_times_short()[shift_name]
+                    ts_time = ts.time()
+                    tags = []
 
-        # I班跨天限制
-        if 0 <= now.hour < 6:
-            await msg.reply_text("⚠️ 已经打过上班卡，请勿重复。")
-            return
+                    if keyword == "#上班打卡" and ts_time > start_time:
+                        tags.append(_late_tag(ts_time, start_time))
+                    elif keyword == "#下班打卡":
+                        if shift_name == "I班":
+                            if not (ts.hour == 0):
+                                if 15 <= ts.hour <= 23:
+                                    tags.append("早退")
+                        else:
+                            if not (0 <= ts.hour <= 1):
+                                if ts_time < end_time:
+                                    tags.append("早退")
 
-        # ==========================
-        # 创建待确认任务（企业级）
-        # ==========================
-        pending_id = str(uuid.uuid4())
+                    if keyword in ("#上班打卡", "#下班打卡") and not _in_shift_window(ts_time, start_time, end_time):
+                        tags.append("签到异常")
 
-        if "pending_checkins" not in context.user_data:
-            context.user_data["pending_checkins"] = {}
+                    if tags:
+                        group_df.at[idx, "remark"] = "；".join(tags)
 
-        context.user_data["pending_checkins"][pending_id] = {
-            "username": username,
-            "name": name,
-            "image_url": image_url,
-            "timestamp": now,
-            "keyword": keyword
+            group_df = group_df.sort_values(["name", "timestamp"], na_position="last")
+            slim_df = group_df[["name", "timestamp", "keyword", "shift", "remark"]].copy()
+            slim_df.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+
+            slim_df["打卡时间"] = slim_df["打卡时间"].apply(lambda x: x.strftime("%H:%M:%S") if pd.notna(x) else "")
+            slim_df["班次"] = slim_df["班次"].apply(format_shift)
+
+            sheet_name = day[:31]
+            sheet = writer.book.create_sheet(sheet_name)
+            headers = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+            sheet.append(headers)
+
+            for user, user_df in slim_df.groupby("姓名"):
+                for _, row in user_df.iterrows():
+                    sheet.append(list(row))
+                sheet.append([None] * len(headers))
+
+            sheet_written = True
+
+        if not sheet_written:
+            pd.DataFrame(columns=["姓名", "打卡时间", "关键词", "班次", "备注"]).to_excel(writer, sheet_name="空表", index=False)
+
+    # ======================== 样式处理 ========================
+    wb = load_workbook(excel_path)
+    red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
+    yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
+    blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")
+    purple_fill_light = PatternFill(start_color="E6CCFF", end_color="E6CCFF", fill_type="solid")
+    orange_fill_light = PatternFill(start_color="FFDCB0", end_color="FFDCB0", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin", color="000000"),
+        right=Side(style="thin", color="000000"),
+        top=Side(style="thin", color="000000"),
+        bottom=Side(style="thin", color="000000")
+    )
+    from itertools import cycle
+    user_fills = cycle([
+        PatternFill(start_color="f9f9f9", end_color="f9f9f9", fill_type="solid"),
+        PatternFill(start_color="ffffff", end_color="ffffff", fill_type="solid"),
+    ])
+
+    for sheet in wb.worksheets:
+        if sheet.title in ["统计", "异常统计"]:
+            continue
+        current_user = None
+        current_fill = next(user_fills)
+        for row in sheet.iter_rows(min_row=2):
+            if all(cell.value is None for cell in row):
+                continue
+            name_val = row[0].value
+            remark_val = str(row[4].value or "")
+            if name_val != current_user:
+                current_fill = next(user_fills)
+                current_user = name_val
+            for cell in row:
+                cell.fill = current_fill
+            if "迟到" in remark_val or "早退" in remark_val:
+                for cell in row[1:]:
+                    cell.fill = red_fill
+            elif "补卡" in remark_val:
+                for cell in row[1:]:
+                    cell.fill = yellow_fill
+            elif "休息/缺勤" in remark_val:
+                for cell in row[1:]:
+                    cell.fill = blue_fill_light
+            elif "未打下班卡" in remark_val:
+                for cell in row[1:]:
+                    cell.fill = purple_fill_light
+            if "签到异常" in remark_val and "迟到" not in remark_val and "早退" not in remark_val:
+                for cell in row[1:]:
+                    cell.fill = orange_fill_light
+
+        # 合并姓名列
+        name_col = 1
+        merge_start = None
+        prev_name = None
+        for row_idx in range(2, sheet.max_row + 1):
+            cell_val = sheet.cell(row=row_idx, column=name_col).value
+            if cell_val != prev_name:
+                if merge_start and row_idx - merge_start > 1:
+                    sheet.merge_cells(
+                        start_row=merge_start, start_column=name_col,
+                        end_row=row_idx - 1, end_column=name_col
+                    )
+                merge_start = row_idx
+                prev_name = cell_val
+        if merge_start and sheet.max_row - merge_start >= 1:
+            sheet.merge_cells(
+                start_row=merge_start, start_column=name_col,
+                end_row=sheet.max_row, end_column=name_col
+            )
+
+    # ======================== 异常统计 ========================
+    stats = {u: {"休息/缺勤": 0, "迟到<15分钟": 0, "迟到≥15分钟": 0, "早退": 0, "签到异常": 0, "补卡": 0, "未打下班卡": 0} for u in all_user_names}
+    for sheet in wb.worksheets:
+        if sheet.title in ["统计", "异常统计"]:
+            continue
+        df_sheet = pd.DataFrame(sheet.values)
+        if df_sheet.empty or len(df_sheet.columns) < 5:
+            continue
+        df_sheet.columns = ["姓名", "打卡时间", "关键词", "班次", "备注"]
+        last_name = None
+        for i in range(len(df_sheet)):
+            if pd.notna(df_sheet.at[i, "姓名"]):
+                last_name = df_sheet.at[i, "姓名"]
+            elif last_name:
+                df_sheet.at[i, "姓名"] = last_name
+        df_sheet["备注"] = df_sheet["备注"].astype(str).fillna("")
+        for name, g in df_sheet.groupby("姓名"):
+            if not name or name not in stats:
+                continue
+            remarks = g["备注"]
+            stats[name]["补卡"] += int(remarks.apply(lambda s: s.count("补卡")).sum())
+            stats[name]["迟到<15分钟"] += int(remarks.apply(lambda s: s.count("迟到（<15分钟）")).sum())
+            stats[name]["迟到≥15分钟"] += int(remarks.apply(lambda s: s.count("迟到（≥15分钟）")).sum())
+            stats[name]["早退"] += int(remarks.apply(lambda s: s.count("早退")).sum())
+            stats[name]["签到异常"] += int(remarks.apply(lambda s: s.count("签到异常")).sum())
+            stats[name]["休息/缺勤"] += int(remarks.apply(lambda s: s.count("休息/缺勤")).sum())
+            stats[name]["未打下班卡"] += int(remarks.apply(lambda s: s.count("未打下班卡")).sum())
+
+    summary_df = pd.DataFrame([
+        {
+            "姓名": u,
+            **v,
+            "异常总数": v["迟到<15分钟"] + v["迟到≥15分钟"] + v["早退"] + v["签到异常"] + v["补卡"] + v["未打下班卡"],
         }
+        for u, v in stats.items()
+    ])
+    summary_df = summary_df[
+        ["姓名", "休息/缺勤", "迟到<15分钟", "迟到≥15分钟", "早退", "签到异常", "补卡", "未打下班卡", "异常总数"]
+    ].sort_values(by="姓名", ascending=True)
 
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    v,
-                    callback_data=f"shift:{pending_id}:{k}"
-                )
-            ]
-            for k, v in get_shift_options().items()
-        ]
+    if "统计" in [s.title for s in wb.worksheets]:
+        del wb["统计"]
+    if "异常统计" in [s.title for s in wb.worksheets]:
+        del wb["异常统计"]
 
-        await msg.reply_text(
-            "请选择今天的班次：",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-        # 1分钟超时自动失效
-        asyncio.create_task(
-            cancel_pending_checkin(
-                context,
-                msg.chat_id,
-                pending_id
-            )
-        )
-
-        return
-
-    # ==========================
-    # 补卡
-    # ==========================
-    elif keyword == "#补卡":
-
-        # 今日已有上班卡
-        if has_user_checked_keyword_today_fixed(username, "#上班打卡"):
-            await msg.reply_text("⚠️ 今天已有上班卡，不能再补卡。")
-            return
-
-        # 今日已补卡
-        if has_user_checked_keyword_today_fixed(username, "#补卡"):
-            await msg.reply_text("⚠️ 今天已经补过卡了。")
-            return
-
-        # 凌晨补卡算前一天
-        target_date = (
-            (now - timedelta(days=1)).date()
-            if now.hour < 6
-            else now.date()
-        )
-
-        # ==========================
-        # 创建补卡待确认任务
-        # ==========================
-        pending_id = str(uuid.uuid4())
-
-        if "pending_makeups" not in context.user_data:
-            context.user_data["pending_makeups"] = {}
-
-        context.user_data["pending_makeups"][pending_id] = {
-            "username": username,
-            "name": name,
-            "image_url": image_url,
-            "date": target_date,
-            "timestamp": now,
-            "keyword": keyword
-        }
-
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    v,
-                    callback_data=f"makeup_shift:{pending_id}:{k}"
-                )
-            ]
-            for k, v in get_shift_options().items()
-        ]
-
-        await msg.reply_text(
-            "请选择要补卡的班次：",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-        # 1分钟超时自动失效
-        asyncio.create_task(
-            cancel_pending_makeup(
-                context,
-                msg.chat_id,
-                pending_id
-            )
-        )
-
-        return
-
-    # ==========================
-    # 下班打卡
-    # ==========================
-    elif keyword == "#下班打卡":
-
-        # 必须先有上班卡或补卡
-        if not (
-            has_user_checked_keyword_today_fixed(username, "#上班打卡")
-            or
-            has_user_checked_keyword_today_fixed(username, "#补卡")
-        ):
-            await msg.reply_text("❗ 今天还没有上班打卡，请先打卡或补卡。")
-            return
-
-        # 获取最近一次上班记录
-        logs = get_user_logs(
-            username,
-            now - timedelta(days=1),
-            now
-        )
-
-        last_shift = None
-        last_check_in = None
-
-        for ts, kw, shift in reversed(logs):
-            if kw in ("#上班打卡", "#补卡"):
-                last_check_in = ts if isinstance(ts, datetime) else parse(ts)
-                last_shift = shift.split("（")[0] if shift else None
-                break
-
-        if not last_shift:
-            await msg.reply_text("⚠️ 未找到有效的班次，无法下班打卡。")
-            return
-
-        # ==========================
-        # 班次时间限制
-        # ==========================
-        today = last_check_in.date()
-
-        if last_shift == "F班":
-
-            deadline = datetime.combine(
-                today,
-                time(22, 0),
-                tzinfo=BEIJING_TZ
-            )
-
-            shift_start = datetime.combine(
-                today,
-                time(12, 0),
-                tzinfo=BEIJING_TZ
-            )
-
-            shift_end = deadline
-
-        elif last_shift == "I班":
-
-            deadline = datetime.combine(
-                today + timedelta(days=1),
-                time(1, 0),
-                tzinfo=BEIJING_TZ
-            )
-
-            shift_start = datetime.combine(
-                today,
-                time(15, 0),
-                tzinfo=BEIJING_TZ
-            )
-
-            shift_end = deadline
-
-        else:
-            await msg.reply_text("⚠️ 班次信息错误，无法下班打卡。")
-            return
-
-        # 当前班次内是否已打下班卡
-        logs_for_shift = get_user_logs(
-            username,
-            shift_start,
-            shift_end
-        )
-
-        if any(
-            kw2 == "#下班打卡" and shift2 == last_shift
-            for _, kw2, shift2 in logs_for_shift
-        ):
-            await msg.reply_text(f"⚠️ {last_shift} 已经打过下班卡了。")
-            return
-
-        # 保存下班卡
-        save_message(
-            username=username,
-            name=name,
-            content=image_url,
-            timestamp=now,
-            keyword=keyword,
-            shift=last_shift
-        )
-
-        # 查看记录按钮
-        # 跨月下班（如 7月31日上班、8月1日凌晨下班）时，
-        # 该记录实际归属于“上个月”的班次，此时应跳转到“上月打卡记录”，
-        # 否则按“本月”查询会因为时间范围不匹配而查不到、点击无反应。
-        if today.year == now.year and today.month == now.month:
-            log_callback = "mylogs_open"
-        else:
-            log_callback = "lastmonth_open"
-
-        buttons = [
-            [
-                InlineKeyboardButton(
-                    "🗓 查看打卡记录",
-                    callback_data=log_callback
-                )
-            ]
-        ]
-
-        markup = InlineKeyboardMarkup(buttons)
-
-        await msg.reply_text(
-            f"✅ 下班打卡成功！班次：{last_shift}",
-            reply_markup=markup
-        )
-
-        return
-
-    # ==========================
-    # 未知关键词
-    # ==========================
-    else:
-        await msg.reply_text("⚠️ 未知打卡类型")
-
-# ===========================
-# 自动移除按钮函数
-# ===========================
-async def remove_change_shift_button(bot, chat_id, message_id):
-    await asyncio.sleep(600)  # 10分钟
-
-    try:
-        await bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=message_id,
-            reply_markup=None
-        )
-    except Exception:
-        pass
-
-
-# ===========================
-# 选择上班班次回调
-# ===========================
-async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    username = query.from_user.username or f"user{query.from_user.id}"
-
-    try:
-        _, pending_id, shift_code = query.data.split(":")
-    except ValueError:
-        await query.edit_message_text("⚠️ 数据异常，请重新打卡。")
-        return
-
-    pending_checkins = context.user_data.get("pending_checkins", {})
-    pending = pending_checkins.get(pending_id)
-
-    # 超时 or 已失效
-    if not pending:
-        await query.edit_message_text(
-            "⚠️ 打卡已超时或失效，请重新打卡。"
-        )
-        return
-
-    shift_name = get_shift_options()[shift_code]
-
-    # ✅ 正式保存数据库
-    save_message(
-        username=pending["username"],
-        name=pending["name"],
-        content=pending["image_url"],
-        timestamp=pending["timestamp"],
-        keyword=pending["keyword"],
-        shift=shift_name
+    stats_sheet = wb.create_sheet("异常统计", 0)
+    headers = ["姓名", "休息/缺勤", "迟到<15分钟", "迟到≥15分钟", "早退", "签到异常", "补卡", "未打下班卡", "异常总数"]
+    for r_idx, row in enumerate([headers] + summary_df.values.tolist(), 1):
+        for c_idx, value in enumerate(row, 1):
+            stats_sheet.cell(row=r_idx, column=c_idx, value=value)
+    stats_sheet.freeze_panes = "A2"
+    header_font = Font(bold=True)
+    center_align = Alignment(horizontal="center")
+    highlight_fill = PatternFill(start_color="FFF8B0", end_color="FFF8B0", fill_type="solid")
+    stats_sheet.auto_filter.ref = stats_sheet.dimensions
+    for cell in stats_sheet[1]:
+        cell.font = header_font
+        cell.alignment = center_align
+    light_red_fill = PatternFill(start_color="FFD6D6", end_color="FFD6D6", fill_type="solid")
+    total_col_idx = len(headers)  # 异常总数所在列（1-based）
+    for row in stats_sheet.iter_rows(min_row=2):
+        try:
+            rest_days = int(row[1].value or 0)   # 休息/缺勤在第2列 (索引1)
+            if rest_days > 4:
+                row[1].fill = light_red_fill
+            abnormal_total = int(row[total_col_idx - 1].value or 0)  # 异常总数在最后一列
+            if abnormal_total > 2:
+                row[total_col_idx - 1].fill = light_red_fill
+        except ValueError:
+            pass
+    desc_text = (
+        "【休息/缺勤：没有打卡记录的天数】\n"
+        "【迟到<15分钟 / 迟到≥15分钟：按迟到时长分档统计】\n"
+        "【签到异常：打卡时间不在班次开始前30分钟至班次结束后30分钟的窗口内】\n"
+        "【异常总数：迟到<15分钟+迟到≥15分钟+早退+签到异常+补卡+未打下班卡】"
     )
+    start_row = summary_df.shape[0] + 3
+    end_row = start_row + 3
+    stats_sheet.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=total_col_idx)
+    cell = stats_sheet.cell(row=start_row, column=1, value=desc_text)
+    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell.fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+    cell.font = Font(bold=True, color="000000")
 
-    # 删除待确认
-    pending_checkins.pop(pending_id, None)
+    # ======================== 列宽/边框/筛选 ========================
+    for sheet in wb.worksheets:
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        for col in sheet.columns:
+            col_letter = col[0].column_letter
+            max_length = max((19 if isinstance(cell.value, datetime) else len(str(cell.value or "")) for cell in col))
+            for cell in col:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = thin_border
+            sheet.column_dimensions[col_letter].width = min(max_length + 8, 30)
 
-    new_text = f"✅ 上班打卡成功！班次：{shift_name}"
+    wb.save(excel_path)
+    logging.info(f"✅ Excel 导出完成: {excel_path}")
+    return excel_path
 
-    buttons = [
-        [InlineKeyboardButton("🔄 修改班次（仅限10分钟内）", callback_data="change_shift")]
-    ]
+# 导出个人打卡记录
+def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: datetime):
+    df = _fetch_data(start_datetime, end_datetime)
+    if df.empty:
+        logging.warning(f"⚠️ 指定日期内没有 {user_name} 的数据")
+        return None
 
-    # 今日取消名额还有剩余，才显示“取消打卡”按钮，并动态展示剩余次数
-    remaining_cancels = DAILY_CANCEL_LIMIT - count_cancel_checkin_today(pending["username"])
-    if remaining_cancels > 0:
-        # 暂存本次打卡记录信息，供“取消打卡”按钮回调时定位要删除的记录
-        checkin_id = str(uuid.uuid4())
-        context.user_data.setdefault("checkin_records", {})[checkin_id] = {
-            "username": pending["username"],
-            "timestamp": pending["timestamp"],
-        }
-        buttons.append([
-            InlineKeyboardButton(
-                f"❌ 取消打卡（今日剩余{remaining_cancels}次）",
-                callback_data=f"cancel_checkin:{checkin_id}"
-            )
-        ])
+    # 只筛选该用户
+    df = df[df["name"] == user_name]
+    if df.empty:
+        logging.warning(f"⚠️ {user_name} 在指定日期没有考勤记录")
+        return None
 
-    await query.edit_message_text(
-        new_text,
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    # ======================== 时间处理 ========================
+    if pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        try:
+            df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+        except AttributeError:
+            pass
 
-    # 5分钟后自动移除修改按钮
-    asyncio.create_task(
-        remove_change_shift_button(
-            context.bot,
-            query.message.chat_id,
-            query.message.message_id
-        )
-    )
+    df["日期"] = df["timestamp"].dt.strftime("%Y-%m-%d")
 
-async def change_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    def format_shift(shift):
+        if pd.isna(shift):
+            return shift
+        shift_text = str(shift)
+        if re.search(r'（\d{2}:\d{2}-\d{2}:\d{2}）', shift_text):
+            return shift_text
+        shift_name = shift_text.split("（")[0]
+        if shift_name in get_shift_times_short():
+            start, end = get_shift_times_short()[shift_name]
+            return f"{shift_text}（{start.strftime('%H:%M')}-{end.strftime('%H:%M')}）"
+        return shift_text
 
-    keyboard = [
-        [InlineKeyboardButton(v, callback_data=f"change_shift_to:{k}")]
-        for k, v in get_shift_options().items()
-    ]
+    # ======================== remark 标注逻辑 ========================
+    if "remark" not in df.columns:
+        df["remark"] = ""
 
-    await query.edit_message_text(
-        "请选择新的班次：",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    for idx, row in df.iterrows():
+        shift_val = row["shift"]
+        keyword = row["keyword"]
+        ts = row["timestamp"]
 
-async def change_shift_to_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    username = query.from_user.username or f"user{query.from_user.id}"
-
-    try:
-        shift_code = query.data.split(":")[1]
-    except Exception:
-        await query.edit_message_text("⚠️ 班次数据异常，请重新操作。")
-        return
-
-    shift_name = get_shift_options()[shift_code]
-
-    now = datetime.now(BEIJING_TZ)
-
-    # =========================
-    # 只查询“今天”的记录（修复误判）
-    # =========================
-    today_start = datetime.combine(
-        now.date(),
-        time.min,
-        tzinfo=BEIJING_TZ
-    )
-
-    logs = get_user_logs(
-        username,
-        today_start,
-        now
-    )
-
-    # =========================
-    # 已下班 → 禁止修改班次
-    # =========================
-    if any(
-	    kw == "#下班打卡" and ts.astimezone(BEIJING_TZ).hour >= 6
-	    for ts, kw, _ in logs
-    ):
-	    await query.edit_message_text("⚠️ 已完成下班打卡，不能修改班次。")
-	    return
-    # =========================
-    # 只允许5分钟内修改
-    # =========================
-    last_checkin = None
-    current_shift = None
-
-    for ts, kw, shift in reversed(logs):
-        if kw in ("#上班打卡", "#补卡"):
-            last_checkin = ts
-            current_shift = shift
-            break
-
-    # 未找到上班记录
-    if not last_checkin:
-        await query.edit_message_text(
-            "⚠️ 未找到今日上班记录。"
-        )
-        return
-
-    # 超过10分钟
-    if (now - last_checkin).total_seconds() > 600:
-
-        current_shift_text = current_shift or "未知"
-
-        await query.edit_message_text(
-            f"⚠️ 超过10分钟，不能修改班次。\n"
-            f"当前班次：{current_shift_text}"
-        )
-        return
-
-    # =========================
-    # 更新班次
-    # =========================
-    update_today_shift(username, shift_name)
-
-    await query.edit_message_text(
-        f"✅ 班次修改成功！\n"
-        f"新班次：{shift_name}"
-    )
-
-# ===========================
-# 取消打卡（仅限上班打卡，每天限额 DAILY_CANCEL_LIMIT 次）
-# ===========================
-DAILY_CANCEL_LIMIT = 1
-
-def count_cancel_checkin_today(username):
-    """今天已经使用过几次“取消打卡”名额"""
-    now = datetime.now(BEIJING_TZ)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
-
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT COUNT(*)
-            FROM messages
-            WHERE username=%s
-              AND keyword=%s
-              AND timestamp >= %s
-              AND timestamp < %s
-        """, (username, "#取消打卡", start, end))
-        row = cur.fetchone()
-
-    return row[0] if row else 0
-
-
-def delete_checkin_record(username, ts, keyword):
-    """删除指定的一条打卡记录，返回是否删除成功"""
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            DELETE FROM messages
-            WHERE username=%s AND keyword=%s AND timestamp=%s
-        """, (username, keyword, ts))
-        deleted = cur.rowcount
-        conn.commit()
-
-    return deleted > 0
-
-
-async def cancel_checkin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-
-    try:
-        checkin_id = query.data.split(":", 1)[1]
-    except (IndexError, ValueError):
-        await query.answer("⚠️ 数据异常，请重新操作。", show_alert=True)
-        return
-
-    records = context.user_data.get("checkin_records", {})
-    record = records.get(checkin_id)
-
-    if not record:
-        await query.answer("⚠️ 该操作已过期，无法取消打卡。", show_alert=True)
-        return
-
-    username = record["username"]
-
-    # 🚫 今天的取消名额已用完（弹窗提示，不修改原消息，保留“修改班次”按钮可用）
-    used = count_cancel_checkin_today(username)
-    if used >= DAILY_CANCEL_LIMIT:
-        await query.answer(
-            f"⚠️ 今日取消打卡名额已用完（{used}/{DAILY_CANCEL_LIMIT}次），不能再次取消。",
-            show_alert=True
-        )
-        return
-
-    now = datetime.now(BEIJING_TZ)
-
-    # 🚫 已完成下班打卡，不能再取消上班打卡
-    today_start = datetime.combine(now.date(), time.min, tzinfo=BEIJING_TZ)
-    logs = get_user_logs(username, today_start, now)
-    if any(
-        kw == "#下班打卡" and ts.astimezone(BEIJING_TZ).hour >= 6
-        for ts, kw, _ in logs
-    ):
-        await query.answer("⚠️ 已完成下班打卡，不能取消上班打卡。", show_alert=True)
-        return
-
-    # 删除本次上班打卡记录
-    deleted = delete_checkin_record(username, record["timestamp"], "#上班打卡")
-    if not deleted:
-        await query.answer("⚠️ 未找到对应的打卡记录，可能已被处理。", show_alert=True)
-        return
-
-    # 记录本次“取消”操作，用于限制今天的取消次数
-    save_message(
-        username=username,
-        name=get_user_name(username) or username,
-        content="取消打卡",
-        timestamp=now,
-        keyword="#取消打卡",
-        shift=""
-    )
-
-    records.pop(checkin_id, None)
-
-    remaining = max(DAILY_CANCEL_LIMIT - (used + 1), 0)
-    await query.answer("✅ 已取消本次上班打卡")
-    await query.edit_message_text(
-        f"✅ 已取消本次上班打卡，你可以重新发送“#上班打卡”。\n今日取消名额剩余：{remaining} 次。"
-    )
-
-
-# ===========================
-# 检查用户当天是否已经打过指定关键词的卡（最终版）
-# ===========================
-def has_user_checked_keyword_today_fixed(username, keyword):
-    """
-    检查用户当天是否已经打过某种卡
-    规则：
-      - 上班卡和补卡视为同一类，只能打一次
-      - 下班卡只能打一次
-      - 凌晨 0-6 点的补卡/下班卡算前一天
-    """
-    now = datetime.now(BEIJING_TZ)
-
-    # 关键：凌晨跨天处理
-    if keyword in ("#下班打卡", "#补卡") and now.hour < 6:
-        ref_day = now - timedelta(days=1)
-    else:
-        ref_day = now
-
-    start = ref_day.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
-
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT keyword, timestamp
-            FROM messages
-            WHERE username=%s
-              AND timestamp >= %s
-              AND timestamp < %s
-            ORDER BY timestamp ASC, id ASC
-        """, (username, start, end))
-        rows = cur.fetchall()
-
-    has_up = False   # 记录是否已有上班/补卡
-    has_down = False # 记录是否已有下班
-
-    for kw, ts in rows:
-        ts_local = ts.astimezone(BEIJING_TZ)
-
-        # 🚫 凌晨 0-6 点的补卡/下班算前一天，忽略掉
-        if kw in ("#下班打卡", "#补卡") and ts_local.hour < 6:
+        if not shift_val or pd.isna(ts):
             continue
 
-        if kw in ("#上班打卡", "#补卡"):
-            has_up = True
-        elif kw == "#下班打卡":
-            has_down = True
+        shift_text = str(shift_val).strip()
+        shift_name = re.split(r'[（(]', shift_text)[0]
 
-    # ---- 限制逻辑 ----
-    if keyword in ("#上班打卡", "#补卡"):
-        return has_up   # 只要已有上班或补卡，就禁止
-    if keyword == "#下班打卡":
-        return has_down # 只要已有下班，就禁止
+        if "补卡" in shift_text:
+            df.at[idx, "remark"] = "补卡"
+            continue
 
-    return False
+        if shift_name in get_shift_times_short():
+            start_time, end_time = get_shift_times_short()[shift_name]
+            ts_time = ts.time()
+            tags = []
 
-# ===========================
-# 处理补卡回调按钮（用户选择班次后执行）
-# ===========================
-async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()  # 先应答按钮点击事件
- 
-    try:
-        _, pending_id, shift_code = query.data.split(":")
-    except ValueError:
-        await query.edit_message_text("⚠️ 数据异常，请重新发送“#补卡”。")
-        return
- 
-    pending_makeups = context.user_data.get("pending_makeups", {})
-    data = pending_makeups.get(pending_id)
- 
-    if not data:
-        await query.edit_message_text("⚠️ 补卡已超时或失效，请重新发送“#补卡”。")
-        return
- 
-    # shift_code 已从 callback_data 中解析
-    shift_name = get_shift_options()[shift_code]  # 转换为完整班次名
-    shift_short = shift_name.split("（")[0]  # 提取班次简称（F班/I班等）
- 
-    # 当前时间（北京时间）
-    now = datetime.now(BEIJING_TZ)
- 
-    # 🚫 时间窗口限制
-    if shift_short == "I班" and (6 <= now.hour < 15):
-        await query.edit_message_text("⚠️ 当前时间段禁止补 I 班（06:00-15:00 不能补卡）。")
-        return
-    if shift_short == "F班" and now.hour < 12:
-        await query.edit_message_text("⚠️ 当前时间段禁止补 F 班（12:00 之前不能补卡）。")
-        return
- 
-    # 获取班次上班时间
-    start_time, _ = get_shift_times_short()[shift_short]
-    punch_dt = datetime.combine(data["date"], start_time, tzinfo=BEIJING_TZ)
- 
-    # 保存补卡信息
-    save_message(
-        username=data["username"],
-        name=data["name"],
-        content=data["image_url"],  # 补卡截图 URL
-        timestamp=punch_dt,
-        keyword="#上班打卡",
-        shift=shift_name + "（补卡）"
+            if keyword == "#上班打卡" and ts_time > start_time:
+                tags.append(_late_tag(ts_time, start_time))
+            elif keyword == "#下班打卡":
+                if shift_name == "I班":
+                    if not (ts.hour == 0):
+                        if 15 <= ts.hour <= 23:
+                            tags.append("早退")
+                else:
+                    if not (0 <= ts.hour <= 1):
+                        if ts_time < end_time:
+                            tags.append("早退")
+
+            if keyword in ("#上班打卡", "#下班打卡") and not _in_shift_window(ts_time, start_time, end_time):
+                tags.append("签到异常")
+
+            if tags:
+                df.at[idx, "remark"] = "；".join(tags)
+
+    # ======================== 处理 I 班跨日下班卡 ========================
+    i_shift_mask = (
+        (df["keyword"] == "#下班打卡") &
+        (df["shift"].notna()) &
+        (df["shift"].astype(str).str.startswith("I班")) &
+        (df["timestamp"].dt.hour < 6)
     )
- 
-    # 成功提示并清除上下文补卡信息
-    await query.edit_message_text(f"✅ 补卡成功！班次：{shift_name}")
-    pending_makeups.pop(pending_id, None)
+    cross_df = df[i_shift_mask].copy()
+    df = df[~i_shift_mask]
+    cross_df["remark"] = cross_df.get("remark", "") + "（次日）"
+    cross_df["日期"] = (cross_df["timestamp"] - pd.Timedelta(days=1)).dt.strftime("%Y-%m-%d")
+    df = pd.concat([df, cross_df], ignore_index=True)
 
-# ===========================
-# /lastmonth 命令
-# ===========================
-async def lastmonth_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tg_user = update.effective_user
-    username = tg_user.username
-    fallback_username = f"user{tg_user.id}"
+    # ======================== 补齐休息/缺勤 ========================
+    all_dates = pd.date_range(start_datetime.date(), (end_datetime - timedelta(seconds=1)).date(), freq="D")
+    existing_dates = set(df["日期"].unique())
+    missing_dates = [d.strftime("%Y-%m-%d") for d in all_dates if d.strftime("%Y-%m-%d") not in existing_dates]
 
-    now = datetime.now(BEIJING_TZ)
-    # 计算上个月的年月
-    if now.month == 1:
-        year, month = now.year - 1, 12
-    else:
-        year, month = now.year, now.month - 1
+    if missing_dates:
+        missed_df = pd.DataFrame({
+            "日期": missing_dates,
+            "name": user_name,
+            "timestamp": pd.NaT,
+            "keyword": None,
+            "shift": None,
+            "remark": "休息/缺勤"
+        })
+        df = pd.concat([df, missed_df], ignore_index=True)
 
-    # 上个月第一天
-    first_day_prev = datetime(year, month, 1, tzinfo=BEIJING_TZ)
-    # 本月第一天
-    first_day_this = datetime(now.year, now.month, 1, tzinfo=BEIJING_TZ)
+    # ======================== 补齐未打下班卡 ========================
+    unclosed_rows = []
+    for day, g in df.groupby("日期"):
+        has_up = g["keyword"].eq("#上班打卡").any()
+        has_down = g["keyword"].eq("#下班打卡").any()
+        if has_up and not has_down:
+            unclosed_rows.append({
+                "日期": day,
+                "name": user_name,
+                "timestamp": pd.NaT,
+                "keyword": "#下班打卡",
+                "shift": None,
+                "remark": "未打下班卡"
+            })
+    if unclosed_rows:
+        df = pd.concat([df, pd.DataFrame(unclosed_rows)], ignore_index=True)
 
-    # 查询范围：上个月 1号 00:00 → 本月 1号 01:00
-    start = first_day_prev.replace(hour=1, minute=0, second=0, microsecond=0)
-    end = first_day_this.replace(hour=1, minute=0, second=0, microsecond=0)
+    # ======================== 整理数据表 ========================
+    slim_df = df[["日期", "name", "timestamp", "keyword", "shift", "remark"]].copy()
+    slim_df.columns = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
 
-    logs = get_user_logs(username, start, end) if username else None
-    if not logs:
-        logs = get_user_logs(fallback_username, start, end)
+    slim_df["打卡时间"] = slim_df["打卡时间"].apply(lambda x: x.strftime("%H:%M:%S") if pd.notna(x) else "")
+    slim_df["班次"] = slim_df["班次"].apply(format_shift)
 
-    await build_and_send_logs(update, context, logs, "上月打卡", key="lastmonth", period_start=start, period_end=end)
+    keyword_order = {"#上班打卡": 0, "#下班打卡": 1, None: 2}
+    slim_df["kw_order"] = slim_df["关键词"].map(keyword_order).fillna(9)
+    slim_df = slim_df.sort_values(["日期", "姓名", "班次", "kw_order", "打卡时间"]).drop(columns=["kw_order"])
 
+    # ======================== 导出 Excel ========================
+    start_str = start_datetime.strftime("%Y-%m-%d")
+    end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
+    export_dir = os.path.join(DATA_DIR, f"user_excel_{start_str}_{end_str}")
+    os.makedirs(export_dir, exist_ok=True)
+    file_path = os.path.join(export_dir, f"{user_name}_考勤详情.xlsx")
 
-# ===========================
-# /mylogs 命令
-# ===========================
-async def mylogs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tg_user = update.effective_user
-    username = tg_user.username
-    fallback_username = f"user{tg_user.id}"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"{user_name}考勤详情"
 
-    now = datetime.now(BEIJING_TZ)
+    headers = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
+    ws.append(headers)
 
-    # 本月第一天 01:00
-    first_day_this = now.replace(day=1, hour=1, minute=0, second=0, microsecond=0)
+    for _, row in slim_df.iterrows():
+        ws.append(list(row))
 
-    # 下个月第一天 01:00（留 1 小时用于跨天下班卡）
-    first_day_next = (first_day_this + timedelta(days=32)).replace(day=1, hour=1, minute=0, second=0, microsecond=0)
-
-    # 查询范围：本月 1日 01:00 → 下月 1日 01:00
-    start = first_day_this
-    end = first_day_next
-
-    logs = get_user_logs(username, start, end) if username else None
-    if not logs:
-        logs = get_user_logs(fallback_username, start, end)
-
-    await build_and_send_logs(update, context, logs, "本月打卡", key="mylogs", period_start=start, period_end=end)
-
-
-
-# ===========================
-# 🔙 返回主菜单（打卡记录入口）
-# ===========================
-async def back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        "查看你的打卡记录：",
-        reply_markup=InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("📅 本月打卡记录", callback_data="mylogs_open"),
-                InlineKeyboardButton("📆 上月打卡记录", callback_data="lastmonth_open"),
-            ]
-        ])
+    # ======================== 样式处理 ========================
+    red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
+    yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
+    blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")
+    purple_fill = PatternFill(start_color="e6ccff", end_color="e6ccff", fill_type="solid")
+    orange_fill = PatternFill(start_color="ffdcb0", end_color="ffdcb0", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin", color="000000"),
+        right=Side(style="thin", color="000000"),
+        top=Side(style="thin", color="000000"),
+        bottom=Side(style="thin", color="000000")
     )
 
-# ===========================
-# 发送分页内容
-# ===========================	
-async def logs_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    from itertools import cycle
+    user_fills = cycle([
+        PatternFill(start_color="f9f9f9", end_color="f9f9f9", fill_type="solid"),
+        PatternFill(start_color="ffffff", end_color="ffffff", fill_type="solid"),
+    ])
 
-    # 从 callback_data 提取 key
-    key = "mylogs" if query.data.startswith("mylogs") else "lastmonth"
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    if f"{key}_pages" not in context.user_data:
-        await query.edit_message_text(f"⚠️ 会话已过期，请重新使用 /{key}")
-        return
+    current_fill = next(user_fills)
+    prev_date = None
+    for row in ws.iter_rows(min_row=2):
+        if all(cell.value is None for cell in row):
+            continue
+        date_val = row[0].value
+        remark_val = str(row[5].value or "")
 
-    pages_info = context.user_data[f"{key}_pages"]
-    total_pages = len(pages_info["pages"])
-    if query.data.endswith("prev") and pages_info["page_index"] > 0:
-        pages_info["page_index"] -= 1
-    elif query.data.endswith("next") and pages_info["page_index"] < total_pages - 1:
-        pages_info["page_index"] += 1
+        if date_val != prev_date:
+            current_fill = next(user_fills)
+            prev_date = date_val
 
-    await send_logs_page(update, context, key=key)
+        for cell in row:
+            cell.fill = current_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = thin_border
 
-# ===========================
-# 单实例检查：防止重复启动 Bot
-# ===========================
-def check_existing_instance():
-    lock_file = "/tmp/bot.lock"
-    if os.path.exists(lock_file):
-        # 若锁文件存在，读取其中的 PID，检测进程是否存活
-        with open(lock_file) as f:
-            pid = int(f.read())
-            if os.path.exists(f"/proc/{pid}"):
-                print("⚠️ 检测到已有 Bot 实例在运行，退出。")
-                sys.exit(1)
+        if "迟到" in remark_val or "早退" in remark_val:
+            for cell in row[2:]:
+                cell.fill = red_fill
+        elif "补卡" in remark_val:
+            for cell in row[2:]:
+                cell.fill = yellow_fill
+        elif "休息/缺勤" in remark_val:
+            for cell in row[2:]:
+                cell.fill = blue_fill_light
+        elif "未打下班卡" in remark_val:
+            for cell in row[2:]:
+                cell.fill = purple_fill
 
-    # 创建锁文件，写入当前进程 PID
-    with open(lock_file, "w") as f:
-        f.write(str(os.getpid()))
+        if "签到异常" in remark_val and "迟到" not in remark_val and "早退" not in remark_val:
+            for cell in row[2:]:
+                cell.fill = orange_fill
 
-    # 注册退出时清理锁文件
-    import atexit
-    atexit.register(lambda: os.remove(lock_file) if os.path.exists(lock_file) else None)
+    # 列宽自适应
+    for col in ws.columns:
+        col_letter = col[0].column_letter
+        max_length = max(len(str(cell.value or "")) for cell in col)
+        ws.column_dimensions[col_letter].width = min(max_length + 6, 30)
 
-# ===========================
-# 生成并发送上月报表
-# ===========================
-async def send_custom_report(bot, start_dt, end_dt, title=None):
-    """
-    通用报表发送函数（支持 datetime 精确到秒）
-    start_dt / end_dt 需为 datetime，并包含 tzinfo（BEIJING_TZ）
-    """
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
 
-    # 安全检查：如果没 tzinfo，自动补北京时区
-    if start_dt.tzinfo is None:
-        start_dt = start_dt.replace(tzinfo=BEIJING_TZ)
-    if end_dt.tzinfo is None:
-        end_dt = end_dt.replace(tzinfo=BEIJING_TZ)
-
-    # 标题自动生成
-    if title is None:
-        title = f"{start_dt.strftime('%Y-%m-%d %H:%M:%S')} ~ {end_dt.strftime('%Y-%m-%d %H:%M:%S')} 报表"
-
-    now = datetime.now(BEIJING_TZ)
-
-    # ⬇ 核心：导出精确到秒的区间报表
-    excel_path = export_excel(start_dt, end_dt)
-
-    # 群发给管理员
-    for admin_id in REPORT_ADMIN_IDS:
-        try:
-            await bot.send_document(
-                chat_id=admin_id,
-                document=open(excel_path, "rb"),
-                caption=f"📊 {title}\n生成时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
-            )
-            logger.info(f"✅ 已发送 {title} 给管理员 {admin_id}")
-        except Exception as e:
-            logger.error(f"❌ 发送报表给管理员 {admin_id} 失败: {e}")
-
-async def send_monthly_report(bot):
-    now = datetime.now(BEIJING_TZ)
-
-    # 本月 1 号 01:00:00
-    first_day_this_month = datetime(
-        now.year, now.month, 1, 1, 0, 0, tzinfo=BEIJING_TZ
-    )
-
-    # 上个月 1 号 02:00:00
-    first_day_last_month = (first_day_this_month - timedelta(days=1)).replace(
-        day=1, hour=2, minute=0, second=0, microsecond=0
-    )
-
-    title = f"{first_day_last_month.year}年{first_day_last_month.month:02d}月报表"
-
-    await send_custom_report(
-        bot,
-        start_dt=first_day_last_month,
-        end_dt=first_day_this_month,
-        title=title
-    )
-
-# ===========================
-# 调度任务设置
-# ===========================
-def setup_scheduler(bot):
-    scheduler = AsyncIOScheduler(timezone=BEIJING_TZ)
-
-    scheduler.add_job(
-        send_monthly_report,
-        CronTrigger(day=1, hour=11, minute=00, timezone=BEIJING_TZ),
-        args=[bot],
-        id="send_report",
-        replace_existing=True,
-    )
-
-    scheduler.add_job(
-        delete_last_3months_data,
-        CronTrigger(day=1, hour=14, minute=00, timezone=BEIJING_TZ),
-        id="clean_data",
-        replace_existing=True,
-    )
-
-    # 每月1日 13:00 删除上个月的图片（仅清空 image_url，保留打卡记录）
-    scheduler.add_job(
-        delete_last_month_images,
-        CronTrigger(day=1, hour=13, minute=00, timezone=BEIJING_TZ),
-        id="clean_images",
-        replace_existing=True,
-    )
-
-    return scheduler 
-
-async def on_startup(app: Application):
-    # 此时 event loop 已经运行
-    scheduler = setup_scheduler(app.bot)
-    scheduler.start()
-    logger.info("✅ APScheduler 已启动（在 event loop 运行后）")
-	
-def main():
-    init_db()  
-    # ✅ 初始化数据库（创建表、索引等，确保运行环境准备就绪）
-	
-    # ===========================
-    # 初始化 Telegram Bot 应用
-    # ===========================
-    request = HTTPXRequest(
-        connect_timeout=30.0,
-        read_timeout=60.0,
-        write_timeout=60.0,
-        pool_timeout=30.0
-    )
-    global app
-    app = Application.builder().token(TOKEN).request(request).post_init(on_startup).build()
-	
-    os.makedirs(DATA_DIR, exist_ok=True)  
-    # ✅ 确保数据存储目录存在，用于导出文件、缓存等
-
-	
-    # ===========================
-    # ✅ 注册命令处理器（/命令）
-    # ===========================
-
-    app.add_handler(CommandHandler("list_shift", list_shifts_cmd))      # /list_shift：查看当前班次配置
-    app.add_handler(CommandHandler("edit_shift", edit_shift_cmd))        # /edit_shift：管理员添加/修改班次
-    app.add_handler(CommandHandler("delete_shift", delete_shift_cmd))    # /delete_shift：管理员删除班次
-	
-    app.add_handler(CommandHandler("start", start_cmd))                  # /start：欢迎信息 & 姓名登记
-    app.add_handler(CommandHandler("logs", logs_cmd))                    # /logs：单独查看打卡记录（本月/上月按钮）
-    app.add_handler(CommandHandler("mylogs", mylogs_cmd))                # /mylogs：查看本月打卡记录（分页）
-    app.add_handler(CommandHandler("lastmonth", lastmonth_cmd))			 # /lastmonth：查看上月打卡记录（分页）
-    app.add_handler(CommandHandler("userlogs", userlogs_cmd))            # /userlogs @username：查看指定用户本月打卡记录（管理员）
-    app.add_handler(CommandHandler("userlogs_lastmonth", userlogs_lastmonth_cmd))	# /userlogs_lastmonth @username：查看指定用户上月打卡记录（管理员）
-	
-    app.add_handler(CommandHandler("export", export_cmd))                # /export：导出考勤 Excel（管理员）
-    app.add_handler(CommandHandler("export_images", export_images_cmd))  # /export_images：导出打卡截图 ZIP（管理员）
-    app.add_handler(CommandHandler("export_user", exportuser_cmd)) 		 # /export_user 张三 2025-08-01 2025-08-25  导出个人考勤（管理员）
-	
-    app.add_handler(CommandHandler("makeup", admin_makeup_cmd))    		 # /admin_makeup：管理员为员工补卡
-    app.add_handler(CommandHandler("transfer", transfer_cmd))            # /transfer：用户数据迁移（改用户名时用）
-	
-    app.add_handler(CommandHandler("delete_range", delete_range_cmd))    # /delete_range：删除指定时间范围的打卡记录（管理员）
-    app.add_handler(CommandHandler("delete_one", delete_one_cmd))        # /delete_one：删除单条打卡记录（管理员）
-	
-    app.add_handler(CommandHandler("user_list", user_list_cmd))			 # /user_list：查看用户
-    app.add_handler(CommandHandler("user_update", user_update_cmd))		 # /user_update：编辑用户
-    app.add_handler(CommandHandler("user_delete", user_delete_cmd))		 # /user_delete：删除用户
-    app.add_handler(CommandHandler("user_add", user_add_cmd))		     # /user_add：新增用户
-
-    app.add_handler(CommandHandler("commands", commands_cmd))		 	 # /commands：指令菜单
-	
-    # ===========================
-    # ✅ 注册消息处理器（监听非命令消息）
-    # ===========================
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))  # 普通文本消息（识别打卡关键词）
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))                   # 图片消息（识别打卡截图）
-    # 监听所有贴纸消息
-   # app.add_handler(MessageHandler(filters.Sticker.ALL, get_sticker_id))
-
-    # ===========================
-    # ✅ 注册回调按钮处理器（InlineKeyboard）
-    # ===========================
-    app.add_handler(CallbackQueryHandler(shift_callback, pattern=r"^shift:"))               # 用户点击“选择上班班次”按钮
-    app.add_handler(CallbackQueryHandler(makeup_shift_callback, pattern=r"^makeup_shift:")) # 用户点击“选择补卡班次”按钮
-    app.add_handler(CallbackQueryHandler(logs_page_callback, pattern="^(mylogs|lastmonth)_(prev|next)$")) # 用户点击“我的打卡记录”翻页按钮
-    app.add_handler(CallbackQueryHandler(userlogs_page_callback, pattern=r"^(userlogs|userlogs_lastmonth)_(prev|next)$")) # 管理员查看“指定用户打卡记录”翻页按钮
-    app.add_handler(CallbackQueryHandler(mylogs_cmd, pattern="^mylogs_open$"))
-    app.add_handler(CallbackQueryHandler(lastmonth_cmd, pattern="^lastmonth_open$"))
-    app.add_handler(CallbackQueryHandler(back_to_menu_callback, pattern="^back_to_menu$"))
-    app.add_handler(CallbackQueryHandler(change_shift_callback, pattern="^change_shift$"))
-    app.add_handler(CallbackQueryHandler(change_shift_to_callback, pattern="^change_shift_to:"))
-    app.add_handler(CallbackQueryHandler(cancel_checkin_callback, pattern=r"^cancel_checkin:"))
-
-    # ===========================
-    # 启动 Bot
-    # ===========================
-    print("🤖 Bot 启动时间:", datetime.now(BEIJING_TZ).strftime("%Y-%m-%d %H:%M:%S"))
-    app.run_polling()  # 开始长轮询，持续接收 Telegram 消息
-
-
-if __name__ == "__main__":
-    check_existing_instance()  # ✅ 单实例检查，防止重复运行
-    main()                     # ✅ 启动主函数
+    wb.save(file_path)
+    logging.info(f"✅ 已导出用户 {user_name} 的考勤详情：{file_path}")
+    return file_path
