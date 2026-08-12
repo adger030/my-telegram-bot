@@ -95,6 +95,10 @@ def _fetch_data(start_datetime: datetime, end_datetime: datetime) -> pd.DataFram
     # 时间转为北京时区
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True).dt.tz_convert(BEIJING_TZ)
     df = df.dropna(subset=["timestamp"]).copy()
+
+    # 只保留真正的打卡类记录，过滤掉 #取消打卡 等审计类关键词
+    df = df[df["keyword"].isin(["#上班打卡", "#下班打卡"])].copy()
+
     return df
 
 # 获取所有用户姓名
