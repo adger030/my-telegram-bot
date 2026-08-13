@@ -620,16 +620,17 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tzinfo=BEIJING_TZ
         )
 
-    # 生成打卡时间（班次整点 + 随机1-20分钟，避免精确卡在整点上）
-    MAKEUP_TIME_OFFSET = timedelta(minutes=random.randint(1, 20))
+    # 生成打卡时间：上班提前1-20分钟（避免"迟到"判定），下班延后1-20分钟（避免精确卡在整点上）
     if punch_type == "上班":
-        punch_dt = build_shift_datetime(makeup_date, start_time, add_day=False) + MAKEUP_TIME_OFFSET
+        offset = timedelta(minutes=random.randint(1, 20))
+        punch_dt = build_shift_datetime(makeup_date, start_time, add_day=False) - offset
         keyword = "#上班打卡"
         check_days = 1
     else:
+        offset = timedelta(minutes=random.randint(1, 20))
         # 下班：若 end_time <= start_time 视为跨天，时间设为 次日 end_time
         is_cross_day = (end_time <= start_time)
-        punch_dt = build_shift_datetime(makeup_date, end_time, add_day=is_cross_day) + MAKEUP_TIME_OFFSET
+        punch_dt = build_shift_datetime(makeup_date, end_time, add_day=is_cross_day) + offset
         keyword = "#下班打卡"
         check_days = 2 if is_cross_day else 1
 
@@ -637,7 +638,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info(f"[admin_makeup_cmd DEBUG] user={username} shift_short={shift_short} "
                  f"start_time={start_time.isoformat()} end_time={end_time.isoformat()} "
                  f"makeup_date={makeup_date} punch_type={punch_type} punch_dt={punch_dt.isoformat()} "
-                 f"offset_minutes={MAKEUP_TIME_OFFSET.total_seconds() // 60:.0f}")
+                 f"offset_minutes={offset.total_seconds() // 60:.0f}")
 
     # 检查是否已有该类型打卡（按日期范围）
     start_range = datetime.combine(makeup_date, datetime.min.time(), tzinfo=BEIJING_TZ)
