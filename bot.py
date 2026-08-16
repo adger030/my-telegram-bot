@@ -487,7 +487,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ],
             [
                 InlineKeyboardButton(
-                    "❌ 取消打卡",
+                    "❌ 取消打卡（仅限10分钟内）",
                     callback_data=f"cancel_checkout:{checkout_id}"
                 )
             ]
@@ -597,21 +597,18 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔄 修改班次（仅限10分钟内）", callback_data="change_shift")]
     ]
 
-    # 今日取消名额还有剩余，才显示“取消打卡”按钮，并动态展示剩余次数
-    remaining_cancels = DAILY_CANCEL_LIMIT - count_cancel_checkin_today(pending["username"])
-    if remaining_cancels > 0:
-        # 暂存本次打卡记录信息，供“取消打卡”按钮回调时定位要删除的记录
-        checkin_id = str(uuid.uuid4())
-        context.user_data.setdefault("checkin_records", {})[checkin_id] = {
-            "username": pending["username"],
-            "timestamp": pending["timestamp"],
-        }
-        buttons.append([
-            InlineKeyboardButton(
-                f"❌ 取消打卡",
-                callback_data=f"cancel_checkin:{checkin_id}"
-            )
-        ])
+    # 暂存本次打卡记录信息，供“取消打卡”按钮回调时定位要删除的记录
+    checkin_id = str(uuid.uuid4())
+    context.user_data.setdefault("checkin_records", {})[checkin_id] = {
+        "username": pending["username"],
+        "timestamp": pending["timestamp"],
+    }
+    buttons.append([
+        InlineKeyboardButton(
+            "❌ 取消打卡（仅限10分钟内）",
+            callback_data=f"cancel_checkin:{checkin_id}"
+        )
+    ])
 
     await query.edit_message_text(
         new_text,
@@ -722,29 +719,9 @@ async def change_shift_to_callback(update: Update, context: ContextTypes.DEFAULT
     )
 
 # ===========================
-# 取消打卡（仅限上班打卡，每天限额 DAILY_CANCEL_LIMIT 次）
+# 取消打卡（仅限上班打卡，仅限打卡后10分钟内可取消，不限次数）
 # ===========================
-DAILY_CANCEL_LIMIT = 1
-
-def count_cancel_checkin_today(username):
-    """今天已经使用过几次“取消打卡”名额"""
-    now = datetime.now(BEIJING_TZ)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
-
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT COUNT(*)
-            FROM messages
-            WHERE username=%s
-              AND keyword=%s
-              AND timestamp >= %s
-              AND timestamp < %s
-        """, (username, "#取消打卡", start, end))
-        row = cur.fetchone()
-
-    return row[0] if row else 0
+CHECKIN_CANCEL_WINDOW = timedelta(minutes=10)
 
 
 def delete_checkin_record(username, ts, keyword):
@@ -778,17 +755,12 @@ async def cancel_checkin_callback(update: Update, context: ContextTypes.DEFAULT_
         return
 
     username = record["username"]
-
-    # 🚫 今天的取消名额已用完（弹窗提示，不修改原消息，保留“修改班次”按钮可用）
-    used = count_cancel_checkin_today(username)
-    if used >= DAILY_CANCEL_LIMIT:
-        await query.answer(
-            f"⚠️ 今日取消打卡名额已用完（{used}/{DAILY_CANCEL_LIMIT}次），不能再次取消。",
-            show_alert=True
-        )
-        return
-
     now = datetime.now(BEIJING_TZ)
+
+    # 🚫 超过10分钟不能取消
+    if now - record["timestamp"] > CHECKIN_CANCEL_WINDOW:
+        await query.answer("⚠️ 已超过10分钟，不能取消上班打卡。", show_alert=True)
+        return
 
     # 🚫 已完成下班打卡，不能再取消上班打卡
     today_start = datetime.combine(now.date(), time.min, tzinfo=BEIJING_TZ)
@@ -806,7 +778,7 @@ async def cancel_checkin_callback(update: Update, context: ContextTypes.DEFAULT_
         await query.answer("⚠️ 未找到对应的打卡记录，可能已被处理。", show_alert=True)
         return
 
-    # 记录本次“取消”操作，用于限制今天的取消次数
+    # 记录审计日志（用于留痕，不再用于次数限制）
     save_message(
         username=username,
         name=get_user_name(username) or username,
@@ -825,7 +797,7 @@ async def cancel_checkin_callback(update: Update, context: ContextTypes.DEFAULT_
 
 
 # ===========================
-# 取消打卡（下班打卡，仅限10分钟内可取消；不占用上班打卡的每日取消名额）
+# 取消打卡（下班打卡，仅限10分钟内可取消；与上班打卡的取消互相独立）
 # ===========================
 CHECKOUT_CANCEL_WINDOW = timedelta(minutes=10)
 
