@@ -73,7 +73,7 @@ async def send_welcome(update_or_msg, name):
         "📌 使用说明：\n\n"
         "1️⃣ 向机器人发送“#上班打卡”或“#下班打卡”并附带IP截图；\n"
         "2️⃣ 上班打卡后选择班次（超时1分钟无效），提示打卡成功完成打卡；\n"
-        "3️⃣ 上班打卡后，在10分钟内可以修改班次或取消打卡；\n"
+        "3️⃣ 上班卡，在10分钟内可以修改班次或取消打卡；下班卡，在10分钟内可以取消打卡；\n"
         "4️⃣ 迟到超过15分钟（未打卡情况）请发送“#补卡”并附带IP截图；\n"
 	    "5️⃣ 打卡需要在班次前、后30分钟内完成，超时按照异常处理；\n\n"
         "IP截图必须包含以下信息\n"
@@ -472,20 +472,46 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             log_callback = "lastmonth_open"
 
+        # 暂存本次下班打卡记录信息，供“取消打卡”按钮回调时定位要删除的记录
+        checkout_id = str(uuid.uuid4())
+        context.user_data.setdefault("checkout_records", {})[checkout_id] = {
+            "username": username,
+            "timestamp": now,
+        }
+
         buttons = [
             [
                 InlineKeyboardButton(
                     "🗓 查看打卡记录",
                     callback_data=log_callback
                 )
+            ],
+            [
+                InlineKeyboardButton(
+                    "❌ 取消打卡（仅限10分钟内）",
+                    callback_data=f"cancel_checkout:{checkout_id}"
+                )
             ]
         ]
 
         markup = InlineKeyboardMarkup(buttons)
 
-        await msg.reply_text(
+        sent_msg = await msg.reply_text(
             f"✅ 下班打卡成功！班次：{last_shift}",
             reply_markup=markup
+        )
+
+        # 10分钟后自动移除“取消打卡”按钮，保留“查看打卡记录”按钮
+        keep_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🗓 查看打卡记录", callback_data=log_callback)]
+        ])
+        asyncio.create_task(
+            remove_checkout_cancel_button(
+                context.bot,
+                sent_msg.chat_id,
+                sent_msg.message_id,
+                keep_markup
+            )
         )
 
         return
@@ -507,6 +533,20 @@ async def remove_change_shift_button(bot, chat_id, message_id):
             chat_id=chat_id,
             message_id=message_id,
             reply_markup=None
+        )
+    except Exception:
+        pass
+
+
+async def remove_checkout_cancel_button(bot, chat_id, message_id, keep_markup):
+    """10分钟后移除下班打卡消息里的“取消打卡”按钮，保留其余按钮（如查看打卡记录）"""
+    await asyncio.sleep(600)  # 10分钟
+
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=keep_markup
         )
     except Exception:
         pass
@@ -782,6 +822,60 @@ async def cancel_checkin_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer("✅ 已取消本次上班打卡")
     await query.edit_message_text(
         f"✅ 已取消本次上班打卡。"
+    )
+
+
+# ===========================
+# 取消打卡（下班打卡，仅限10分钟内可取消；不占用上班打卡的每日取消名额）
+# ===========================
+CHECKOUT_CANCEL_WINDOW = timedelta(minutes=10)
+
+
+async def cancel_checkout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+
+    try:
+        checkout_id = query.data.split(":", 1)[1]
+    except (IndexError, ValueError):
+        await query.answer("⚠️ 数据异常，请重新操作。", show_alert=True)
+        return
+
+    records = context.user_data.get("checkout_records", {})
+    record = records.get(checkout_id)
+
+    if not record:
+        await query.answer("⚠️ 该操作已过期，无法取消打卡。", show_alert=True)
+        return
+
+    username = record["username"]
+    now = datetime.now(BEIJING_TZ)
+
+    # 🚫 超过10分钟不能取消
+    if now - record["timestamp"] > CHECKOUT_CANCEL_WINDOW:
+        await query.answer("⚠️ 已超过10分钟，不能取消下班打卡。", show_alert=True)
+        return
+
+    # 删除本次下班打卡记录
+    deleted = delete_checkin_record(username, record["timestamp"], "#下班打卡")
+    if not deleted:
+        await query.answer("⚠️ 未找到对应的打卡记录，可能已被处理。", show_alert=True)
+        return
+
+    # 记录审计日志（独立关键词，不占用上班打卡的每日取消名额，也不会被统计报表误判）
+    save_message(
+        username=username,
+        name=get_user_name(username) or username,
+        content="取消下班打卡",
+        timestamp=now,
+        keyword="#取消下班打卡",
+        shift=""
+    )
+
+    records.pop(checkout_id, None)
+
+    await query.answer("✅ 已取消本次下班打卡")
+    await query.edit_message_text(
+        "✅ 已取消本次下班打卡，你可以重新发送“#下班打卡”。"
     )
 
 
@@ -1182,6 +1276,7 @@ def main():
     app.add_handler(CallbackQueryHandler(change_shift_callback, pattern="^change_shift$"))
     app.add_handler(CallbackQueryHandler(change_shift_to_callback, pattern="^change_shift_to:"))
     app.add_handler(CallbackQueryHandler(cancel_checkin_callback, pattern=r"^cancel_checkin:"))
+    app.add_handler(CallbackQueryHandler(cancel_checkout_callback, pattern=r"^cancel_checkout:"))
 
     # ===========================
     # 启动 Bot
