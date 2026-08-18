@@ -472,7 +472,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         buttons = [
             [
                 InlineKeyboardButton(
-                    "❌ 取消打卡（10:00）",
+                    "❌ 取消打卡（仅限10分钟内）",
                     callback_data=f"cancel_checkout:{checkout_id}"
                 )
             ]
@@ -485,14 +485,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=markup
         )
 
-        # 启动动态倒计时，10分钟后自动移除“取消打卡”按钮
+        # 10分钟后自动移除“取消打卡”按钮
         asyncio.create_task(
-            start_cancel_countdown(
+            remove_cancel_button(
                 context.bot,
                 sent_msg.chat_id,
-                sent_msg.message_id,
-                f"cancel_checkout:{checkout_id}",
-                "❌ 取消打卡"
+                sent_msg.message_id
             )
         )
 
@@ -507,32 +505,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===========================
 # 自动移除按钮函数
 # ===========================
-async def start_cancel_countdown(bot, chat_id, message_id, callback_data, label, total_seconds=600, interval=60):
+async def remove_cancel_button(bot, chat_id, message_id, delay=600):
     """
-    在按钮文字上显示动态倒计时（如“❌ 取消打卡（09:45）”），
-    每隔 interval 秒刷新一次，倒计时结束后自动移除按钮。
+    delay 秒后（默认10分钟）自动移除“取消打卡”按钮。
     若消息已被用户操作（如已取消打卡）导致编辑失败，会被静默忽略。
     """
-    remaining = total_seconds
+    await asyncio.sleep(delay)
 
-    while remaining > 0:
-        mins, secs = divmod(remaining, 60)
-        try:
-            await bot.edit_message_reply_markup(
-                chat_id=chat_id,
-                message_id=message_id,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton(f"{label}（{mins:02d}:{secs:02d}）", callback_data=callback_data)]
-                ])
-            )
-        except Exception:
-            # 消息已被删除/编辑/内容未变化等情况，直接停止倒计时
-            return
-
-        await asyncio.sleep(min(interval, remaining))
-        remaining -= interval
-
-    # 倒计时结束，移除按钮
     try:
         await bot.edit_message_reply_markup(
             chat_id=chat_id,
@@ -594,7 +573,7 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     buttons = [
         [
             InlineKeyboardButton(
-                "❌ 取消打卡（10:00）",
+                "❌ 取消打卡（仅限10分钟内）",
                 callback_data=f"cancel_checkin:{checkin_id}"
             )
         ]
@@ -605,14 +584,12 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-    # 启动动态倒计时，10分钟后自动移除“取消打卡”按钮
+    # 10分钟后自动移除“取消打卡”按钮
     asyncio.create_task(
-        start_cancel_countdown(
+        remove_cancel_button(
             context.bot,
             query.message.chat_id,
-            query.message.message_id,
-            f"cancel_checkin:{checkin_id}",
-            "❌ 取消打卡"
+            query.message.message_id
         )
     )
 
