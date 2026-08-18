@@ -31,7 +31,7 @@ from upload_image import upload_image
 from cleaner import delete_last_month_data, delete_last_3months_data, delete_last_month_images
 from db_pg import (
     init_db, save_message, get_user_logs, save_shift, get_user_name, 
-    set_user_name, get_db, transfer_user_data, update_today_shift
+    set_user_name, get_db, transfer_user_data
 )
 from admin_tools import (
     delete_range_cmd, delete_one_cmd, userlogs_cmd, userlogs_page_callback, transfer_cmd,
@@ -462,15 +462,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             shift=last_shift
         )
 
-        # 查看记录按钮
-        # 跨月下班（如 7月31日上班、8月1日凌晨下班）时，
-        # 该记录实际归属于“上个月”的班次，此时应跳转到“上月打卡记录”，
-        # 否则按“本月”查询会因为时间范围不匹配而查不到、点击无反应。
-        if today.year == now.year and today.month == now.month:
-            log_callback = "mylogs_open"
-        else:
-            log_callback = "lastmonth_open"
-
         # 暂存本次下班打卡记录信息，供“取消打卡”按钮回调时定位要删除的记录
         checkout_id = str(uuid.uuid4())
         context.user_data.setdefault("checkout_records", {})[checkout_id] = {
@@ -481,13 +472,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         buttons = [
             [
                 InlineKeyboardButton(
-                    "🗓 查看打卡记录",
-                    callback_data=log_callback
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "❌ 取消打卡（仅限10分钟内）",
+                    "❌ 取消打卡（10:00）",
                     callback_data=f"cancel_checkout:{checkout_id}"
                 )
             ]
@@ -500,16 +485,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=markup
         )
 
-        # 10分钟后自动移除“取消打卡”按钮，保留“查看打卡记录”按钮
-        keep_markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🗓 查看打卡记录", callback_data=log_callback)]
-        ])
+        # 启动动态倒计时，10分钟后自动移除“取消打卡”按钮
         asyncio.create_task(
-            remove_checkout_cancel_button(
+            start_cancel_countdown(
                 context.bot,
                 sent_msg.chat_id,
                 sent_msg.message_id,
-                keep_markup
+                f"cancel_checkout:{checkout_id}",
+                "❌ 取消打卡"
             )
         )
 
@@ -524,28 +507,37 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===========================
 # 自动移除按钮函数
 # ===========================
-async def remove_change_shift_button(bot, chat_id, message_id):
-    await asyncio.sleep(600)  # 10分钟
+async def start_cancel_countdown(bot, chat_id, message_id, callback_data, label, total_seconds=600, interval=60):
+    """
+    在按钮文字上显示动态倒计时（如“❌ 取消打卡（09:45）”），
+    每隔 interval 秒刷新一次，倒计时结束后自动移除按钮。
+    若消息已被用户操作（如已取消打卡）导致编辑失败，会被静默忽略。
+    """
+    remaining = total_seconds
 
+    while remaining > 0:
+        mins, secs = divmod(remaining, 60)
+        try:
+            await bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"{label}（{mins:02d}:{secs:02d}）", callback_data=callback_data)]
+                ])
+            )
+        except Exception:
+            # 消息已被删除/编辑/内容未变化等情况，直接停止倒计时
+            return
+
+        await asyncio.sleep(min(interval, remaining))
+        remaining -= interval
+
+    # 倒计时结束，移除按钮
     try:
         await bot.edit_message_reply_markup(
             chat_id=chat_id,
             message_id=message_id,
             reply_markup=None
-        )
-    except Exception:
-        pass
-
-
-async def remove_checkout_cancel_button(bot, chat_id, message_id, keep_markup):
-    """10分钟后移除下班打卡消息里的“取消打卡”按钮，保留其余按钮（如查看打卡记录）"""
-    await asyncio.sleep(600)  # 10分钟
-
-    try:
-        await bot.edit_message_reply_markup(
-            chat_id=chat_id,
-            message_id=message_id,
-            reply_markup=keep_markup
         )
     except Exception:
         pass
@@ -593,129 +585,35 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     new_text = f"✅ 上班打卡成功！班次：{shift_name}"
 
-    buttons = [
-        [InlineKeyboardButton("🔄 修改班次（仅限10分钟内）", callback_data="change_shift")]
-    ]
-
     # 暂存本次打卡记录信息，供“取消打卡”按钮回调时定位要删除的记录
     checkin_id = str(uuid.uuid4())
     context.user_data.setdefault("checkin_records", {})[checkin_id] = {
         "username": pending["username"],
         "timestamp": pending["timestamp"],
     }
-    buttons.append([
-        InlineKeyboardButton(
-            "❌ 取消打卡（仅限10分钟内）",
-            callback_data=f"cancel_checkin:{checkin_id}"
-        )
-    ])
+    buttons = [
+        [
+            InlineKeyboardButton(
+                "❌ 取消打卡（10:00）",
+                callback_data=f"cancel_checkin:{checkin_id}"
+            )
+        ]
+    ]
 
     await query.edit_message_text(
         new_text,
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-    # 5分钟后自动移除修改按钮
+    # 启动动态倒计时，10分钟后自动移除“取消打卡”按钮
     asyncio.create_task(
-        remove_change_shift_button(
+        start_cancel_countdown(
             context.bot,
             query.message.chat_id,
-            query.message.message_id
+            query.message.message_id,
+            f"cancel_checkin:{checkin_id}",
+            "❌ 取消打卡"
         )
-    )
-
-async def change_shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    keyboard = [
-        [InlineKeyboardButton(v, callback_data=f"change_shift_to:{k}")]
-        for k, v in get_shift_options().items()
-    ]
-
-    await query.edit_message_text(
-        "请选择新的班次：",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def change_shift_to_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    username = query.from_user.username or f"user{query.from_user.id}"
-
-    try:
-        shift_code = query.data.split(":")[1]
-    except Exception:
-        await query.edit_message_text("⚠️ 班次数据异常，请重新操作。")
-        return
-
-    shift_name = get_shift_options()[shift_code]
-
-    now = datetime.now(BEIJING_TZ)
-
-    # =========================
-    # 只查询“今天”的记录（修复误判）
-    # =========================
-    today_start = datetime.combine(
-        now.date(),
-        time.min,
-        tzinfo=BEIJING_TZ
-    )
-
-    logs = get_user_logs(
-        username,
-        today_start,
-        now
-    )
-
-    # =========================
-    # 已下班 → 禁止修改班次
-    # =========================
-    if any(
-	    kw == "#下班打卡" and ts.astimezone(BEIJING_TZ).hour >= 6
-	    for ts, kw, _ in logs
-    ):
-	    await query.edit_message_text("⚠️ 已完成下班打卡，不能修改班次。")
-	    return
-    # =========================
-    # 只允许5分钟内修改
-    # =========================
-    last_checkin = None
-    current_shift = None
-
-    for ts, kw, shift in reversed(logs):
-        if kw in ("#上班打卡", "#补卡"):
-            last_checkin = ts
-            current_shift = shift
-            break
-
-    # 未找到上班记录
-    if not last_checkin:
-        await query.edit_message_text(
-            "⚠️ 未找到今日上班记录。"
-        )
-        return
-
-    # 超过10分钟
-    if (now - last_checkin).total_seconds() > 600:
-
-        current_shift_text = current_shift or "未知"
-
-        await query.edit_message_text(
-            f"⚠️ 超过10分钟，不能修改班次。\n"
-            f"当前班次：{current_shift_text}"
-        )
-        return
-
-    # =========================
-    # 更新班次
-    # =========================
-    update_today_shift(username, shift_name)
-
-    await query.edit_message_text(
-        f"✅ 班次修改成功！\n"
-        f"新班次：{shift_name}"
     )
 
 # ===========================
@@ -1244,8 +1142,6 @@ def main():
     app.add_handler(CallbackQueryHandler(mylogs_cmd, pattern="^mylogs_open$"))
     app.add_handler(CallbackQueryHandler(lastmonth_cmd, pattern="^lastmonth_open$"))
     app.add_handler(CallbackQueryHandler(back_to_menu_callback, pattern="^back_to_menu$"))
-    app.add_handler(CallbackQueryHandler(change_shift_callback, pattern="^change_shift$"))
-    app.add_handler(CallbackQueryHandler(change_shift_to_callback, pattern="^change_shift_to:"))
     app.add_handler(CallbackQueryHandler(cancel_checkin_callback, pattern=r"^cancel_checkin:"))
     app.add_handler(CallbackQueryHandler(cancel_checkout_callback, pattern=r"^cancel_checkout:"))
 
