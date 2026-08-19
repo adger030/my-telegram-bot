@@ -636,14 +636,21 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tzinfo=BEIJING_TZ
         )
 
-    # 生成打卡时间：上班提前1-20分钟（避免"迟到"判定），下班延后1-20分钟（避免精确卡在整点上）
+    # 随机生成 1~20 分钟 + 0~59 秒的偏移量，让补卡时间不再精确卡在整分钟上
+    def random_offset():
+        return timedelta(
+            minutes=random.randint(1, 20),
+            seconds=random.randint(0, 59)
+        )
+
+    # 生成打卡时间：上班提前1-20分钟多几十秒（避免"迟到"判定），下班延后1-20分钟多几十秒（避免精确卡在整点上）
     if punch_type == "上班":
-        offset = timedelta(minutes=random.randint(1, 20))
+        offset = random_offset()
         punch_dt = build_shift_datetime(makeup_date, start_time, add_day=False) - offset
         keyword = "#上班打卡"
         check_days = 1
     else:
-        offset = timedelta(minutes=random.randint(1, 20))
+        offset = random_offset()
         # 下班：若 end_time <= start_time 视为跨天，时间设为 次日 end_time
         is_cross_day = (end_time <= start_time)
         punch_dt = build_shift_datetime(makeup_date, end_time, add_day=is_cross_day) + offset
@@ -651,10 +658,11 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         check_days = 2 if is_cross_day else 1
 
     # DEBUG 日志：记录班次原始时间与计算结果，便于排查偏差
+    offset_total_seconds = int(offset.total_seconds())
     logging.info(f"[admin_makeup_cmd DEBUG] user={username} shift_short={shift_short} "
                  f"start_time={start_time.isoformat()} end_time={end_time.isoformat()} "
                  f"makeup_date={makeup_date} punch_type={punch_type} punch_dt={punch_dt.isoformat()} "
-                 f"offset_minutes={offset.total_seconds() // 60:.0f}")
+                 f"offset_minutes={offset_total_seconds // 60} offset_seconds={offset_total_seconds % 60}")
 
     # 检查是否已有该类型打卡（按日期范围）
     start_range = datetime.combine(makeup_date, datetime.min.time(), tzinfo=BEIJING_TZ)
@@ -686,7 +694,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📅 日期：{makeup_date}\n"
         f"🏷 班次：{shift_name}\n"
         f"🔹 类型：{punch_type}\n"
-        f"⏰ 时间：{punch_dt.strftime('%Y-%m-%d %H:%M')}"
+        f"⏰ 时间：{punch_dt.strftime('%Y-%m-%d %H:%M:%S')}"
     )
     
 # ===========================
