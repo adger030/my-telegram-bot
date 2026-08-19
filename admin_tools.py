@@ -578,9 +578,16 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     username_arg, date_str, shift_code = context.args[:3]
-    username = username_arg.lstrip("@")
     shift_code = shift_code.upper()
     punch_type = context.args[3] if len(context.args) == 4 else "上班"
+
+    # ✅ 支持输入 @用户名 或 中文姓名，统一解析为系统账号
+    # （与 /delete_one、/delete_range 等命令保持一致，避免因输入姓名
+    #   或大小写不一致导致补卡记录被写到错误的 username 下，
+    #   造成员工自己 /mylogs 查不到管理员补的卡）
+    raw_username = username_arg.lstrip("@")
+    resolved_username, resolved_name = resolve_username(raw_username)
+    username = resolved_username
 
     # 班次校验
     shift_options = get_shift_options()
@@ -598,8 +605,17 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 日期格式错误，应为 YYYY-MM-DD")
         return
 
-    # 用户姓名（可改为 get_user_name(username)）
-    name = get_user_name(username) or username
+    # 用户姓名（优先用 resolve_username 解析到的姓名，其次查 users 表）
+    name = resolved_name or get_user_name(username) or username
+
+    # ✅ 校验用户是否存在于系统账号表中，避免因管理员打错用户名/姓名
+    # 而把补卡记录写到一个查不到的"幽灵账号"下
+    if not get_user_name(username):
+        await update.message.reply_text(
+            f"⚠️ 未找到用户「{username_arg}」，请确认输入的是正确的 @用户名 或 系统登记姓名。\n"
+            f"可用 /user_list 查看所有已登记用户。"
+        )
+        return
 
     # 获取班次时间（从内存 map）
     shift_name = shift_options[shift_code]
