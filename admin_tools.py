@@ -578,16 +578,9 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     username_arg, date_str, shift_code = context.args[:3]
+    username = username_arg.lstrip("@")
     shift_code = shift_code.upper()
     punch_type = context.args[3] if len(context.args) == 4 else "上班"
-
-    # ✅ 支持输入 @用户名 或 中文姓名，统一解析为系统账号
-    # （与 /delete_one、/delete_range 等命令保持一致，避免因输入姓名
-    #   或大小写不一致导致补卡记录被写到错误的 username 下，
-    #   造成员工自己 /mylogs 查不到管理员补的卡）
-    raw_username = username_arg.lstrip("@")
-    resolved_username, resolved_name = resolve_username(raw_username)
-    username = resolved_username
 
     # 班次校验
     shift_options = get_shift_options()
@@ -605,17 +598,8 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 日期格式错误，应为 YYYY-MM-DD")
         return
 
-    # 用户姓名（优先用 resolve_username 解析到的姓名，其次查 users 表）
-    name = resolved_name or get_user_name(username) or username
-
-    # ✅ 校验用户是否存在于系统账号表中，避免因管理员打错用户名/姓名
-    # 而把补卡记录写到一个查不到的"幽灵账号"下
-    if not get_user_name(username):
-        await update.message.reply_text(
-            f"⚠️ 未找到用户「{username_arg}」，请确认输入的是正确的 @用户名 或 系统登记姓名。\n"
-            f"可用 /user_list 查看所有已登记用户。"
-        )
-        return
+    # 用户姓名（可改为 get_user_name(username)）
+    name = get_user_name(username) or username
 
     # 获取班次时间（从内存 map）
     shift_name = shift_options[shift_code]
@@ -636,21 +620,14 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tzinfo=BEIJING_TZ
         )
 
-    # 随机生成 1~20 分钟 + 0~59 秒的偏移量，让补卡时间不再精确卡在整分钟上
-    def random_offset():
-        return timedelta(
-            minutes=random.randint(1, 20),
-            seconds=random.randint(0, 59)
-        )
-
-    # 生成打卡时间：上班提前1-20分钟多几十秒（避免"迟到"判定），下班延后1-20分钟多几十秒（避免精确卡在整点上）
+    # 生成打卡时间：上班提前1-20分钟（避免"迟到"判定），下班延后1-20分钟（避免精确卡在整点上）
     if punch_type == "上班":
-        offset = random_offset()
+        offset = timedelta(minutes=random.randint(1, 20))
         punch_dt = build_shift_datetime(makeup_date, start_time, add_day=False) - offset
         keyword = "#上班打卡"
         check_days = 1
     else:
-        offset = random_offset()
+        offset = timedelta(minutes=random.randint(1, 20))
         # 下班：若 end_time <= start_time 视为跨天，时间设为 次日 end_time
         is_cross_day = (end_time <= start_time)
         punch_dt = build_shift_datetime(makeup_date, end_time, add_day=is_cross_day) + offset
@@ -658,11 +635,10 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         check_days = 2 if is_cross_day else 1
 
     # DEBUG 日志：记录班次原始时间与计算结果，便于排查偏差
-    offset_total_seconds = int(offset.total_seconds())
     logging.info(f"[admin_makeup_cmd DEBUG] user={username} shift_short={shift_short} "
                  f"start_time={start_time.isoformat()} end_time={end_time.isoformat()} "
                  f"makeup_date={makeup_date} punch_type={punch_type} punch_dt={punch_dt.isoformat()} "
-                 f"offset_minutes={offset_total_seconds // 60} offset_seconds={offset_total_seconds % 60}")
+                 f"offset_minutes={offset.total_seconds() // 60:.0f}")
 
     # 检查是否已有该类型打卡（按日期范围）
     start_range = datetime.combine(makeup_date, datetime.min.time(), tzinfo=BEIJING_TZ)
@@ -694,7 +670,7 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📅 日期：{makeup_date}\n"
         f"🏷 班次：{shift_name}\n"
         f"🔹 类型：{punch_type}\n"
-        f"⏰ 时间：{punch_dt.strftime('%Y-%m-%d %H:%M:%S')}"
+        f"⏰ 时间：{punch_dt.strftime('%Y-%m-%d %H:%M')}"
     )
     
 # ===========================
