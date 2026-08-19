@@ -739,12 +739,7 @@ def has_user_checked_keyword_today_fixed(username, keyword):
     now = datetime.now(BEIJING_TZ)
 
     # 关键：凌晨跨天处理
-    # ✅ 修复：这里必须只根据"当前时间"判断参照日，不能再根据传入的
-    # keyword 决定要不要回退一天。否则夜班跨天时，凌晨查“#上班打卡”
-    # 用的是今天，查“#下班打卡/#补卡”却用的是昨天，两者对不上，
-    # 会导致明明已经打过/补过上班卡，凌晨下班时却被判定为
-    # "今天还没有上班打卡"。
-    if now.hour < 6:
+    if keyword in ("#下班打卡", "#补卡") and now.hour < 6:
         ref_day = now - timedelta(days=1)
     else:
         ref_day = now
