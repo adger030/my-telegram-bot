@@ -572,6 +572,22 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     slim_df["kw_order"] = slim_df["关键词"].map(keyword_order).fillna(9)
     slim_df = slim_df.sort_values(["日期", "姓名", "班次", "kw_order", "打卡时间"]).drop(columns=["kw_order"])
 
+    # ======================== 异常统计（单用户总表用） ========================
+    remarks_all = slim_df["备注"].astype(str).fillna("")
+    user_stats = {
+        "休息/缺勤": int(remarks_all.apply(lambda s: s.count("休息/缺勤")).sum()),
+        "迟到<15分钟": int(remarks_all.apply(lambda s: s.count("迟到（<15分钟）")).sum()),
+        "迟到≥15分钟": int(remarks_all.apply(lambda s: s.count("迟到（≥15分钟）")).sum()),
+        "早退": int(remarks_all.apply(lambda s: s.count("早退")).sum()),
+        "签到异常": int(remarks_all.apply(lambda s: s.count("签到异常")).sum()),
+        "补卡": int(remarks_all.apply(lambda s: s.count("补卡")).sum()),
+        "未打下班卡": int(remarks_all.apply(lambda s: s.count("未打下班卡")).sum()),
+    }
+    user_stats["异常总数"] = (
+        user_stats["迟到<15分钟"] + user_stats["迟到≥15分钟"] + user_stats["早退"]
+        + user_stats["签到异常"] + user_stats["补卡"] + user_stats["未打下班卡"]
+    )
+
     # ======================== 导出 Excel ========================
     start_str = start_datetime.strftime("%Y-%m-%d")
     end_str = (end_datetime - pd.Timedelta(seconds=1)).strftime("%Y-%m-%d")
@@ -645,6 +661,62 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         if "签到异常" in remark_val and "迟到" not in remark_val and "早退" not in remark_val:
             for cell in row[2:]:
                 cell.fill = orange_fill
+
+    # ======================== 异常统计总表（放在最前面） ========================
+    summary_ws = wb.create_sheet("异常统计", 0)
+    summary_headers = ["姓名", "休息/缺勤", "迟到<15分钟", "迟到≥15分钟", "早退", "签到异常", "补卡", "未打下班卡", "异常总数"]
+    summary_ws.append(summary_headers)
+    summary_ws.append([
+        user_name,
+        user_stats["休息/缺勤"],
+        user_stats["迟到<15分钟"],
+        user_stats["迟到≥15分钟"],
+        user_stats["早退"],
+        user_stats["签到异常"],
+        user_stats["补卡"],
+        user_stats["未打下班卡"],
+        user_stats["异常总数"],
+    ])
+
+    header_font = Font(bold=True)
+    center_align = Alignment(horizontal="center", vertical="center")
+    header_fill = PatternFill(start_color="d9d9d9", end_color="d9d9d9", fill_type="solid")
+    light_red_fill = PatternFill(start_color="FFD6D6", end_color="FFD6D6", fill_type="solid")
+
+    for cell in summary_ws[1]:
+        cell.font = header_font
+        cell.alignment = center_align
+        cell.fill = header_fill
+        cell.border = thin_border
+
+    for cell in summary_ws[2]:
+        cell.alignment = center_align
+        cell.border = thin_border
+
+    if user_stats["休息/缺勤"] > 4:
+        summary_ws.cell(row=2, column=2).fill = light_red_fill
+    if user_stats["异常总数"] > 2:
+        summary_ws.cell(row=2, column=9).fill = light_red_fill
+
+    desc_text = (
+        "【休息/缺勤：没有打卡记录的天数】\n"
+        "【迟到<15分钟 / 迟到≥15分钟：按迟到时长分档统计】\n"
+        "【签到异常：打卡时间不在班次开始前30分钟至班次结束后30分钟的窗口内】\n"
+        "【异常总数：迟到<15分钟+迟到≥15分钟+早退+签到异常+补卡+未打下班卡】"
+    )
+    summary_ws.merge_cells(start_row=4, start_column=1, end_row=7, end_column=len(summary_headers))
+    desc_cell = summary_ws.cell(row=4, column=1, value=desc_text)
+    desc_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    desc_cell.fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+    desc_cell.font = Font(bold=True, color="000000")
+
+    summary_ws.freeze_panes = "A2"
+    last_col_letter = summary_ws.cell(row=1, column=len(summary_headers)).column_letter
+    summary_ws.auto_filter.ref = f"A1:{last_col_letter}2"
+    for col_idx in range(1, len(summary_headers) + 1):
+        col_letter = summary_ws.cell(row=1, column=col_idx).column_letter
+        header_len = len(str(summary_headers[col_idx - 1]))
+        summary_ws.column_dimensions[col_letter].width = min(header_len + 8, 30)
 
     # 列宽自适应
     for col in ws.columns:
