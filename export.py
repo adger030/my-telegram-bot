@@ -647,24 +647,30 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         cell.alignment = center_align
         cell.border = thin_border
 
-    # ======================== 明细表（空一行后开始） ========================
+    # ======================== 明细表（空一行后开始，从第2列开始） ========================
     detail_header_row = summary_data_row + 2  # 空一行
     detail_headers = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
+    detail_col_offset = 1  # 明细表从第2列（B列）开始
 
     for c_idx, text in enumerate(detail_headers, 1):
-        cell = ws.cell(row=detail_header_row, column=c_idx, value=text)
+        cell = ws.cell(row=detail_header_row, column=c_idx + detail_col_offset, value=text)
         cell.font = Font(bold=True)
         cell.alignment = center_align
 
     for r_offset, (_, row) in enumerate(slim_df.iterrows(), start=1):
         for c_idx, value in enumerate(row, 1):
-            ws.cell(row=detail_header_row + r_offset, column=c_idx, value=value)
+            ws.cell(row=detail_header_row + r_offset, column=c_idx + detail_col_offset, value=value)
 
     detail_last_row = detail_header_row + len(slim_df)
+    detail_first_col_letter = ws.cell(row=1, column=1 + detail_col_offset).column_letter
+    detail_last_col_letter = ws.cell(row=1, column=len(detail_headers) + detail_col_offset).column_letter
 
     current_fill = next(user_fills)
     prev_date = None
-    for row in ws.iter_rows(min_row=detail_header_row + 1, max_row=detail_last_row):
+    for row in ws.iter_rows(
+        min_row=detail_header_row + 1, max_row=detail_last_row,
+        min_col=1 + detail_col_offset, max_col=len(detail_headers) + detail_col_offset
+    ):
         if all(cell.value is None for cell in row):
             continue
         date_val = row[0].value
@@ -697,7 +703,7 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
                 cell.fill = orange_fill
 
     # ======================== 列宽（首列/末列10，其余20） ========================
-    total_columns = max(len(detail_headers), len(summary_headers))
+    total_columns = max(len(detail_headers) + detail_col_offset, len(summary_headers))
     for col_idx in range(1, total_columns + 1):
         col_letter = ws.cell(row=1, column=col_idx).column_letter
         if col_idx == 1 or col_idx == total_columns:
@@ -705,7 +711,7 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         else:
             ws.column_dimensions[col_letter].width = 20
 
-    ws.auto_filter.ref = f"A{detail_header_row}:F{detail_last_row}"
+    ws.auto_filter.ref = f"{detail_first_col_letter}{detail_header_row}:{detail_last_col_letter}{detail_last_row}"
 
     wb.save(file_path)
     logging.info(f"✅ 已导出用户 {user_name} 的考勤详情：{file_path}")
