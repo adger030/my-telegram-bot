@@ -657,11 +657,18 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         cell.font = Font(bold=True)
         cell.alignment = center_align
 
-    for r_offset, (_, row) in enumerate(slim_df.iterrows(), start=1):
-        for c_idx, value in enumerate(row, 1):
-            ws.cell(row=detail_header_row + r_offset, column=c_idx + detail_col_offset, value=value)
+    current_row = detail_header_row + 1
+    dates_in_order = slim_df["日期"].drop_duplicates().tolist()
+    for i, date_val in enumerate(dates_in_order):
+        day_rows = slim_df[slim_df["日期"] == date_val]
+        for _, row in day_rows.iterrows():
+            for c_idx, value in enumerate(row, 1):
+                ws.cell(row=current_row, column=c_idx + detail_col_offset, value=value)
+            current_row += 1
+        if i != len(dates_in_order) - 1:
+            current_row += 1  # 不同日期之间空一行
 
-    detail_last_row = detail_header_row + len(slim_df)
+    detail_last_row = current_row - 1
     detail_first_col_letter = ws.cell(row=1, column=1 + detail_col_offset).column_letter
     detail_last_col_letter = ws.cell(row=1, column=len(detail_headers) + detail_col_offset).column_letter
 
@@ -712,6 +719,7 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
             ws.column_dimensions[col_letter].width = 20
 
     ws.auto_filter.ref = f"{detail_first_col_letter}{detail_header_row}:{detail_last_col_letter}{detail_last_row}"
+    ws.freeze_panes = "A3"
 
     wb.save(file_path)
     logging.info(f"✅ 已导出用户 {user_name} 的考勤详情：{file_path}")
