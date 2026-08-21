@@ -578,7 +578,9 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     username_arg, date_str, shift_code = context.args[:3]
-    username = username_arg.lstrip("@")
+    raw_username = username_arg.lstrip("@")
+    # 支持输入自定义姓名或系统账号，统一解析为真正的系统 username
+    username, resolved_name = resolve_username(raw_username)
     shift_code = shift_code.upper()
     punch_type = context.args[3] if len(context.args) == 4 else "上班"
 
@@ -598,8 +600,8 @@ async def admin_makeup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ 日期格式错误，应为 YYYY-MM-DD")
         return
 
-    # 用户姓名（可改为 get_user_name(username)）
-    name = get_user_name(username) or username
+    # 用户姓名
+    name = get_user_name(username) or resolved_name or username
 
     # 获取班次时间（从内存 map）
     shift_name = shift_options[shift_code]
