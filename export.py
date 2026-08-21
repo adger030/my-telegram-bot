@@ -599,13 +599,7 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
     ws = wb.active
     ws.title = f"{user_name}考勤详情"
 
-    headers = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
-    ws.append(headers)
-
-    for _, row in slim_df.iterrows():
-        ws.append(list(row))
-
-    # ======================== 样式处理 ========================
+    # ======================== 样式定义 ========================
     red_fill = PatternFill(start_color="ffc8c8", end_color="ffc8c8", fill_type="solid")
     yellow_fill = PatternFill(start_color="fff1c8", end_color="fff1c8", fill_type="solid")
     blue_fill_light = PatternFill(start_color="c8eaff", end_color="c8eaff", fill_type="solid")
@@ -617,6 +611,7 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         top=Side(style="thin", color="000000"),
         bottom=Side(style="thin", color="000000")
     )
+    center_align = Alignment(horizontal="center", vertical="center")
 
     from itertools import cycle
     user_fills = cycle([
@@ -624,15 +619,52 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         PatternFill(start_color="ffffff", end_color="ffffff", fill_type="solid"),
     ])
 
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+    # ======================== 异常统计（放在最上方） ========================
+    summary_headers = ["休息/缺勤", "迟到<15分钟", "迟到≥15分钟", "早退", "签到异常", "补卡", "未打下班卡", "异常总数"]
+    summary_values = [
+        user_stats["休息/缺勤"],
+        user_stats["迟到<15分钟"],
+        user_stats["迟到≥15分钟"],
+        user_stats["早退"],
+        user_stats["签到异常"],
+        user_stats["补卡"],
+        user_stats["未打下班卡"],
+        user_stats["异常总数"],
+    ]
 
-    detail_last_row = ws.max_row  # 明细表最后一行（含表头）
+    summary_header_row = 1
+    summary_data_row = 2
+
+    for c_idx, text in enumerate(summary_headers, 1):
+        cell = ws.cell(row=summary_header_row, column=c_idx, value=text)
+        cell.font = Font(bold=True)
+        cell.alignment = center_align
+        cell.border = thin_border
+        cell.fill = blue_fill_light
+
+    for c_idx, value in enumerate(summary_values, 1):
+        cell = ws.cell(row=summary_data_row, column=c_idx, value=value)
+        cell.alignment = center_align
+        cell.border = thin_border
+
+    # ======================== 明细表（空一行后开始） ========================
+    detail_header_row = summary_data_row + 2  # 空一行
+    detail_headers = ["日期", "姓名", "打卡时间", "关键词", "班次", "备注"]
+
+    for c_idx, text in enumerate(detail_headers, 1):
+        cell = ws.cell(row=detail_header_row, column=c_idx, value=text)
+        cell.font = Font(bold=True)
+        cell.alignment = center_align
+
+    for r_offset, (_, row) in enumerate(slim_df.iterrows(), start=1):
+        for c_idx, value in enumerate(row, 1):
+            ws.cell(row=detail_header_row + r_offset, column=c_idx, value=value)
+
+    detail_last_row = detail_header_row + len(slim_df)
 
     current_fill = next(user_fills)
     prev_date = None
-    for row in ws.iter_rows(min_row=2, max_row=detail_last_row):
+    for row in ws.iter_rows(min_row=detail_header_row + 1, max_row=detail_last_row):
         if all(cell.value is None for cell in row):
             continue
         date_val = row[0].value
@@ -644,7 +676,7 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
 
         for cell in row:
             cell.fill = current_fill
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.alignment = center_align
             cell.border = thin_border
 
         if "迟到" in remark_val or "早退" in remark_val:
@@ -664,41 +696,16 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
             for cell in row[2:]:
                 cell.fill = orange_fill
 
-    # ======================== 异常统计（追加在明细表下方） ========================
-    summary_headers = ["休息/缺勤", "迟到<15分钟", "迟到≥15分钟", "早退", "签到异常", "补卡", "未打下班卡", "异常总数"]
-    summary_values = [
-        user_stats["休息/缺勤"],
-        user_stats["迟到<15分钟"],
-        user_stats["迟到≥15分钟"],
-        user_stats["早退"],
-        user_stats["签到异常"],
-        user_stats["补卡"],
-        user_stats["未打下班卡"],
-        user_stats["异常总数"],
-    ]
+    # ======================== 列宽（首列/末列10，其余20） ========================
+    total_columns = max(len(detail_headers), len(summary_headers))
+    for col_idx in range(1, total_columns + 1):
+        col_letter = ws.cell(row=1, column=col_idx).column_letter
+        if col_idx == 1 or col_idx == total_columns:
+            ws.column_dimensions[col_letter].width = 10
+        else:
+            ws.column_dimensions[col_letter].width = 20
 
-    summary_header_row = detail_last_row + 2  # 空一行
-    summary_data_row = summary_header_row + 1
-
-    for c_idx, text in enumerate(summary_headers, 1):
-        cell = ws.cell(row=summary_header_row, column=c_idx, value=text)
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        cell.border = thin_border
-
-    for c_idx, value in enumerate(summary_values, 1):
-        cell = ws.cell(row=summary_data_row, column=c_idx, value=value)
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        cell.border = thin_border
-
-    # 列宽自适应
-    for col in ws.columns:
-        col_letter = col[0].column_letter
-        max_length = max(len(str(cell.value or "")) for cell in col)
-        ws.column_dimensions[col_letter].width = min(max_length + 6, 30)
-
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:F{detail_last_row}"
+    ws.auto_filter.ref = f"A{detail_header_row}:F{detail_last_row}"
 
     wb.save(file_path)
     logging.info(f"✅ 已导出用户 {user_name} 的考勤详情：{file_path}")
