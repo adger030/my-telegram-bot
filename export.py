@@ -628,9 +628,11 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
+    detail_last_row = ws.max_row  # 明细表最后一行（含表头）
+
     current_fill = next(user_fills)
     prev_date = None
-    for row in ws.iter_rows(min_row=2):
+    for row in ws.iter_rows(min_row=2, max_row=detail_last_row):
         if all(cell.value is None for cell in row):
             continue
         date_val = row[0].value
@@ -662,12 +664,9 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
             for cell in row[2:]:
                 cell.fill = orange_fill
 
-    # ======================== 异常统计总表（放在最前面） ========================
-    summary_ws = wb.create_sheet("异常统计", 0)
-    summary_headers = ["姓名", "休息/缺勤", "迟到<15分钟", "迟到≥15分钟", "早退", "签到异常", "补卡", "未打下班卡", "异常总数"]
-    summary_ws.append(summary_headers)
-    summary_ws.append([
-        user_name,
+    # ======================== 异常统计（追加在明细表下方） ========================
+    summary_headers = ["休息/缺勤", "迟到<15分钟", "迟到≥15分钟", "早退", "签到异常", "补卡", "未打下班卡", "异常总数"]
+    summary_values = [
         user_stats["休息/缺勤"],
         user_stats["迟到<15分钟"],
         user_stats["迟到≥15分钟"],
@@ -676,47 +675,21 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         user_stats["补卡"],
         user_stats["未打下班卡"],
         user_stats["异常总数"],
-    ])
+    ]
 
-    header_font = Font(bold=True)
-    center_align = Alignment(horizontal="center", vertical="center")
-    header_fill = PatternFill(start_color="d9d9d9", end_color="d9d9d9", fill_type="solid")
-    light_red_fill = PatternFill(start_color="FFD6D6", end_color="FFD6D6", fill_type="solid")
+    summary_header_row = detail_last_row + 2  # 空一行
+    summary_data_row = summary_header_row + 1
 
-    for cell in summary_ws[1]:
-        cell.font = header_font
-        cell.alignment = center_align
-        cell.fill = header_fill
+    for c_idx, text in enumerate(summary_headers, 1):
+        cell = ws.cell(row=summary_header_row, column=c_idx, value=text)
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = thin_border
 
-    for cell in summary_ws[2]:
-        cell.alignment = center_align
+    for c_idx, value in enumerate(summary_values, 1):
+        cell = ws.cell(row=summary_data_row, column=c_idx, value=value)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = thin_border
-
-    if user_stats["休息/缺勤"] > 4:
-        summary_ws.cell(row=2, column=2).fill = light_red_fill
-    if user_stats["异常总数"] > 2:
-        summary_ws.cell(row=2, column=9).fill = light_red_fill
-
-    desc_text = (
-        "【休息/缺勤：没有打卡记录的天数】\n"
-        "【迟到<15分钟 / 迟到≥15分钟：按迟到时长分档统计】\n"
-        "【签到异常：打卡时间不在班次开始前30分钟至班次结束后30分钟的窗口内】\n"
-        "【异常总数：迟到<15分钟+迟到≥15分钟+早退+签到异常+补卡+未打下班卡】"
-    )
-    summary_ws.merge_cells(start_row=4, start_column=1, end_row=7, end_column=len(summary_headers))
-    desc_cell = summary_ws.cell(row=4, column=1, value=desc_text)
-    desc_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    desc_cell.fill = PatternFill(fill_type="solid", fgColor="FFFF00")
-    desc_cell.font = Font(bold=True, color="000000")
-
-    summary_ws.freeze_panes = "A2"
-    last_col_letter = summary_ws.cell(row=1, column=len(summary_headers)).column_letter
-    summary_ws.auto_filter.ref = f"A1:{last_col_letter}2"
-    for col_idx in range(1, len(summary_headers) + 1):
-        col_letter = summary_ws.cell(row=1, column=col_idx).column_letter
-        header_len = len(str(summary_headers[col_idx - 1]))
-        summary_ws.column_dimensions[col_letter].width = min(header_len + 8, 30)
 
     # 列宽自适应
     for col in ws.columns:
@@ -725,7 +698,7 @@ def export_user_excel(user_name: str, start_datetime: datetime, end_datetime: da
         ws.column_dimensions[col_letter].width = min(max_length + 6, 30)
 
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = ws.dimensions
+    ws.auto_filter.ref = f"A1:F{detail_last_row}"
 
     wb.save(file_path)
     logging.info(f"✅ 已导出用户 {user_name} 的考勤详情：{file_path}")
