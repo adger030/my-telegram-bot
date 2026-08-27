@@ -204,6 +204,76 @@ async def cancel_pending_makeup(context, chat_id, pending_id):
 
 
 # ===========================
+# 打卡异常状态判断（迟到 / 早退 / 超出打卡窗口）
+# ===========================
+def _combine_shift_start_end(shift_short, ref_date):
+    """
+    根据班次简称和参考日期，返回该班次的真实开始/结束时间（datetime，已处理跨天）。
+    ref_date 应为“上班当天”的日期（例如 I班15:00-00:00，ref_date 为打卡当天，
+    结束时间会自动顺延到次日）。
+    """
+    start_time, end_time = get_shift_times_short()[shift_short]
+    shift_start = datetime.combine(ref_date, start_time, tzinfo=BEIJING_TZ)
+    shift_end = datetime.combine(ref_date, end_time, tzinfo=BEIJING_TZ)
+    if shift_end <= shift_start:
+        shift_end += timedelta(days=1)
+    return shift_start, shift_end
+
+
+def get_checkin_status(shift_short, punch_dt, ref_date=None):
+    """
+    判断【上班打卡】的签到状态。
+    返回 None 表示正常（提前或准时）；否则返回异常描述文字。
+    规则：
+      - 打卡时间不在 [班次开始前30分钟, 班次结束后30分钟] 窗口内 → 严重异常
+      - 打卡时间在 班次开始时间 之后，但迟到 <15 分钟 → “迟到<15分钟”
+      - 迟到 ≥15 分钟（仍在窗口内）→ “迟到≥15分钟”
+    """
+    shift_start, shift_end = _combine_shift_start_end(
+        shift_short, ref_date or punch_dt.date()
+    )
+    window_start = shift_start - timedelta(minutes=30)
+    window_end = shift_end + timedelta(minutes=30)
+
+    if punch_dt < window_start or punch_dt > window_end:
+        return "打卡时间不在班次开始前30分钟内"
+
+    if punch_dt <= shift_start:
+        return None  # 提前或准时打卡，正常
+
+    late_minutes = (punch_dt - shift_start).total_seconds() / 60
+    if late_minutes < 15:
+        return "迟到<15分钟"
+    else:
+        return "迟到≥15分钟"
+
+
+def get_checkout_status(shift_short, punch_dt, shift_start=None, shift_end=None):
+    """
+    判断【下班打卡】的签退状态。
+    返回 None 表示正常；否则返回异常描述文字。
+    规则：
+      - 打卡时间不在 [班次开始前30分钟, 班次结束后30分钟] 窗口内 → 严重异常
+      - 打卡时间早于班次真实结束时间 → “早退”
+    shift_start / shift_end 可选传入（例如上班打卡的当天日期），
+    不传则以 punch_dt 所在日期为参考日推算。
+    """
+    if shift_start is None or shift_end is None:
+        shift_start, shift_end = _combine_shift_start_end(shift_short, punch_dt.date())
+
+    window_start = shift_start - timedelta(minutes=30)
+    window_end = shift_end + timedelta(minutes=30)
+
+    if punch_dt < window_start or punch_dt > window_end:
+        return "打卡时间不在班次结束后30分钟内"
+
+    if punch_dt < shift_end:
+        return "早退"
+
+    return None
+
+
+# ===========================
 # 处理带图片的打卡消息（保留原功能，新增 I班限制）
 # ===========================
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -480,8 +550,21 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         markup = InlineKeyboardMarkup(buttons)
 
+        # ⬇ 计算签退异常状态（早退 / 超出打卡窗口）
+        # 注意：这里不能直接用上面 shift_end（那是允许打下班卡的截止时间，
+        # 例如 I班为次日01:00，比班次真实结束时间00:00多留了1小时缓冲），
+        # 早退判断需要用班次“真实”结束时间，所以单独用 today 重新推算。
+        real_shift_start, real_shift_end = _combine_shift_start_end(last_shift, today)
+        checkout_status = get_checkout_status(
+            last_shift, now, shift_start=real_shift_start, shift_end=real_shift_end
+        )
+
+        checkout_text = f"✅ 下班打卡成功！班次：{last_shift}"
+        if checkout_status:
+            checkout_text += f"，签退异常：{checkout_status}"
+
         sent_msg = await msg.reply_text(
-            f"✅ 下班打卡成功！班次：{last_shift}",
+            checkout_text,
             reply_markup=markup
         )
 
@@ -562,7 +645,13 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 删除待确认
     pending_checkins.pop(pending_id, None)
 
+    # ⬇ 计算签到异常状态（迟到 / 超出打卡窗口）
+    shift_short = shift_name.split("（")[0]
+    checkin_status = get_checkin_status(shift_short, pending["timestamp"])
+
     new_text = f"✅ 上班打卡成功！班次：{shift_name}"
+    if checkin_status:
+        new_text += f"，签到异常：{checkin_status}"
 
     # 暂存本次打卡记录信息，供“取消打卡”按钮回调时定位要删除的记录
     checkin_id = str(uuid.uuid4())
