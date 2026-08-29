@@ -323,7 +323,7 @@ async def send_logs_page(update, context, key="mylogs"):
             reply += "   └─ #下班打卡： - 缺卡 🔴\n"
 
     # ✅ 仅显示异常次数，不再显示正常次数
-    reply += f"\n🔴 考勤异常（迟到/缺卡/补卡/签到异常）：{total_abnormal} 次"
+    reply += f"\n🔴 考勤异常：{total_abnormal} 次"
 
     # 🟡 完全没有打卡记录的天（休息/缺勤）
     if missing_days:
