@@ -562,7 +562,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         checkout_text = (
             f"✅ 下班打卡成功！\n"
             f"日期：{today.month}月{today.day}日\n"
-            f"班次：{last_shift}"
+            f"班次：{last_shift}\n"
+            f"签退时间：{now.strftime('%H:%M:%S')}"
         )
         if checkout_status:
             checkout_text += f"\n签退异常：{checkout_status}"
@@ -657,7 +658,8 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_text = (
         f"✅ 上班打卡成功！\n"
         f"日期：{punch_date.month}月{punch_date.day}日\n"
-        f"班次：{shift_name}"
+        f"班次：{shift_name}\n"
+        f"签到时间：{punch_date.strftime('%H:%M:%S')}"
     )
     if checkin_status:
         new_text += f"\n签到异常：{checkin_status}"
