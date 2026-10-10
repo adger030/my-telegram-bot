@@ -559,9 +559,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             last_shift, now, shift_start=real_shift_start, shift_end=real_shift_end
         )
 
-        checkout_text = f"✅ 下班打卡成功！班次：{last_shift}"
+        checkout_text = (
+            f"✅ 下班打卡成功！\n"
+            f"日期：{today.month}月{today.day}日\n"
+            f"班次：{last_shift}"
+        )
         if checkout_status:
-            checkout_text += f"，签退异常：{checkout_status}"
+            checkout_text += f"\n签退异常：{checkout_status}"
 
         sent_msg = await msg.reply_text(
             checkout_text,
@@ -649,9 +653,14 @@ async def shift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     shift_short = shift_name.split("（")[0]
     checkin_status = get_checkin_status(shift_short, pending["timestamp"])
 
-    new_text = f"✅ 上班打卡成功！班次：{shift_name}"
+    punch_date = pending["timestamp"]
+    new_text = (
+        f"✅ 上班打卡成功！\n"
+        f"日期：{punch_date.month}月{punch_date.day}日\n"
+        f"班次：{shift_name}"
+    )
     if checkin_status:
-        new_text += f"，签到异常：{checkin_status}"
+        new_text += f"\n签到异常：{checkin_status}"
 
     # 暂存本次打卡记录信息，供“取消打卡”按钮回调时定位要删除的记录
     checkin_id = str(uuid.uuid4())
@@ -921,7 +930,12 @@ async def makeup_shift_callback(update: Update, context: ContextTypes.DEFAULT_TY
     )
  
     # 成功提示并清除上下文补卡信息
-    await query.edit_message_text(f"✅ 补卡成功！班次：{shift_name}")
+    makeup_date = data["date"]
+    await query.edit_message_text(
+        f"✅ 补卡成功！\n"
+        f"日期：{makeup_date.month}月{makeup_date.day}日\n"
+        f"班次：{shift_name}"
+    )
     pending_makeups.pop(pending_id, None)
 
 # ===========================
