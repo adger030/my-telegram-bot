@@ -455,12 +455,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         last_shift = None
+        last_shift_full = None
         last_check_in = None
 
         for ts, kw, shift in reversed(logs):
             if kw in ("#上班打卡", "#补卡"):
                 last_check_in = ts if isinstance(ts, datetime) else parse(ts)
                 last_shift = shift.split("（")[0] if shift else None
+                last_shift_full = shift
                 break
 
         if not last_shift:
@@ -559,10 +561,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             last_shift, now, shift_start=real_shift_start, shift_end=real_shift_end
         )
 
+        # 显示完整班次名（含时间段）；若记录里只有简称，则从班次配置里补全
+        shift_display = last_shift_full
+        if not shift_display or "（" not in shift_display:
+            shift_display = next(
+                (v for v in get_shift_options().values() if v.startswith(last_shift)),
+                last_shift,
+            )
+
         checkout_text = (
             f"✅ 下班打卡成功！\n"
             f"日期：{today.month}月{today.day}日\n"
-            f"班次：{last_shift}\n"
+            f"班次：{shift_display}\n"
             f"签退时间：{now.strftime('%H:%M:%S')}"
         )
         if checkout_status:
